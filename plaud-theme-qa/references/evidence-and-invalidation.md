@@ -46,7 +46,9 @@
 
 `FingerprintVerifiedAt` 如实写两次的时点与值。只写"已核验" → 视为证据为空。
 
-**顺序不能反**：§2 的命令用 `--untracked-files=all`，会把 `memory/changeset-log.md` 的改动算进去。**先算完 Step 2 指纹，再写 log**；反过来会把刚记录的结论当场写失效。
+**`memory/` 已排除在指纹之外（v0.2.2）**：§2 的规范命令带 `-- . ':(exclude)memory/'`，所以写 `changeset-log.md` **不会**改变指纹。
+> 这条以前是「靠顺序规避自失效」（先算指纹再写 log）——那只能让**同一轮**两次校验相等，任何**后续**重算（release-ops 复核、§1.4 失效判定）仍然失配。现在从根上排除了。
+> **但顺序仍建议保持**（先算 Step 2、再写 log）：它让证据链的时间顺序与因果顺序一致，且不依赖「排除已生效」这个前提。
 
 同理，QA 期间不要在仓库里留临时文件（tc-diff.js、tc-before.json 等一律放 scratchpad，见 `theme-check-gate.md` §5）——它们会进指纹，让 Step 2 无故失配。
 
@@ -80,13 +82,17 @@ touch 之后又改回内容                    → 内容变了但 mtime 可能�
 
 ### 2.5 CRLF / clean filter
 
-`.gitattributes` 配了 `text=auto` 或自定义 clean filter 时，工作树字节与仓库对象字节不同。§2 的命令走 `git hash-object` / `git diff`（仓库侧语义），前后两次一致，所以判定不受影响。但 **baseline worktree 里同一文件可能被 checkout 成不同行尾**，这会影响 theme check 的差集。`git check-attr text -- <files>` 显示有转换时，在 `ThemeCheckEvidence` 里注明。
+🔴 **自定义 clean filter 不是「注明一下」就行，它是 §2 的 fail-closed 门**（v0.2.2 第九轮更正：本节原文写「判定不受影响，注明即可」，与 canonical 直接相反，照它做会在指纹被绕过时继续 QA）。理由：clean filter 让**工作树字节变了而 git 语义不变**，`git diff` / `git status` 都看不见，指纹也就绑不住工作树。§2 的 `plaud_fingerprint` 会枚举 tracked 与未跟踪的 `.gitattributes`，加上 `$GIT_DIR/info/attributes` 与 `core.attributesFile`，任一挂了 `filter=` 即 `GITATTRIBUTES_CLEAN_FILTER` 停机——此时 QA **不得**自行放行，要求先移除该 filter 或改用别的取证方式。
+
+`text=auto` / CRLF 是另一回事，仍按旧口径：它只影响 checkout 行尾，指纹判定不受影响，但 **baseline worktree 里同一文件可能被 checkout 成不同行尾**，会影响 theme check 的差集。`git check-attr text -- <files>` 显示有转换时，在 `ThemeCheckEvidence` 里注明。
 
 ### 2.6 已知限制（v0.1）：这是仓库状态指纹，不是纯内容指纹
 
 handoff-schema §2 的规范命令里含 `git status --porcelain=v1`，它输出的 `XY` 两列同时反映**索引**与**工作树**状态。因此：
 
 > **仅改变 staging 的 `git add` / `git reset` 也会改变指纹**，即使 `git diff HEAD` 的最终内容一字未变。
+>
+> 🔴 **`memory/` 是唯一的例外，而且例外只到 `commit` 为止**（v0.2.2 第九轮实测）：改 `memory/` 不变、`git add memory/` 不变、**`git commit` 变**（HEAD 在 payload 第一行）。所以"QA 写 changeset-log 不自失效"这个保证**只在日志不被提交时成立**。见 `handoff-schema.md` §2 的硬规则。
 
 这是**保守型失效**——它只会把"其实没变"误判成"变了"，不会把"变了"误判成"没变"，所以不构成漏报。
 
@@ -118,11 +124,12 @@ handoff-schema §2 的规范命令里含 `git status --porcelain=v1`，它输出
 ```markdown
 # ChangeSet QA Log
 
-| ChangeSetId | Path | QAProfilesRun | ReadyForDelivery | RunAt | ChangeSetFingerprint | Status | Note |
-|---|---|---|---|---|---|---|---|
-| CS-20260806-A03 | A | QA-A, QA-Global | Yes | 2026-08-06T14:22+08:00 | a1b2c3d4e5f6 | Valid | ThemeCheck 新增 0 |
-| CS-20260806-C11 | C | QA-C, QA-Global | No  | 2026-08-06T16:05+08:00 | 9f8e7d6c5b4a | Valid | QA-C 首项 Failed：字号总览含 disabled 实例 |
-| CS-20260805-A01 | A | QA-A, QA-Global | Yes | 2026-08-05T11:40+08:00 | 4d3c2b1a0f9e | Invalidated | 2026-08-06 工作树再次变动，需新 ChangeSetId |
+| ChangeSetId | Path | QAProfilesRun | ReadyForDelivery | RunAt | ChangeSetFingerprint | Status | TestSetTrace | Note |
+|---|---|---|---|---|---|---|---|---|
+| CS-20260806-A03 | A | QA-A, QA-Global | Yes | 2026-08-06T14:22+08:00 | a1b2c3d4e5f6 | Valid | TESTSET-PLAUD@rev12; Added=[TC-118]; Updated=[]; Removed=[] | ThemeCheck 新增 0 |
+| CS-20260806-C11 | C | QA-C, QA-Global | No  | 2026-08-06T16:05+08:00 | 9f8e7d6c5b4a | Valid | TESTSET-PLAUD@rev12; None(复用 TC-042/TC-043) | QA-C 首项 Failed：字号总览含 disabled 实例（**准入过了，所以 trace 照记**） |
+| CS-20260804-B07 | B | QA-B, QA-Global | No  | 2026-08-04T09:12+08:00 | 7a6b5c4d3e2f | Valid | N/A(NotAccepted) | 提测材料不齐，QAAdmissionStatus: Blocked，零验证项执行 |
+| CS-20260805-A01 | A | QA-A, QA-Global | Yes | 2026-08-05T11:40+08:00 | 4d3c2b1a0f9e | Invalidated | TESTSET-PLAUD@rev11; None(纯样式改动) | 2026-08-06 工作树再次变动，需新 ChangeSetId |
 ```
 
 规则：
@@ -130,12 +137,17 @@ handoff-schema §2 的规范命令里含 `git status --porcelain=v1`，它输出
 - **每次 QA 都追加一行**，包括 `ReadyForDelivery: No` 的和被豁免的——失败记录同样有追溯价值。
 - `ChangeSetFingerprint` 取 handoff-schema §2 那段命令算出的 hash 的前 12 位（全长写进正文 `Evidence` / `FingerprintVerifiedAt`）。
 - `Status` ∈ `Pending` / `Valid` / `Invalidated`（`handoff-schema.md` §9.2 的 **`memory/` 记录字段**枚举，对应那里的 `QAStatus`）。只追加与改 `Status`，**不删除历史行**。
+- **`TestSetTrace` 列（v0.2.2 新增）**：只要本轮 **`QAAdmissionStatus: Accepted`**（= 提测包过了准入），就把提测包里那一行**原样抄进去**（来自 `QAIntake` 工件，QA 不重编、不规整、不补全），**与 `ReadyForDelivery` 是 `Yes` 还是 `No` 无关**。
+  - `QAAdmissionStatus: Blocked`（材料不齐 / 绑定失配 / 用户弃材料）→ 写 `N/A(NotAccepted)`；该轮确实没有测试集 → `N/A(NoTestSet)`。
+  - 🔴 **锚点是"最近一次准入通过"，不是"最近一次交付通过"。** 下一轮 `PreviousAcceptedTestSetTrace` 取的是**最近一条 `TestSetTrace` 非 `N/A` 的行**。这样 QA 失败的返工轮次也留下了测试集版本，测试集的连续性不会因为一轮 `ReadyForDelivery: No` 就断链——那正是返工轮次最容易换文档的时候。
+  🔴 **这一列存在的唯一目的**：下一轮 `plaud-theme-qa-intake` 取 `PreviousAcceptedTestSetTrace` 时有个权威来源可查（`plaud-theme-qa-intake/references/package-checklist.md` §3 的取数路径①）。不写这一列，"测试集随交付增量维护"就退回不可查。
+  ⚠️ **旧日志兼容**：v0.2.2 之前的行没有这一列，**不要回填**（回填等于编造历史）。下一轮命中「取不到」时按取数路径③走 `Unavailable(...)` + `Advisories`。
   - `Pending` — 已登记但结论尚未落定（例如等补证据）
   - `Valid` — 该行的 QA 结论当前仍有效（指纹未失效）
   - `Invalidated` — 代码已再次变化，该 QA 结论失效
 - 🔴 **这三个取值是 `memory/` 记录字段的合法枚举，但绝不允许出现在 §5 的阶段契约 yaml 块里。** §9.2 明文分两套：阶段契约字段的 `QAStatus` 只有 `NotRun` / `Skipped(UserWaived)`（且 §5 的块里**根本没有** `QAStatus` 字段），`Invalidated` / `Valid` / `Pending` 只活在 `changeset-log.md`。往契约块塞 `Invalidated` 是自造取值，违反契约首条。
 - 一个 `ChangeSetId` 重跑 → 新增一行，旧行标 `Invalidated`，不覆盖。
-- **本文件不排除在指纹之外**（§2 的规范命令用 `--untracked-files=all`，没有 `EXCLUDE` 机制，也不许自造）。靠**顺序**规避自失效：先算完 Step 2 指纹，再写这个 log，见 §2.2。
+- **本文件已排除在指纹之外**（v0.2.2）：§2 的规范命令带 `-- . ':(exclude)memory/'`，写 log 不会改变指纹。**排除范围只有 `memory/`，不许自造别的排除项**；`memory/` 因此成为指纹盲区，那里不得出现任何非记录类文件（核对命令见 `plaud-theme-shared/references/handoff-schema.md` §2 与 `plaud-theme-impact/SKILL.md` 停机点）。
 
 ---
 
@@ -149,7 +161,7 @@ handoff-schema §2 的规范命令里含 `git status --porcelain=v1`，它输出
 
 handoff-schema 开头明令「任何 skill 都不得自行定义字段、改字段名、或新增终态词汇」，且 §5 的字段表里**没有** `QAStatus`——它只出现在 §4（实现 skill 的工件）。所以：
 
-- **§5 yaml 块保持纯净**，只含 §5 定义的 23 个字段，一个不多、一个不少（含 `SubmissionId` / `QAAdmissionStatus` / `StyleHardRuleCheck` / `Advisories`）。
+- **§5 yaml 块保持纯净**，只含 §5 定义的 26 个字段，一个不多、一个不少（含 `SubmissionId` / `QAAdmissionStatus` / `StyleHardRuleCheck` / `ApprovedExceptionsChecked` / `ApprovedExceptionsEvidence` / `Advisories`）。
 
 > ⚠️ **区分两种「用户豁免」**，输出不一样：
 >
@@ -162,22 +174,38 @@ handoff-schema 开头明令「任何 skill 都不得自行定义字段、改字�
 - `QAStatus: Skipped(UserWaived)` 写在**正文**里（handoff-schema §1 条款 5 的措辞），不写进 yaml 块。
 - 豁免事实同时体现在 §5 的既有字段中：`QAProfilesRun: None`、各检查项 `Blocked`、`Evidence: 无 —— 用户要求跳过验证`、`BlockingGaps: 全部验证项未执行（UserWaived）`。
 
-正文形态：
+> 🔴 **下面给的是「弃 QA」那一种的模板。两种豁免的字段取值不同，不要拿一个套另一个**（v0.2.2 补——此前只有一份模板，固定写成 `UserWaivedMaterials` + 全部 `Blocked`，既表达不了"提测包 Accepted、用户弃 QA"，又会把"弃材料后照跑的技术检查结果"覆盖掉）：
+>
+> | | 弃 **QA**（"不用检查了直接发"） | 弃 **材料**（"这次不准备提测材料"） |
+> |---|---|---|
+> | `QAAdmissionStatus` | 按提测包实际情况填（材料齐就是 `Accepted`） | `Blocked` |
+> | `QAAdmissionReason` | 材料齐 → `Normal`；材料也不全 → `PackageIncomplete` | `UserWaivedMaterials` |
+> | 十一个检查项 | 全部 `Blocked` | **照常执行、填实际结果**（`Passed`/`Failed`/…） |
+> | `QAProfilesRun` | `None` | 实际跑过的 profile |
+> | `FingerprintVerifiedAt` | `未执行（用户豁免…）` | **照常两次重算并如实写** |
+> | `Evidence` | `无 —— 用户要求跳过验证` | 照常写命令原文与输出摘要 |
+> | `BlockingGaps` | `全部验证项未执行（UserWaived）` | `用户弃提测流程，未经完整交付流程` |
+> | `ReadyForDelivery` | `No` | `No` |
+>
+> 两者唯一相同的是 `ReadyForDelivery: No`。**弃材料 ≠ 弃验证**：绑定是有效的，验证本身仍有意义，只是不产生许可。
+
+正文形态（**弃 QA**）：
 
 ```
 已按用户要求跳过验证（QAStatus: Skipped(UserWaived)）；未经验证的改动上线风险由用户承担。
 ```
 
-对应的 §5 块：
+对应的 §5 块（**弃 QA** 那一种；弃材料时按上表逐字段改，尤其检查项要填实际结果）：
 
 ```yaml
 ChangeSetId: <上游给的，没有就写 Unknown>
+SubmissionId: <引用提测包；材料确实没交时写 N/A(UserWaivedMaterials)>
+QAAdmissionStatus: <Accepted 若材料齐 | Blocked 若材料不全>   # 弃 QA 不等于材料不全
+QAAdmissionReason: <Normal 若材料齐 | PackageIncomplete 若不全>
 ChangeSetIdMatched: <Yes | No —— 封闭枚举只有这两个值；未校验时填 No，理由进 BlockingGaps>
 FingerprintVerifiedAt: 未执行（用户豁免，Step1/Step2 均未重算）
 QAProfilesRun: None
 ThemeCheck: Blocked
-SubmissionId: <引用提测包；用户弃材料时写 N/A(UserWaivedMaterials)>
-QAAdmissionStatus: Blocked
 ThemeCheckEvidence: 用户豁免，未执行
 ThemeRuntimePreview: Blocked
 AdminSchemaSave: Blocked
@@ -189,6 +217,8 @@ FixedDimensionCheck: Blocked        # 未执行 → Blocked（四值均合法，
 ImageQualityCheck: Blocked          # 同上
 CopyConfigurabilityCheck: Blocked   # 同上
 StyleHardRuleCheck: Blocked         # 同上
+ApprovedExceptionsChecked: Blocked  # 未读上游工件 → Blocked，不是 NotApplicable
+ApprovedExceptionsEvidence: 无 —— 用户豁免，未核
 ProfileSpecificResults: 全部 Blocked（用户豁免，未执行）
 Advisories: 无
 Evidence: 无 —— 用户要求跳过验证

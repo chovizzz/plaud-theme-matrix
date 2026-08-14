@@ -107,17 +107,19 @@
 
 **正确做法**：按**用途**选 §3 的 9 档 token（区头走 §5、正文按 body-md/lg 判定），标签语义（h1/h2/…）只用于文档结构与 SEO，**与字号解耦**。
 
-### 4.1 仓库里存在三套并行的 h5 实现（改前必看）
+### 4.1 仓库里的 h5 现状：一套生效规则 + 一处死变量声明（改前必看）
 
 矩阵 v0.2.0 曾写「H5 = 22px 是现行规范值」「优先复用既有 `h5 {}` 全局规则」——**两句都是错的**，已在 v0.2.1 撤回。实测（`shopify-plaud-yidian`，2026-08-12）：
 
-| 来源 | 定义 | h5 实际值 |
-|---|---|---|
-| `assets/critical.css:148` `:where(h5, .h5)` | `--size: 1.8rem`，经 `font-size: calc(var(--heading-font-scale) * var(--size))`；根字号 `html{font-size:16px}`（`critical.css:8`），`heading_font_scale=100` | **28.8px** |
-| `layout/theme.liquid:423` | `--h5-size: calc(var(--heading-font-scale) * 18px)` | **18px** |
-| `snippets/design-system.liquid` 9 个语义类 | 无 h5 概念 | — |
+| 来源 | 性质 | 定义 | h5 实际值 |
+|---|---|---|---|
+| `assets/critical.css:148` `:where(h5, .h5)` | ✅ **唯一真正生效的全局规则** | `--size: 1.8rem`，经 `font-size: calc(var(--heading-font-scale) * var(--size))`；根字号 `html{font-size:16px}`（`critical.css:8`），`heading_font_scale=100` | **28.8px** |
+| `layout/theme.liquid:418-424` `--h0-size … --h6-size`（`--h5-size` = 18px） | ⚠️ **只有声明、没有消费点** —— 全仓 `grep 'var(--h5-size)'` 零命中，这套变量对渲染结果**没有影响** | `calc(var(--heading-font-scale) * 18px)` | 声明值 18px，**实际未生效** |
+| `snippets/design-system.liquid` 9 个语义类 | 与标签**正交**的字号体系 | 无 h5 概念，按用途取档 | — |
 
-⚠️ 所以**不得**再照 v0.2.0 的话去「复用既有 `h5 {}` 全局规则」：那条规则产出 28.8px（`h1` 同理是 57.6–64px，正是 §3 表里标为已废止的 vendor 64px），复用它等于把废止值搬进新代码。碰到 h1–h6 的字号问题，按 §3 选档 + `.richtext-container`（§7）统一，不要动全局 heading 规则。
+> v0.2.1 把这三项笼统写成「三套并行的实现」，不准确 —— 只有第一项真正决定 h5 渲染值，第二项是死声明，第三项根本不按标签走。v0.2.2 更正。
+
+⚠️ 所以**不得**再照 v0.2.0 的话去「复用既有 `h5 {}` 全局规则」：那条规则产出 28.8px（`h1` 同理是 57.6–64px，正是 §3 表里标为已废止的 vendor 64px），复用它等于把废止值搬进新代码。同样**不要**去消费 `--h5-size`：它现在是死变量，接上它等于新造一条渲染路径，属改动全局 heading 行为。碰到 h1–h6 的字号问题，按 §3 选档 + `.richtext-container`（§7）统一，不要动全局 heading 规则。
 
 ### 4.2 `.fs-*` 有两套，别混
 

@@ -35,8 +35,10 @@
 
 1. 跑 `hard-rules.md` §三「迁移前自检」里尚未打勾的项（尤其 dangling 引用扫描）
 2. 跑本文件表格里属于本 skill 的检查
-3. 生成 `ChangeSetId`（`CS-<YYYYMMDD>-C<NN>`）+ `ModifiedFiles`，**必须与工作树一致**
-   （`git status --porcelain` / `git diff --name-only` 自查；不一致 QA 会直接停机），
+3. 生成 `ChangeSetId`（`CS-<YYYYMMDD>-C<NN>`）+ `ModifiedFiles`，**必须与工作树一致（`memory/` 除外）**
+   （自查：`git status --porcelain --untracked-files=all -- . ':(exclude)memory/'` /
+   `git diff --name-only HEAD -- . ':(exclude)memory/'`；不一致 QA 会直接停机。
+   🔴 `memory/` 下的迁移日志/清单更新**不列进** `ModifiedFiles`），
    并在交出工件那一刻**当场**算 `BaseHeadSha` + `ChangeSetFingerprint`（命令见 `handoff-schema.md` §2）——算完不要再动工作树
 4. 按 SKILL.md 的报告模板向用户汇报 → **等预览验收**
 5. 用户视觉验收通过 → 写日志（`migration-log.md`），`memory/*.md` 状态写 `视觉已确认，待 QA（<ChangeSetId>）`

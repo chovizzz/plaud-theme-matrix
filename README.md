@@ -1,4 +1,4 @@
-# PLAUD Shopify Theme Matrix v0.2.1
+# PLAUD Shopify Theme Matrix v0.2.2
 
 Plaud 品牌 Shopify Online Store 主题开发的 **10 个 skill 矩阵**。它取代原来的单 skill
 `plaud-shopify-theme` —— 同一份规范被拆成契约层、编排层、Assess / Implement / Verify 三阶段，
@@ -166,9 +166,27 @@ chmod +x install-macos-linux.sh
 
 缺失时 skill 会**停下问用户**，不会凭空重建一份。
 
-## v0.2.1 关键变化
+## v0.2.2 关键变化
 
-v0.2.1 是**评审回应版**：v0.2.0 发出后设计方逐条回了 9 条评审意见，其中 2 条明确反对矩阵侧的收紧、1 条指出矩阵写错了事实。本版只做这三类修正，不引入新 skill、不动阶段轴。
+**v0.2.1 的门禁收口版。** v0.2.1 发布后外部评审（Codex gpt-5.6-sol）判**不通过**，找出两处会改变门禁语义的高危问题 + 若干接线不一致。v0.2.2 只修这些，不再引入新机制：
+
+| # | 问题 | 修法 |
+|---|---|---|
+| 1 | **🔴 `ApprovedException` 把红线开了洞** —— v0.2.1 定义了「批准即可放行」这一类，却没给封闭适用清单，理论上任何红线都能尝试走批准通道；`qa-global.md` 更把「本次新建字段的不合规默认值」当成批准例子，与唯一事实源「第 10 条这一半是 🔴 不可豁免」直接矛盾 | 新增 **`ApprovedException` 封闭适用清单**（`handoff-schema.md` §8.1）：当前清单里**只有** §8 红线⑤ 的 A11y `3.0 ≤ x < 4.5` allowlist 配对一项，**§8.1 的 11 条没有任何一条在内**。明写「红线不因批准而放行」，第 10 条的批准链接只能进 `BlockingGaps`，`StyleHardRuleCheck` 仍 `Failed` |
+| 2 | **🔴 `ApprovalRef` 不在任何工件里** —— §8.1 要求逐项核它、枚举表也把它当字段，但 Implement / Verify 工件都没有，QA 无法机械判空或绑定条款 | Implement 工件加 **`ApprovedExceptions`** 逐项结构（`Clause` / `Scope` / `ApprovalRef` / `ApprovedBy`，无则 `[]`）；Verify 工件加 **`ApprovedExceptionsChecked`** + `ApprovedExceptionsEvidence`；`ApprovedBy` 填 agency 自己视同为空。取值界线：`ApprovalRef` **为空 / 越界 / 自批 → `Failed`**；**提供了但核不动**（403、权限不足、平台故障）→ `Blocked`（初版曾写「不取 `Blocked`」，与 §5 总则冲突，已在同版评审中改回） |
+| 3 | `TestSetTrace` 证明不了**跨交付**的增量维护 —— 只校验本轮「稳定 ID + revision」，agency 每轮新建一份文档并称其为稳定 ID 仍能通过 | 加 **`PreviousAcceptedTestSetTrace`**：与本轮同稳定文档 ID、revision 必须不同。文档 ID 变了又没有迁移说明 → `Incomplete`；revision 与上一轮相同却声明了增删 → `Incomplete`（自相矛盾） |
+| 4 | delta 语法表达不了「某个 ID 属于哪类」，且 `Removed` 推不出来（被删的用例已不在本轮报告里） | 改为 **三段分列** `Added=[…]; Updated=[…]; Removed=[…]`；`Removed` 必须显式列，无删除写 `Removed=[]`；`Added`/`Updated` 仍由每条用例自带标记汇总 |
+| 5 | release 侧「回归用例必须进同一份测试集」无处可记 | ReleaseOps 工件加 **`TestSetTraceAfterArchive`**（同稳定 ID + 入库后的新 revision + `Added` 含新用例 ID；无线上 bug 填 `N/A(NoOnlineBug)`） |
+| 6 | QA 接线层残留旧口径 | `qa-global.md` §11「未触及存量默认值」🟠 → 🟡（与 §8.1 一致）；`qa-profile-c.md` C3 裁定行「改了 option value → Failed」收窄为「删除或修改既有 value」；`qa` / `feedback-triage` 的 `matrix-contract.md` 不再把 shared §8.1 描述成「硬性 10 条」，并注明 DTC **§三** 与 **§2.1** 是两套不同的 10 条 |
+| 7 | 7 条新 eval 全无反向约束（substring harness 下反向答案可能通过） | 全部补 `forbidden` 数组；改写自相矛盾的那条（既说是 ApprovedException 又说是红线）；修正 ux-migration 那条违反「验收前不写迁移日志」的期望；新增 3 条（`ApprovedExceptions: []` 该填 NotApplicable / 每轮换文档冒充稳定 ID / 回归用例归档 trace） |
+| 8 | 事实表述不准确 | §4.1 原写「三套并行的 h5 实现」——实测 `--h0-size…--h6-size` **全仓无 `var(--h5-size)` 消费点**，是死声明。改为「一套生效规则（28.8px）+ 一处无消费点的死变量声明 + 一套与标签正交的语义体系」，并明写不要去接那个死变量 |
+| 9 | `version-manifest.md` 一条已失实 | 原写「`repo-drift.md` 不在 `SKILL.md` 索引表里、下次补进」，实际早已在（`shared/SKILL.md:135`） |
+
+---
+
+## v0.2.1 关键变化（评审回应版）
+
+v0.2.1 回应设计方对 v0.2.0 那 15 项待确认清单给出的 9 条评审意见：其中 2 条明确反对矩阵侧的收紧、1 条指出矩阵写错了事实。只做这三类修正，不引入新 skill、不动阶段轴。
 
 ### 1. 撤回一条写错的规范表述（H1–H6 / 22px）
 
@@ -180,7 +198,7 @@ v0.2.0 的 `typography.md` §4 写「H5 = 22px 是现行规范值」，并说「
 | 工具类体系里没有 22px | `.fs-22` **存在**（`assets/critical.css:1019` `1.38rem` = 22.08px，另在 `snippets/critical-style.liquid`），且 `newsletter-popup` / `login-popup` 两个 section 仍在用。v0.2.0 把「`design-system.liquid` 的 9 个**语义**类」误当成了全部 `.fs-*` |
 | 优先复用既有 `h5 {}` 全局规则 | 那条规则实测产出 **28.8px**（`--size:1.8rem` × 根字号 16px），`h1` 同理是 57.6–64px —— 正是被标为**已废止**的 vendor 64px。照做等于把废止值搬进新代码 |
 
-改法：`typography.md` §4 重写为「HTML 标题标签不是 UX Spec 的档位」，标签语义与字号解耦；新增 §4.1（仓库里三套并行的 h5 实现）与 §4.2（`.fs-*` 的语义类 vs 数字遗留类）。`version-manifest.md` 的对应缺口条目标记撤回，`repo-drift.md` 补 §3.6 / §3.7 两条实测漂移。
+改法：`typography.md` §4 重写为「HTML 标题标签不是 UX Spec 的档位」，标签语义与字号解耦；新增 §4.1（仓库 h5 现状：唯一生效的全局规则 28.8px + 一处无消费点的死变量声明）与 §4.2（`.fs-*` 的语义类 vs 数字遗留类）。`version-manifest.md` 的对应缺口条目标记撤回，`repo-drift.md` 补 §3.6 / §3.7 两条实测漂移。
 
 ### 2. DTC §三 红线从「一刀切」改为三档（回应「过于绝对化」）
 
@@ -199,10 +217,17 @@ v0.2.0 的 `typography.md` §4 写「H5 = 22px 是现行规范值」，并说「
 ### 3. 测试集溯源三项收敛为一行 `TestSetTrace`（回应「重复性工作影响效率」）
 
 ```yaml
-TestSetTrace: <稳定文档ID>@<不可变revision>; Added/Updated/Removed=[TC-ID…] | None(<reason>)
+TestSetTrace: <稳定文档ID>@<不可变revision>; Added=[TC-…]; Updated=[…]; Removed=[…]
+# 本轮无增删：
+TestSetTrace: <稳定文档ID>@<不可变revision>; None(<reason>)
+PreviousAcceptedTestSetTrace: <上一轮已通过准入的同一行原文> | None(FirstSubmission) | Unavailable(<原因>)
 ```
 
+> ⚠️ v0.2.1 曾写成合并的 `Added/Updated/Removed=[…]` 一个列表，v0.2.2 改为**三段分列**（表达不了某个 ID 属于哪类），并加了 `PreviousAcceptedTestSetTrace`。**完整语法与判定唯一见 `plaud-theme-qa-intake/references/package-checklist.md` §3。**
+
 `@<revision>` 不可省 —— 只给链接的话，同一 URL 既可被覆盖内容也可每次指向临时文档，「增量维护 vs 每次现编」完全不可查。delta 段由测试报告里每条用例自带的 `Added/Updated/Unchanged` 标记推出，**不需要另写清单**。`release-ops` 的回归用例归档必须指向同一个稳定文档 ID。
+
+> ⚠️ **v0.2.2 又补了两处**：加 `PreviousAcceptedTestSetTrace`（否则每轮新建文档冒充稳定 ID 仍能通过），delta 改三段分列且 `Removed` 必须显式列（它推不出来）。见上面 v0.2.2 第 3、4 条。
 
 ---
 
@@ -262,7 +287,7 @@ v0.2.0 有两条主线：**接入《DTC 开发交付标准 v1.0》**（2026-08-0
 
 DTC §三 的 11 条进 handoff-schema §8.1。当时把其中可机械判定的 10 条一律提为 🔴 红线，公共文件注释保持 🟡 建议级。「主流程必须做成开关」保留了原文「**且会修改全站默认配置**」这个前提，没有省掉。
 
-> ⚠️ **这条已被 v0.2.1 修订**：设计方评审指出「一刀切」会降低效率，现改为 🔴 / 🟠 / 🟡 三档 + 存量复用豁免，见上面「v0.2.1 关键变化」第 2 节。
+> ⚠️ **这条已被 v0.2.1 修订**：设计方评审指出「一刀切」会降低效率，现改为 🔴 / 🟠 / 🟡 三档 + 存量复用豁免，见上面「v0.2.1 关键变化」第 2 节；🟠 的封闭适用清单见 v0.2.2 第 1 条。
 
 公共文件的英文注释规范（§8.2）与矩阵原有的「默认不写注释」冲突，因此限定了 allowlist（共享 snippet / 全局 CSS / theme.liquid / 共享 JS）、禁写清单（**build 产物、`templates/*.json`**）和各文件类型的合法注释语法（`.liquid` 用 `{% comment %}`，不是 `//`）。
 
@@ -291,7 +316,7 @@ ChangeSet 内容绑定（`ChangeSetId` + `BaseHeadSha` + `ChangeSetFingerprint`�
 
 | 现象 | 说明 |
 |---|---|
-| 随口说"改完了跑下检查"**可能不进 QA** | `plaud-theme-qa` 的触发被刻意收窄为「已有 `ChangeSetId`」**或**「明确要最终交付判定」，避免跟 `dev` 抢没有 ChangeSet 的只读 review。说清 ChangeSet（"这个 ChangeSet 改完了…"）或直接点名 skill 即可命中 |
+| 随口说"改完了跑下检查"**可能不进 QA** | `plaud-theme-qa` 的触发被刻意收窄为「已有 `ChangeSetId`」**或**「明确要最终交付判定**且该任务确有改动**」，避免跟 `dev` 抢没有 ChangeSet 的只读 review。🔴 零改动只读任务即使用户点名要交付判定也归 `dev`——QA 的 §5 工件没有 `ReadOnlyProof`，接了只能原样转回（v0.2.2 第八轮）。说清 ChangeSet（"这个 ChangeSet 改完了…"）或直接点名 skill 即可命中 |
 | 指纹命令对 git 版本敏感 | 必须用 §2 原文（`--no-renames --binary` + `set -o pipefail`）。**`--find-renames=false` 在 git 2.52+ 是非法参数**，且错误走 stderr、管道继续，会算出一个只反映文件集合、不反映内容的常量——指纹退化成摆设。拿到 `FINGERPRINT_FAILED` 必须停机 |
 | Path B / Path C 未做行为评测 | 6 个评测场景全在 Path A。B/C 的契约与 evals 齐备，但没有真实任务验证过 |
 | `install-windows.ps1` 未实跑 | 仅静态审查。首次在 Windows 上用前先跑 `-DryRun -RetireLegacy` |

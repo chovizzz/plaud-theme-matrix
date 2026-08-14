@@ -28,7 +28,7 @@ plaud-theme-release-ops ← 你在这里：推站二次确认 + 发版清单
 
 | 上游 | 消费的字段 |
 |---|---|
-| `plaud-theme-qa` | §5 的 `ReadyForDelivery` `ChangeSetId` `FingerprintVerifiedAt` —— 逐个记入 `ReleaseScope[].QAConclusion`；多块同批发版时引用**集成 QA**（`IntegrationQARef`） |
+| `plaud-theme-qa` | §5 的 `ReadyForDelivery` `ChangeSetId` `FingerprintVerifiedAt` —— 逐个记入 `ReleaseScope[].QAConclusion`。**v0.2.2 只支持单块发布**：多块同批发版直接停机，没有「集成 QA」这条路（该方案在绑工作树的指纹模型下跑不通，字段已移除；留 v0.3.0） |
 | `plaud-theme-qa-intake` | §9.1.2 的 `TargetSites` `ExcludedSites` `ThemeIds` `ScopeSourceRef` —— 作为**第一次**站点确认 |
 | PM / 运营 | 逐块的 `AcceptanceStatus` + `AcceptanceRef`、发版前的**第二次**站点确认、推送授权（`AuthorizationRef`） |
 | agency | PR 链接 |
@@ -40,7 +40,7 @@ plaud-theme-release-ops ← 你在这里：推站二次确认 + 发版清单
 | 用户 | 发版清单，**等显式授权后才执行推送** |
 | `plaud-theme-feedback-triage` | 上线后发现的问题，走归因入口回流 |
 | 实现 skill（间接） | 经 triage 判为缺陷后新开的工作项 |
-| 项目侧测试集 | `RegressionCasesAdded`（不随包分发） |
+| 项目侧测试集 | `RegressionCasesAdded` + **`TestSetTraceAfterArchive`**（同稳定文档 ID + 入库后新 revision + 三段齐；无线上 bug 填 `N/A(NoOnlineBug)`）。不随包分发 |
 
 ## 不做的事
 

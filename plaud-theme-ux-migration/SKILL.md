@@ -278,19 +278,16 @@ plaud-theme-qa 给出 ReadyForDelivery: Yes 且指纹未失效 → 才把 memory
 ```bash
 # BaseHeadSha
 git rev-parse HEAD
-
-# ChangeSetFingerprint —— 覆盖内容、权限、删除态、未跟踪文件
-{
-  git rev-parse HEAD
-  git status --porcelain=v1 -z --untracked-files=all | tr '\0' '\n'
-  git diff HEAD --find-renames=false | git hash-object --stdin
-  git ls-files --others --exclude-standard -z | tr '\0' '\n' | sort | while read -r f; do
-    [ -n "$f" ] && printf '%s %s %s\n' "$f" "$(git hash-object "$f")" "$(ls -l "$f" | cut -c1-10)"
-  done
-} | shasum -a 256 | cut -d' ' -f1
 ```
 
-命令原文以 §2 为准。QA 在**执行任何检查之前**用同一命令重算并精确比对，任一不符 → `ChangeSetIdMatched: No` + 停机。**生成指纹后不要再动工作树**——Path C 尤其容易踩：等验收期间"顺手再调一档间距"就会让指纹失效，必须重新生成 `ChangeSetId`。
+🔴 **`ChangeSetFingerprint` 的命令不在本文件里，只在 `plaud-theme-shared/references/handoff-schema.md` §2。**
+去那里**原样复制**那段 `plaud_fingerprint()` 执行，不要凭记忆敲、不要用任何别处看到的版本。
+
+> **为什么这里不再内嵌一份副本**（v0.2.2 删除）：本节以前抄了一份，附一句"冲突时以 §2 为准"——但那句话拦不住任何人：命令是**可执行**的，抄本一旦落后就会真的算出另一个指纹。这份抄本当时落后了整整两代，仍在用 `--find-renames=false`、`printf "$(git hash-object …)"`（命令替换吞错）、`{ … } | shasum`（子 shell 吞错）、且不排除 `memory/`。
+> 后果不是"多阻断"，而是**producer 算出一个假指纹、QA 用 canonical 重算必然失配**——正常交付会被永久判 `ChangeSetIdMatched: No`；反过来若两边都用旧抄本，则未跟踪文件与 `memory/` 之外的改动可能压根不进指纹。
+> 指纹类命令**只允许有一处事实源**。
+
+QA 在**执行任何检查之前**用同一命令重算并精确比对，任一不符 → `ChangeSetIdMatched: No` + 停机。**生成指纹后不要再动工作树**——Path C 尤其容易踩：等验收期间"顺手再调一档间距"就会让指纹失效，必须重新生成 `ChangeSetId`。
 
 ### HandoffContract
 
@@ -307,12 +304,16 @@ OriginTriageRef:          # 本块若由反馈返工产生：TriageId + ItemId�
 Path: C
 ReconMode:                # 与 Assess 一致；InlineLite 需附豁免理由；只读填 N/A(ReadOnly)
 ModifiedFiles:            # 逐个文件路径 + 一句话改动；必须与工作树一致；零改动填 []
+                          #   🔴 **不含 memory/ 下的文件**（不属于 ChangeSet，已排除在 §2 指纹与 QA 集合比对之外）
 RootCause:                # 机制层迁移偏差根因（为什么这个模块偏离 spec）
 OptionsConsidered:        # 非平凡任务 ≥2 方案 + 取舍；平凡改动填 Trivial
 RequiredQAProfile:        # 原样继承 AssessmentRef，必须含 QA-C。🔴 不得写 QA-Global——QA 按 §5 恒执行
 ThemeCheckRequired:       # Yes | No（判定见 handoff-schema.md §6）
 VisualRegressionRequired: # Yes | No
 BuildRequired:            # Yes | No（是否动了 shopify-common/src 需 npm run build）
+ApprovedExceptions:       # 逐项声明的 🟠 ApprovedException；无则填 []
+                          #   Clause 只能取 shared §8.1 封闭清单内的条款；Scope 必须逐对象/配对绑定
+                          #   ApprovalRef 为空、或 ApprovedBy 是自己 → QA 判 Failed（见 shared §8.1）
 BlockingGaps:             # 实现中发现但无权处理的（如需模板存值编辑授权）
 QAStatus: NotRun          # 恒为 NotRun；唯一例外见 handoff-schema.md §1.5
 NextRequiredSkill: plaud-theme-qa-intake   # 零改动任务填 None
@@ -323,7 +324,8 @@ ReadyForDelivery: No      # 恒为 No，见 §1；零改动任务填 N/A(ReadOnl
 
 - `Path` 恒为 `C`
 - `RequiredQAProfile` **原样继承 `AssessmentRef` 的值**，只断言其中含 `QA-C`。
-  🔴 **不得写 `QA-Global`**——它由 `plaud-theme-qa` 按 §5 恒执行，写进本字段是字段越界（§9.2）；若上游工件误写了它，剔除后再继承。
+  🔴 **不得写 `QA-Global`**——它由 `plaud-theme-qa` 按 §5 恒执行，写进本字段是字段越界（§9.2）。
+  🔴 **上游工件误写了 `QA-Global` → 停机退回 `plaud-theme-impact` 重出工件，不要"剔除后再继承"**（v0.2.2 第八轮更正，原文正是这么写的）：QA 的 §4 结构核对枚举违规恒判停机、且明令不得替上游修；实现侧先悄悄修好，只会把 producer 的契约错误藏起来，下一轮同一个 impact 工件继续错，而"原样继承"这条规则也同时被破坏。退回时在 `BlockingGaps` 写清"AssessmentRef <编号> 的 RequiredQAProfile 含越界值 QA-Global，需 impact 重出"。
   🔴 **不得因为"我是 Path C"就改写成只有 `QA-C`** —— impact 因 RiskTier High 或跨路径追加的 `QA-A` / `QA-B` **必须带下去**。
   确需变更 profile（本轮实际动到的面与 Assess 不同）→ 退回 `plaud-theme-impact` 重评，不在 Implement 阶段自行改
 - `QAStatus` 恒 `NotRun`；**唯一例外**是用户明确弃检时填 `Skipped(UserWaived)`（`handoff-schema.md` §1.5 的明文规定，不是本 skill 自造的口子）

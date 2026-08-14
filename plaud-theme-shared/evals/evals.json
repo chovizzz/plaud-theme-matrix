@@ -1,6 +1,6 @@
 {
   "skill_name": "plaud-theme-shared",
-  "contract_version": "v0.2.1",
+  "contract_version": "v0.2.2",
   "evals": [
     {
       "id": "v13-overrides-vendor-container-padding",
@@ -425,6 +425,12 @@
         "包含 28.8 或 旧 vendor 值",
         "包含 语义 token 或 按用途选档",
         "不建议擅自改成 20 或 24"
+      ],
+      "forbidden": [
+        "22px 是 UX Spec v1.3 的现行规范值",
+        "正确做法是复用既有的 h5 全局规则",
+        "把 H5 改成 20px 即可",
+        "把 H5 改成 24px 即可"
       ]
     },
     {
@@ -441,13 +447,13 @@
     {
       "id": "shared-contract-check-output",
       "prompt": "引用 plaud-theme-shared 之后要回报什么？",
-      "expected_output": "输出 SharedContractCheck：ContractVersion v0.2.1、PathResolved、StageResolved、RequiredSkill、ReferencesLoaded、RedlinesApplicable、BlockingGaps。",
+      "expected_output": "输出 SharedContractCheck：ContractVersion v0.2.2、PathResolved、StageResolved、RequiredSkill、ReferencesLoaded、RedlinesApplicable、BlockingGaps。",
       "assertions": [
         "包含 SharedContractCheck",
         "包含 ContractVersion",
         "包含 ReferencesLoaded",
         "包含 RedlinesApplicable",
-        "包含 v0.2.1"
+        "包含 v0.2.2"
       ]
     },
     {
@@ -628,6 +634,12 @@
         "输出要求复用 OptionsConsidered，不新增 EntrypointRationale 字段。",
         "输出说明证据缺失是 Blocked 而不是直接 Failed。",
         "输出指出 agency 自写自批不构成 ApprovedException。"
+      ],
+      "forbidden": [
+        "违反 §8.1 任意一条即判 Failed",
+        "§8.1 十一条全部是硬红线",
+        "EntrypointRationale:",
+        "agency 可以自己批准自己声明的例外"
       ]
     },
     {
@@ -639,7 +651,13 @@
         "输出说明纯新增 option 允许。",
         "输出要求新增时给出 Liquid 端映射、schema 保存验证与向后兼容结论。",
         "输出指出改既有 value 会让存量实例存值失效。"
+      ],
+      "forbidden": [
+        "把 left 改名成 start 是允许的做法",
+        "纯新增 option 无需任何验证即可通过",
+        "修改既有 value 只要写明理由即可放行"
       ]
     }
-  ]
+  ],
+  "description": "\n- 🔴 **不要把「否定短语」写成 forbidden**：正确答案常引用题面措辞来否定它（「不能 X」含「X」），全局 substring 会误判。要禁就禁**赋值形态**或明确的错误结论句。 forbidden 判据（v0.2.2 第九轮定稿）：只写「错误工件里必然出现、正确工件里不可能出现」的赋值形态；不要写否定短语或裸概念词（`可以并行` 会被「不可以并行」命中）；也不要写会被正确答案顺带复述的串——确实需要禁某个赋值时，同时在 expected_output 里注明「不要复述该串」。能用 assertions 表达的约束一律走 assertions，不进 forbidden。"
 }

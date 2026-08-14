@@ -23,10 +23,12 @@
 
 ## 2. 被引用时的输出：`SharedContractCheck`
 
+> 🔴 **正文自检块，不是工件**（handoff-schema §9）：不进 §3/§4/§5 契约块、不进 §9.1.x 工件、无 `ArtifactKind`、下游不得消费。
+
 任何 skill 引用本层后，在自己的正文里回报一次：
 
 ```yaml
-ContractVersion: v0.2.1
+ContractVersion: v0.2.2
 PathResolved:            # A | B | C | Cross(B+C) | Cross(A+C)
 StageResolved:           # Assess | Implement | Verify | N/A(NonStage)
                          #   ↑ 后者用于 §0.1 的四个非阶段 skill：orchestrator /
@@ -37,14 +39,16 @@ RedlinesApplicable:      # 本次任务命中的全路径红线编号（handoff-
 BlockingGaps:
 ```
 
-`ReferencesLoaded` 是**按需加载纪律的可审计凭据**：写了哪些就说明读了哪些，QA 可据此判断"改了字号却没读 typography.md"这类问题。
+`ReferencesLoaded` 是**按需加载纪律的可审计凭据**：写了哪些就说明读了哪些。🔴 **但它是正文自检块，不是工件字段，QA 不得据它阻断或放行任何阶段推进**（v0.2.2 第九轮更正：本行原写「QA 可据此判断」，与 canonical §9「下游不得消费自检块」冲突——QA 一旦拿它当门，就会因为上游漏写一行自检而卡住一个本来合格的 ChangeSet）。它只用于人读的过程复盘；QA 要判「改了字号却没读 typography.md」，依据是 §4 工件里的 `OptionsConsidered` / `RootCause` 与实际改动，不是这一行。
 
 本层自身的 `HandoffContract`：
+
+> 🔴 **这不是 canonical 工件，是本层的引用回执**（v0.2.2 第九轮补明）。`plaud-theme-shared` 是 order 0 的被引用层，不在阶段轴上、也不是 §0.1 的四个非阶段 skill 之一，所以它既不出 §3/§4/§5，也没有 `ArtifactKind`。`ProducerSkill` / `ConsumerSkill` / `ReadyForNextSkill` 这几个名字在 canonical §9.2 里没有定义，**不得**被当成阶段字段：不并进任何阶段契约块（§4 是 20 字段、§5 是 26 字段的封闭集合），下游也不得据 `ReadyForNextSkill` 做阶段门——阶段推进的唯一依据是 §3 的 `ReadyForImplement`、§4 的 `QAStatus` / `NextRequiredSkill`、§5 的 `ReadyForDelivery`。
 
 ```yaml
 ProducerSkill: plaud-theme-shared
 ConsumerSkill:           # 引用本层的 skill
-ContractVersion: v0.2.1
+ContractVersion: v0.2.2
 BlockingGaps:
 ReadyForNextSkill:       # Yes | No
 ```

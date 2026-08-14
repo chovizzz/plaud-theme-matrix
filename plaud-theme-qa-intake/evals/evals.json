@@ -1,7 +1,7 @@
 {
   "skill_name": "plaud-theme-qa-intake",
   "matrix": "plaud-shopify-theme-matrix",
-  "version": "v0.2.1",
+  "version": "v0.2.2",
   "evals": [
     {
       "id": 1,
@@ -116,7 +116,7 @@
       "id": 9,
       "route": "dead-preview-link",
       "prompt": "预览链接给你：前端 https://plaud-us.myshopify.com/?preview_theme_id=999 我刚试了打不开，可能是主题过期了。后台链接是只读分享链接。其它材料都齐。",
-      "expected_output": "判 PreviewManifest 与 SubmissionPackageStatus 为 Incomplete：失效链接视同未提测，后台链接必须可配置。",
+      "expected_output": "拒绝：InlineLite 只豁免 Assess，与提测材料无关。**不存在「免提测包但仍进 QA」的情形**——零改动只读任务根本不进本 skill 也不进 QA（由实现 skill 出 ReadOnlyProof 收尾），「改动很小」更不是理由。要进 QA 就得把六项材料交齐。",
       "files": [],
       "assertions": [
         "输出判 PreviewManifest 为 Incomplete。",
@@ -124,6 +124,10 @@
         "输出指出后台链接必须可配置（能看到并修改 schema 字段），只读分享链接不合格。",
         "输出 SubmissionPackageStatus: Incomplete。",
         "输出没有因为'其它材料都齐'而放行。"
+      ],
+      "forbidden": [
+        "SubmissionPackageStatus: Complete",
+        "我给你免了提测包"
       ]
     },
     {
@@ -183,14 +187,20 @@
       "id": 14,
       "route": "testsettrace-url-only",
       "prompt": "测试文档我挂了测试集链接了：https://example.feishu.cn/wiki/TESTSET-PLAUD。用例四段齐全、都有截图。这样 SelfTestReportStatus 可以判 Complete 了吧？",
-      "expected_output": "不行。TestSetTrace 缺 @<不可变revision> 与 delta 段，判 SelfTestReportStatus: Incomplete。只给 URL 无法区分「增量维护」与「每次现编」，因为同一链接可被覆盖内容。",
+      "expected_output": "不行。TestSetTrace 缺 @<不可变revision>、缺三段分列的 delta，且没有 PreviousAcceptedTestSetTrace，判 SelfTestReportStatus: Incomplete。只给 URL 无法区分「增量维护」与「每次现编」，因为同一链接可被覆盖内容；跨轮次的增量维护要靠与上一轮已接受的那一行比对（同稳定文档 ID、不同 revision）。",
       "files": [],
       "assertions": [
         "输出判 SelfTestReportStatus: Incomplete。",
         "输出要求 TestSetTrace 带不可变 revision。",
-        "输出要求 delta 段给 Added/Updated/Removed 或 None(reason)。",
+        "输出要求 Added / Updated / Removed 三段分列，或 None(reason)。",
+        "输出要求 PreviousAcceptedTestSetTrace 与本轮同一个稳定文档 ID、revision 不同。",
         "输出说明只给 URL 无法区分增量维护与每次现编。",
         "输出不出现 ReadyForDelivery 字段。"
+      ],
+      "forbidden": [
+        "只给测试集链接即可判 Complete",
+        "revision 可以省略",
+        "ReadyForDelivery: Yes"
       ]
     },
     {
@@ -204,7 +214,44 @@
         "输出给出 None(<reason>) 这个合法取值。",
         "输出仍要求 @<不可变revision>。",
         "输出不要求另写一份用例清单。"
+      ],
+      "forbidden": [
+        "delta 段留空也可以判 Complete",
+        "本轮无增删时可以省略 revision"
+      ]
+    },
+    {
+      "id": 16,
+      "route": "testsettrace-new-doc-each-round",
+      "prompt": "这轮测试集我新建了一份文档：TESTSET-PLAUD-0812@rev3，用例都挂在里面了，Added/Updated/Removed 三段也填了。上一轮那份是 TESTSET-PLAUD-0730@rev7，不过那份有点乱我就不用了。这样可以吧？",
+      "expected_output": "不行，判 SelfTestReportStatus: Incomplete。稳定文档 ID 与上一轮不同且未说明迁移原因，正是「每轮新建一份文档并称其为稳定 ID」的绕过形态 —— 这样一来「测试集随交付增量维护」永远不可查。要么继续在原文档上推进 revision，要么给出迁移说明并由测试同学确认。",
+      "files": [],
+      "assertions": [
+        "输出判 SelfTestReportStatus: Incomplete。",
+        "输出指出稳定文档 ID 与上一轮不同。",
+        "输出说明这是每轮新建文档冒充稳定 ID 的绕过形态。",
+        "输出给出两条出路：在原文档推进 revision，或给出迁移说明并经确认。"
+      ],
+      "forbidden": [
+        "三段 delta 填了就可以判 Complete",
+        "换一份新文档只要给新 revision 就行"
+      ]
+    },
+    {
+      "id": "intake-17-rework-delta-from-origintriageref",
+      "prompt": "这个 ChangeSet 的材料都齐了，我提测。上游 §4 工件里 OriginTriageRef 写的是 TRG-20260813-02/ITEM-03。ReworkDeltaStatus 填 NotApplicable 行吧？我们这轮就是照着 QA 打回的意见改的。",
+      "expected_output": "不行。`OriginTriageRef` 带了 `TriageId` + `ItemId` 就说明这一块是**返工**产生的，`ReworkDeltaStatus` 不能填 `NotApplicable` —— 必须收到「本轮修改点」（改了哪些文件、对应打回的哪一条 ItemId、怎么改的），拿不到就判 `Incomplete` 并把缺口写进 `BlockingGaps`。判据固定在 Step 0 取到的 `OriginTriageRef` 上，不靠口述：`N/A` = 首轮 → `NotApplicable`；有 `TriageId` + `ItemId` = 返工 → 必须有 delta；**字段整个缺失 ≠ `N/A`**，缺失要停机让实现 skill 按 §4 重出工件。（🔴 harness 是全局 substring：回答里**不要复述** forbidden 列出的那串错误赋值，要指代就换个说法，例如「不得把该字段填成 Yes」。）",
+      "assertions": [
+        "输出判定 ReworkDeltaStatus 不能填 NotApplicable。",
+        "输出指出判据是上游 §4 的 OriginTriageRef，而不是用户口述或感觉。",
+        "输出要求提供本轮修改点，并说明拿不到就判 Incomplete、写进 BlockingGaps。",
+        "输出区分「字段整个缺失」与「填 N/A」：缺失要停机要求重出工件。",
+        "输出不给出 ReadyForDelivery 判定（交付权归 plaud-theme-qa）。"
+      ],
+      "forbidden": [
+        "ReworkDeltaStatus: NotApplicable"
       ]
     }
-  ]
+  ],
+  "description": "\n- 🔴 **不要把「否定短语」写成 forbidden**：正确答案常引用题面措辞来否定它（「不能 X」含「X」），全局 substring 会误判。要禁就禁**赋值形态**或明确的错误结论句。 forbidden 判据（v0.2.2 第九轮定稿）：只写「错误工件里必然出现、正确工件里不可能出现」的赋值形态；不要写否定短语或裸概念词（`可以并行` 会被「不可以并行」命中）；也不要写会被正确答案顺带复述的串——确实需要禁某个赋值时，同时在 expected_output 里注明「不要复述该串」。能用 assertions 表达的约束一律走 assertions，不进 forbidden。"
 }

@@ -67,8 +67,11 @@ QA-B 会验的（实现侧须自检但**无权判定**）：`sa-*` / `SA:` / BEM
 判定：
 
 ```bash
-git diff --name-status HEAD                              # 相对 HEAD 的完整状态（含已暂存）
-git diff --name-status --diff-filter=MDRCTU HEAD         # 只看存量文件的写入；扣除开工 baseline 后非空即升级
+# 🔴 用 SKILL.md 里的 sb_worktree_set()（原样复制），**不要**跑裸 git diff：
+#    裸 git diff 不含未跟踪文件（新建的 sa-* 全是未跟踪，会被整批漏掉）、也不排除 memory/
+#    （合法的 memory/ 更新会被当成存量主题修改、错误升级为 LegacyImpact）。
+sb_worktree_set                                          # 相对 HEAD 的改动 + 未跟踪文件，排除 memory/
+git diff --name-status --diff-filter=MDRCTU HEAD -- . ':(exclude)memory/'   # 只看存量文件的写入；扣除开工 baseline 后非空即升级
 ```
 
 开工前先存 baseline，只判定**本 ChangeSet 新产生的**变化；不要用 `git status --porcelain` 首列过滤（`AM` 会被误判为存量改动）。

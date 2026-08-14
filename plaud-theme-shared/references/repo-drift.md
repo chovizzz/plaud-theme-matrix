@@ -111,11 +111,13 @@ grep -c '\-\-color-purple' "$F"
 
 → 结论：**「仓库已经有边框变量」不等于「直接复用即可」**。选路规则见 `colors-and-schemes.md` §3；两条链的关系未裁决时**停机**。
 
-### 3.7 全局 heading 规则仍是旧 vendor 值
+### 3.7 全局 heading 规则仍是旧 vendor 值，另有一套死变量声明
 
-`assets/critical.css:107/148` 的 `:where(h1..h6)` 走 `--size` × `--heading-font-scale`，根字号 `html{font-size:16px}`（`critical.css:8`）：`h5` = `1.8rem` → **28.8px**，`h1` = `clamp(3.6rem, …, 4rem)` → **57.6–64px**，正是 `typography.md` §3 标为**已废止**的 vendor 64px。另有一套 `layout/theme.liquid:418-424` 的 `--h0-size…--h6-size`（`--h5-size: 18px`）。
+`assets/critical.css:107/148` 的 `:where(h1..h6)` 走 `--size` × `--heading-font-scale`，根字号 `html{font-size:16px}`（`critical.css:8`）：`h5` = `1.8rem` → **28.8px**，`h1` = `clamp(3.6rem, …, 4rem)` → **57.6–64px**，正是 `typography.md` §3 标为**已废止**的 vendor 64px。**这是唯一真正生效的一套。**
 
-→ **不要**用"复用全局 h5 规则"来解决字号问题（v0.2.0 曾这样写，v0.2.1 已撤回）。按 `typography.md` §4 处理：标签与字号解耦。
+另有 `layout/theme.liquid:418-424` 的 `--h0-size…--h6-size`（`--h5-size: 18px`）—— **只有声明、没有消费点**：全仓 `grep -r 'var(--h5-size)'` 零命中，它对渲染结果没有影响。核对时不要把它当成"h5 = 18px 已落地"。
+
+→ **不要**用"复用全局 h5 规则"来解决字号问题（v0.2.0 曾这样写，v0.2.1 已撤回）；也**不要**去消费 `--h5-size`（接上死变量等于新造一条渲染路径）。按 `typography.md` §4 处理：标签与字号解耦。
 
 ---
 

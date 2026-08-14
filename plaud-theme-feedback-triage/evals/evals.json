@@ -1,7 +1,7 @@
 {
   "skill_name": "plaud-theme-feedback-triage",
   "matrix": "plaud-shopify-theme-matrix",
-  "version": "v0.2.1",
+  "version": "v0.2.2",
   "evals": [
     {
       "id": 1,
@@ -178,5 +178,6 @@
         "输出不为这两项产出 ClassificationRecommendation。"
       ]
     }
-  ]
+  ],
+  "description": "forbidden 判据（v0.2.2 第九轮定稿）：只写「错误工件里必然出现、正确工件里不可能出现」的赋值形态；不要写否定短语或裸概念词（`可以并行` 会被「不可以并行」命中）；也不要写会被正确答案顺带复述的串——确实需要禁某个赋值时，同时在 expected_output 里注明「不要复述该串」。能用 assertions 表达的约束一律走 assertions，不进 forbidden。"
 }

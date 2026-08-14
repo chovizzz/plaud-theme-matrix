@@ -103,7 +103,7 @@ description: >
 
 | 交叉 | 实现规则 | 取值来源 | QA Profile |
 |---|---|---|---|
-| **Cross(B+C)** | Path B（`plaud-theme-section-build` 的 `sa-*` / `SA:` / vendor 规则） | Path C 的 UX Spec v1.3 | QA-B + QA-C + QA-Global |
+| **Cross(B+C)** | Path B（`plaud-theme-section-build` 的 `sa-*` / `SA:` / vendor 规则） | Path C 的 UX Spec v1.3 | `RequiredQAProfile: QA-B, QA-C`（🔴 **不写 QA-Global** —— 它由 QA 按 §5 恒执行，写进 `RequiredQAProfile` 是枚举违规，QA 的结构核会因此停机；v0.2.2 第七轮更正） |
 | **Cross(A+C)** | 按子任务分裂：迁移部分走 C，bug/性能部分走 A（**不要把 bugfix 塞进迁移的 ChangeSet**） | C 部分取 spec，A 部分不涉及 | 按各自子任务的 profile 并集 |
 
 **Cross(B+C) 不裂块。** 「按设计稿新建 section 且要符合 spec」是一件事、一个 `ChangeSetId`，
@@ -136,7 +136,8 @@ Path A 的质量规则（全路径红线）全局继承，**永远适用**，与
 
 ### 门 2 — Implement → 提测准入 → Verify
 
-- 实现 skill 必须交出 `ChangeSetId` + `ModifiedFiles`，缺任一 → 退回重出
+- 实现 skill 必须交出 **§4 的完整 20 字段**（handoff-schema §4）。**逐块只做结构核**，不重做技术判断：`ChangeSetId` / `BaseHeadSha` / `ChangeSetFingerprint` / `ModifiedFiles` / `RequiredQAProfile` / `ApprovedExceptions`（无声明填 `[]`，**不许整字段缺失**）—— 缺任一字段 → 退回重出。
+  🔴 **`ApprovedExceptions` 整字段缺失与填 `[]` 不是一回事**：前者是工件不完整（退回），后者是"本块没有批准例外"（合法）。v0.2.2 加这一条，是因为字段只加在契约里、输出模板与门控不接的话，声明通道等于不存在
 - 实现 skill 输出的 `ReadyForDelivery` 恒为 `No` + `QAStatus: NotRun`；**看到实现 skill 写了 `Yes` 属契约违规，退回**
 - **v0.2.0 起中间多一道 `plaud-theme-qa-intake`**：实现 skill 的 `NextRequiredSkill` 指向它，`SubmissionPackageStatus: Complete` 之后 QA 才启动（handoff-schema §9.1.2）。台账里逐块记 `SubmissionId`；`Incomplete` 的块挂起等材料，**其它块可继续**
 
@@ -184,7 +185,20 @@ Path A 的质量规则（全路径红线）全局继承，**永远适用**，与
 
 ### 串并行判定（冲突热点）
 
-> **两个块只要碰同一个文件，就必须串行。** 没有例外，没有"应该不会冲突"。
+> 🔴 **v0.2.2 起：同一个工作树里，Implement / 指纹生成 / QA / release 一律逐块串行。** 不是"碰同一个文件才串行" —— `ChangeSetFingerprint` 绑的是**整个工作树**（handoff-schema §2），第二块只要落盘，第一块的指纹与 QA 结论当场失效。`ModifiedFiles` 互不相交**不能**让它们并行：A 的 baseline / delta / 指纹会把 B 的文件一并吸收，接着要么 A 把 B 的产出冒充成自己的、要么 A 在 QA Step 1/Step 2 永久失配。
+>
+> 可以并行的只有两种：
+>
+> | 可并行 | 条件 |
+> |---|---|
+> | **Assess（只读）** | `plaud-theme-impact` 不写工作树，多块的影响面评估可以同时做 |
+> | **各块在独立 worktree / 独立 clone 里开发** | 每块在自己的树里跑完 Implement → 指纹 → 提测 → QA；**最终集成回主树时仍必须逐块串行**（合并后要为集成结果重新生成 `ChangeSetId` 并重跑 QA），且 v0.2.2 不支持多块同批发版（§2 / release-ops） |
+>
+> 台账里的 `ParallelSafe` 因此只描述**Assess 阶段**与**独立 worktree 开发**；它**不表示**这些块可以在同一棵树里同时进入 Implement。
+>
+> 下面"取 `ModifiedFiles` 交集"这一步仍然要做 —— 它用于判断**独立 worktree 方案下集成时的冲突面**，以及提醒哪些块最好干脆合成一个 ChangeSet。
+
+> **两个块只要碰同一个文件，就更要串行，且不适合拆成独立 worktree。** 没有例外，没有"应该不会冲突"。
 
 派活前先把每个块的 `ModifiedFiles` 预估列出来，取交集：
 
@@ -197,13 +211,13 @@ Path A 的质量规则（全路径红线）全局继承，**永远适用**，与
 | **同一个 `locales/*.json`** | 多语言文案键冲突 | 串行 |
 | **同一个 section 文件** | — | 串行 |
 
-**可并行**：`ModifiedFiles` 完全 disjoint、且不共享 build 产物、不改同一个 token/locale 键的块。
+**满足"可拆独立 worktree"的条件**：`ModifiedFiles` 完全 disjoint、且不共享 build 产物、不改同一个 token/locale 键的块。🔴 **注意这不是"可以在同一棵树里并行 Implement"**（v0.2.2 第八轮更正：本行原写"可并行"，与本节顶部红框直接矛盾）——disjoint 只解决**文件冲突**，解决不了指纹绑全树的问题。同树并行的唯一形态是 Assess 只读；要真并行开发，必须一块一棵 worktree，且集成回主树时逐块串行、重新生成 `ChangeSetId` 重跑 QA。
 
 ### 顺序原则
 
 1. **底座先行**：token / 全局 CSS / 共享 snippet 的改动排最前，后续块基于新底座实现，避免"做完再改一遍"
 2. **高 RiskTier 先做**：`plaud-theme-impact` 判 `High` 的块先做先验，早暴露问题
-3. **纯新建（`IntegrationSurface`）可与存量改动并行**，前提是它确实没碰任何共享文件——Path B 新建 section 顺手改了共享 snippet 是常见破例，Assess 阶段就要查出来
+3. **纯新建（`IntegrationSurface`）适合拆去独立 worktree 与存量改动并行开发**，前提是它确实没碰任何共享文件——Path B 新建 section 顺手改了共享 snippet 是常见破例，Assess 阶段就要查出来。🔴 **同一棵树里它照样不能与存量块并行**（v0.2.2 第八轮更正：本条原写"可与存量改动并行"）——新建文件同样是未跟踪文件、同样进全树指纹，落盘即让另一块的指纹失效
 4. **每块 Implement 完立刻进 Verify**，不要攒到最后一起验：攒批会让 `ChangeSetId` 与工作树对不上（handoff-schema §2 失配 → QA 停机）
 
 ### 授权与红线
@@ -301,7 +315,7 @@ ArtifactKind: Coordination
 OrchestrationId:          # ORCH-<YYYYMMDD>-<NN>
 PathResolved:             # A | B | C | Cross(B+C) | Cross(A+C)
 ChangeSetPlan:            # 拆出的每个 ChangeSet：编号 / 范围 / 归属 skill / 依赖关系
-ParallelSafe:             # 哪些 ChangeSet 可并行；碰同一文件的必须串行
+ParallelSafe:             # 只描述 Assess 只读并行 / 可拆独立 worktree 的块；同树 Implement 一律串行（§四）
 ChangeSetStatus:          # 各 ChangeSet 当前阶段与 handoff 引用
 BlockingGaps:
 AllChangeSetsDelivered:   # Yes | No —— 全部下辖 ChangeSet 的 QA 均为 ReadyForDelivery: Yes 时才为 Yes

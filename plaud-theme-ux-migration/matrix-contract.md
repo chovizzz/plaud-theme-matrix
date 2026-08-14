@@ -33,7 +33,7 @@ plaud-theme-impact (Assess)  ──AssessmentRef──▶  plaud-theme-ux-migrat
 | `ActualAffectedInstances` | 判断改动落哪层、要不要走独立色板、回归点怎么列 |
 | `SharedPropagation` | token→class 全实例覆盖（§4.15）、build 产物 vs 源（§4.20）、dangling 扫描范围 |
 | `EntrypointCandidates` | 三层入口的**候选与风险**；**最终选哪层由本 skill 决定并写理由** |
-| `RequiredQAProfile` | **原样继承**，只断言其中含 `QA-C`。🔴 **不得写 `QA-Global`**（由 QA 按 §5 恒执行，写进本字段是字段越界，§9.2；上游误写则剔除）。🔴 **不得因为"我是 Path C"就改写成只有 `QA-C`** —— impact 因 RiskTier High 或跨路径追加的 `QA-A` / `QA-B` 必须带下去；确需变更 → 退回 impact 重评，不在 Implement 阶段自行改 |
+| `RequiredQAProfile` | **原样继承**，只断言其中含 `QA-C`。🔴 **不得写 `QA-Global`**（由 QA 按 §5 恒执行，写进本字段是字段越界，§9.2；🔴 上游误写则**停机退回 `plaud-theme-impact` 重出工件**，不得自行剔除后继续——QA 对枚举违规恒判停机、且明令不得替上游修；实现侧悄悄修好只会把 producer 的契约错误藏起来，并同时破坏「原样继承」这条规则。v0.2.2 第九轮更正：本行原写「剔除」，与 SKILL.md 的停机口径相反）。🔴 **不得因为"我是 Path C"就改写成只有 `QA-C`** —— impact 因 RiskTier High 或跨路径追加的 `QA-A` / `QA-B` 必须带下去；确需变更 → 退回 impact 重评，不在 Implement 阶段自行改 |
 | `BlockingGaps` / `ReadyForImplement` | `ReadyForImplement: No` → **不得开工** |
 
 **边界**：本 skill **不重跑 blast radius / 共享调用方 grep 生成第二份清单**。
@@ -52,8 +52,9 @@ disabled 实例命令是**交叉验证**手段（目的是审计与日志资格�
 - `ChangeSetId` 格式 **`CS-<YYYYMMDD>-C<NN>`**；QA 回填 `ChangeSetIdMatched`
 - `BaseHeadSha` / `ChangeSetFingerprint` **在交付工件那一刻现场生成**（命令见 `handoff-schema.md` §2）。
   QA 在**任何检查之前**重算比对——这是堵"交付后、QA 前偷改同一批文件"的唯一手段，只绑文件名挡不住它。算完指纹不要再动工作树
-- `ModifiedFiles` **必须与工作树一致** —— 不一致 QA 停机，不得"顺便一起验了"。交付前用
-  `git status --porcelain` / `git diff --name-only` 自查
+- `ModifiedFiles` **必须与工作树一致（`memory/` 除外）** —— 不一致 QA 停机，不得"顺便一起验了"。交付前自查：
+  `git status --porcelain --untracked-files=all -- . ':(exclude)memory/'` / `git diff --name-only HEAD -- . ':(exclude)memory/'`。
+  🔴 **迁移日志与 `memory/*.md` 的更新不列进 `ModifiedFiles`**（它们不属于 ChangeSet，也已排除在指纹与 QA 集合比对之外），要交代就写在正文
 - `RequiredQAProfile` 恒含 `QA-C`，其覆盖内容（disabled 实例已跳过 / 空 heading 未进总览 / 三层入口选择正确 /
   20 条踩坑适用项 / 日志时机）**正是本 skill 必须在正文交代清楚的部分**
 - `ThemeCheckRequired` / `VisualRegressionRequired` / `BuildRequired` 由本 skill 判定，**实跑归 QA**

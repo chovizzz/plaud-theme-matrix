@@ -317,16 +317,21 @@ DTC 原文判定原则：「软性项**只在同页面内部明显不自洽时�
 
 ---
 
-## 11. 🟠 可论证放行项的复核（v0.2.1 新增）
+## 11. 🟠 可论证放行项的复核（v0.2.1 新增，v0.2.2 收口）
 
-`handoff-schema.md` §8.1 把 #8 / #9(纯新增) / #10(存量默认值) 等定为 🟠。**QA 不是"看到理由就放行"**，按类型走不同复核：
+`handoff-schema.md` §8.1 把 #8 / #9(纯新增) 定为 🟠 `EvidenceBased`，#10 未触及的存量默认值定为 🟡。**QA 不是"看到理由就放行"**，按类型走不同复核：
 
-| 类型 | QA 复核动作 | 判定 |
-|---|---|---|
-| **EvidenceBased**（如 #8 偏离三层入口顺序） | 检查 `OptionsConsidered`（§4 工件）是否给出≥2 方案与取舍、是否引用了 `AssessmentRef` 与 `ActualAffectedInstances`。**不需要任何人"审批"** | 三者齐 → `Passed`（结论里引用出处）；缺任一或只有套话、无影响面引用 → `Blocked`（可补）；证据反而证明上层入口本可用 → `Failed` |
-| **ApprovedException**（如故意用不合规默认值） | 检查是否有 PLAUD PM / 设计 / 技术 owner 的书面 `ApprovalRef`，且指向本 ChangeSet 的这一项 | 有 → `Passed`；**为空 → `Failed`**（与 §10 A11y 豁免第 3 条同一模式）|
+| 类型 | 适用范围 | QA 复核动作 | 判定 |
+|---|---|---|---|
+| **EvidenceBased** | §8.1 第 8 条（三层入口顺序）、第 9 条纯新增 option | 检查 `OptionsConsidered`（§4 工件）是否给出≥2 方案与取舍、是否引用了 `AssessmentRef` 与 `ActualAffectedInstances`。**不需要任何人"审批"** | 三者齐 → `Passed`（结论里引用出处）；缺任一或只有套话、无影响面引用 → `Blocked`（可补）；证据反而证明上层入口本可用 → `Failed` |
+| **ApprovedException** | 🔴 **封闭清单，见 `handoff-schema.md` §8.1「`ApprovedException` 的封闭适用清单」。当前清单里只有 §8 红线⑤ 的 A11y 3.0–4.5 allowlist 配对一项；§8.1 的 11 条没有任何一条在内** | 逐项核 §4 的 `ApprovedExceptions` **四件事**：① `ApprovalRef` 存在且指向本 ChangeSet 的这一项 ② `ApprovedBy` 是 PLAUD 侧（PM / 设计 / 技术 owner） ③ `Clause` 在封闭清单内 ④ **`ApprovalRef` 的批准内容覆盖得住所填 `Scope`** | 四者齐 → `Passed`；**任一不成立 → `Failed`**（含 `ApprovalRef` 为空、自批、`Clause` 越界、批了一处而 `Scope` 写了一片）；**提供了但核不动**（403 / 权限不足 / 平台故障）→ `Blocked`。结论写进 `ApprovedExceptionsChecked` + `ApprovedExceptionsEvidence` |
 
-🔴 **agency 自写自批不成立**：提供论证的人与批准的人必须不同方。模板化套话（"按现状实现""与设计确认过"无链接）视同为空。
+🔴 **`Scope` 必须逐对象绑定，聚合写法直接 `Failed`。** A11y 例外要一条一项写「前景色 + 背景色 + 出现实例 + 实测 ratio」；写成"全站所有按钮""所有该色配对""以下若干处"的，QA **不追问、直接 `Failed`** —— 一条批准覆盖一片是这个机制唯一的实质绕过面。
+
+🔴 **两条不可退让：**
+
+1. **agency 自写自批不成立** —— 提供论证的人与批准的人必须不同方。模板化套话（"按现状实现""与设计确认过"无链接）视同为空。
+2. **红线不因批准而放行。** 典型误用：本次**新建或修改**的 UX 字段用了不合规默认值，拿到设计方书面批准就想放行 —— **不行**，第 10 条这一半是 🔴，不在封闭清单内。批准链接只能让它进 `BlockingGaps` 记「规范缺口待裁决」，`StyleHardRuleCheck` 仍判 `Failed`；正确处理是先改规范或改默认值再交付。
 
 ### 11.1 存量复用豁免的三项核查（`handoff-schema.md` §8.1.2）
 

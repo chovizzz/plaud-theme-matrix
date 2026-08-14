@@ -25,9 +25,12 @@
 
 ```bash
 # 与 QA 记录的收尾指纹比对（记录在项目侧 memory/changeset-log.md）
+# 🔴 必须用 handoff-schema §2 的 plaud_fingerprint 原样重算，**不要**用 git status。
 git rev-parse HEAD
-git status --porcelain=v1 --untracked-files=all
+plaud_fingerprint          # 原样复制 §2 的函数；输出与 changeset-log 记录的 ChangeSetFingerprint 逐字比对
 ```
+
+> 🔴 **`git status --porcelain` 在这里挡不住任何东西**（v0.2.2 第六轮修）：它只输出状态码与路径、**不含内容**。QA 通过后如果改的是**同一个已 dirty 文件的内容**，status 输出一字不变 —— 而 canonical 指纹会变。用 status 比对等于把"QA 后又改了内容"判成"结论仍有效"，**发出去的是没验过的字节**，恰好是下面那句话要防的事。
 
 HEAD 或工作树与 QA 收尾时不一致 → 该 QA 结论**已自动失效**（handoff-schema §1.4），停机要求重跑。
 
@@ -105,7 +108,7 @@ SiteListConfirmedBy: 运营确认过  # 无时间、无出处、看不出是几�
 
 ### 紧急修复也要走完整链路
 
-线上着火不构成跳过 QA 的理由（全路径红线⑧：最终交付必须经 `plaud-theme-qa`；「任何情况下不得跳过 Verify」）。正确链路：
+线上着火不构成跳过 QA 的理由（全路径红线⑧：最终交付必须经 `plaud-theme-qa`；「任何有改动的任务都不得跳过 Verify」）。正确链路：
 
 ```
 线上 bug → feedback-triage 判归属 → 新工作项 → impact → 实现 skill
@@ -134,8 +137,10 @@ SiteListConfirmedBy: 运营确认过  # 无时间、无出处、看不出是几�
 | 数量 | **每个**线上 bug 至少一条，不是"这批问题写一条" |
 | 格式 | 四段式 + 附件，见 `plaud-theme-qa-intake/references/test-case-format.md` |
 | 内容 | 前置条件要能**复现原 bug 的那个配置状态**——这是这条用例存在的意义 |
-| 归档 | 进测试集，随交付更新（DTC §一 第 3 条）。**必须指向 `plaud-theme-qa-intake` 提测时那同一个 `TestSetTrace` 的稳定文档 ID**（见 `package-checklist.md` §3），并在本次归档后给出新的 `@<revision>` —— 两处指向不同文档就等于没有长期测试集 |
+| 归档 | 进测试集，随交付更新（DTC §一 第 3 条）。归档结果**写进工件字段 `TestSetTraceAfterArchive`**（handoff-schema §9.1.4）：稳定文档 ID 必须与 `plaud-theme-qa-intake` 提测时那份 `TestSetTrace` **同一个**，revision 取入库之后的新值，`Added` 段含本次新增的回归用例 ID。两处指向不同文档 = 没有长期测试集，视为未归档。本次无线上 bug 时填 `N/A(NoOnlineBug)` |
 
 `RegressionCasesAdded` 为空 = 本次上线治理未完成，工件不得标记结束。
+
+> ⚠️ **前提是「本轮有线上 bug」。** 本次上线后没有出现任何线上 bug 时，两个字段都取显式的 N/A，**不是留空**：`RegressionCasesAdded: N/A(NoOnlineBug)` + `TestSetTraceAfterArchive: N/A(NoOnlineBug)`。留空与 `N/A(NoOnlineBug)` 的区别就是「该补没补」与「确实不需要补」，工件必须能分清。
 
 **反例**：修了「移动端区头没左对齐」的 bug，回归用例只写"检查区头对齐"——这没有复现条件。要写清是哪个模块、哪个实例、哪个存值状态、哪个断点下出的问题。

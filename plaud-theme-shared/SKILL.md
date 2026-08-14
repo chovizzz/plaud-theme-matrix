@@ -78,7 +78,7 @@ description: >
 - **全流程入口**：`plaud-theme-orchestrator` — 进入门槛只有一条：**这项工作必须拆成 ≥2 个可独立验收的 ChangeSet**（典型是迁移 wave、跨多个互不相干模块的批量改动）。单一 ChangeSet 能装下的工作一律直接走实现 skill，**普通 bugfix 不绕 orchestrator**。"改动涉及好几个文件"不是理由——同一个 ChangeSet 里本来就可以有多个文件。
 - **阶段能力 / 专家入口**：`plaud-theme-shared`（本文件）、`plaud-theme-impact`、`plaud-theme-qa`
 
-阶段单向推进 `Assess → Implement → Verify`。可跳过 Assess 的唯一情形是 `InlineLite` 豁免（条件见 handoff-schema §3）。**任何情况下不得跳过 Verify。**
+阶段单向推进 `Assess → Implement → Verify`。可跳过 Assess 的唯一情形是 `InlineLite` 豁免（条件见 handoff-schema §3）。**任何有改动的任务都不得跳过 Verify。**（有改动的任务；§2 的零改动只读任务免 QA）
 
 ---
 
@@ -171,7 +171,7 @@ Path A 改一个 JS timer 时**不需要**加载完整字体字阶表。按当�
 | `memory/模板清单.md` | per-template：状态、section 渲染顺序、已迁模块、实例特殊约束 | `plaud-theme-ux-migration` + 用户 |
 | `memory/模块清单.md` | per-module：后台名、实例数、迁移状态、schema 约束、关键字段 | `plaud-theme-ux-migration` + 用户 |
 | `memory/全局已知偏差.md` | 跨模板共享的待评估项与已修项 | `plaud-theme-ux-migration` |
-| `memory/changeset-log.md` | ChangeSetId → QA 结果，供追溯与失效判定 | `plaud-theme-qa` |
+| `memory/changeset-log.md` | ChangeSetId → QA 结果，供追溯与失效判定；**v0.2.2 起多一列 `TestSetTrace`**（该轮**通过准入**（`QAAdmissionStatus: Accepted`）的测试集行原文，与 `ReadyForDelivery` 无关，供下一轮提测核连续性） | `plaud-theme-qa` |
 
 ### 缺失时的唯一初始化规则
 
@@ -206,12 +206,14 @@ Path A 改一个 JS timer 时**不需要**加载完整字体字阶表。按当�
 
 ## SharedContractCheck
 
+> 🔴 **这是正文自检块，不是阶段工件**（handoff-schema §9）：写在阶段契约块**之前**，**不得**把它的字段并进 §3/§4/§5 契约块（那两个是 20 / 26 字段的封闭集合，多一个 key 即结构违规），下游也**不得**拿它当事实源。
+
 被其它 skill 引用时，输出：
 
 ```yaml
-ContractVersion: v0.2.1
+ContractVersion: v0.2.2
 PathResolved:            # A | B | C | Cross(B+C) | Cross(A+C)
-StageResolved:           # Assess | Implement | Verify
+StageResolved:           # Assess | Implement | Verify | N/A(NonStage)（后者用于 §0.1 的四个非阶段 skill；v0.2.2 第九轮与 matrix-contract 对齐）
 RequiredSkill:           # 当前阶段应由哪个 skill 执行
 ReferencesLoaded:        # 本次实际加载的 reference
 RedlinesApplicable:      # 本次任务命中的全路径红线编号
@@ -220,10 +222,12 @@ BlockingGaps:
 
 ## HandoffContract
 
+> 🔴 **这不是 canonical 工件，是本层的引用回执**（v0.2.2 第九轮补明）。`plaud-theme-shared` 是 order 0 的被引用层，不在阶段轴上、也不是 §0.1 的四个非阶段 skill 之一，所以它既不出 §3/§4/§5，也没有 `ArtifactKind`。`ProducerSkill` / `ConsumerSkill` / `ReadyForNextSkill` 这几个名字在 canonical §9.2 里没有定义，**不得**被当成阶段字段：不并进任何阶段契约块（§4 是 20 字段、§5 是 26 字段的封闭集合），下游也不得据 `ReadyForNextSkill` 做阶段门——阶段推进的唯一依据是 §3 的 `ReadyForImplement`、§4 的 `QAStatus` / `NextRequiredSkill`、§5 的 `ReadyForDelivery`。
+
 ```yaml
 ProducerSkill: plaud-theme-shared
 ConsumerSkill:           # 引用本层的 skill
-ContractVersion: v0.2.1
+ContractVersion: v0.2.2
 BlockingGaps:
 ReadyForNextSkill:       # Yes | No
 ```

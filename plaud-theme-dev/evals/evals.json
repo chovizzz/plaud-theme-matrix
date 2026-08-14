@@ -1,7 +1,7 @@
 {
   "skill_name": "plaud-theme-dev",
   "skill": "plaud-theme-dev",
-  "version": "v0.2.1",
+  "version": "v0.2.2",
   "path": "A",
   "stage": "Implement",
   "notes": "assertions 为对 agent 输出的 substring 检查。刻意只断言契约常量、skill 名、字段名与不可改写的术语，不断言易被同义改写的自然语句。",
@@ -83,7 +83,7 @@
     {
       "id": "dev-07-readonly-audit",
       "prompt": "帮我对 sections/delta-accordion.liquid 做一次无障碍审计，先别改代码。",
-      "expected_output": "只读任务（handoff-schema §2 零改动）：免 Assess、免 QA。ReconMode: N/A(ReadOnly)——**不得借用 InlineLite**；AssessmentRef: N/A(ReadOnly)；必须输出 ReadOnlyProof（审计前后各一次 HEAD + git status --porcelain 快照 hash，两次一致），不一致即退出只读通道生成正式 ChangeSet。按红线 §8.5 逐条核（button 语义、aria-label、trapFocus、对比度、skip link、focus-visible），输出带严重度的问题清单，不修改任何文件；输出块 ChangeSetId: N/A、BaseHeadSha: N/A、ChangeSetFingerprint: N/A、ModifiedFiles: []、QAStatus: NotRun、NextRequiredSkill: None、ReadyForDelivery: N/A(ReadOnly)。即使 0 发现也不得表述为可交付或已完成。",
+      "expected_output": "只读任务（handoff-schema §2 零改动）：免 Assess、免 QA。ReconMode: N/A(ReadOnly)——**不得借用 InlineLite**；AssessmentRef: N/A(ReadOnly)；必须输出 ReadOnlyProof（审计前后各一次 HEAD + handoff-schema §2 的 plaud_fingerprint，两次一致），不一致即退出只读通道生成正式 ChangeSet。**不得用 git status --porcelain 做这个快照**：它不含内容，工作树本来就 dirty 时改同一文件的内容前后 hash 相同，可被用来绕开 QA。按红线 §8.5 逐条核（button 语义、aria-label、trapFocus、对比度、skip link、focus-visible），输出带严重度的问题清单，不修改任何文件；输出块 ChangeSetId: N/A、BaseHeadSha: N/A、ChangeSetFingerprint: N/A、ModifiedFiles: []、QAStatus: NotRun、NextRequiredSkill: None、ReadyForDelivery: N/A(ReadOnly)。即使 0 发现也不得表述为可交付或已完成。",
       "assertions": [
         "ChangeSetId: N/A",
         "ModifiedFiles: []",
@@ -94,10 +94,12 @@
         "focus-visible",
         "QAStatus: NotRun",
         "NextRequiredSkill: None",
-        "ReadyForDelivery: N/A(ReadOnly)"
+        "ReadyForDelivery: N/A(ReadOnly)",
+        "输出用 plaud_fingerprint（§2）取 ReadOnlyProof 快照，不用 git status 文本 hash。"
       ],
       "forbidden": [
-        "ReconMode: InlineLite"
+        "git status --porcelain -z --untracked-files=all | tr",
+        "我用 git status --porcelain 的 hash 作为 ReadOnlyProof"
       ]
     },
     {
@@ -152,7 +154,7 @@
     {
       "id": "dev-12-handoff-block-fields",
       "prompt": "输出一次完整的 Path A 交接块给我看。",
-      "expected_output": "末尾 yaml 块严格按 handoff-schema §4 的 19 个字段且顺序一致：ChangeSetId(CS-YYYYMMDD-ANN)、BaseHeadSha、ChangeSetFingerprint、ReadOnlyProof、AssessmentRef、Path: A、ReconMode、ModifiedFiles、RootCause、OptionsConsidered、RequiredQAProfile（含 QA-A，不含 QA-Global）、ThemeCheckRequired、VisualRegressionRequired、BuildRequired、BlockingGaps、QAStatus: NotRun、NextRequiredSkill: plaud-theme-qa-intake、ReadyForDelivery: No，无自造字段、无漏字段；并说明 BaseHeadSha / ChangeSetFingerprint 是交付当刻用 §2 命令现场生成的。",
+      "expected_output": "末尾 yaml 块严格按 handoff-schema §4 的 20 个字段且顺序一致：ChangeSetId(CS-YYYYMMDD-ANN)、BaseHeadSha、ChangeSetFingerprint、ReadOnlyProof、AssessmentRef、OriginTriageRef、Path: A、ReconMode、ModifiedFiles、RootCause、OptionsConsidered、RequiredQAProfile（含 QA-A，不含 QA-Global）、ThemeCheckRequired、VisualRegressionRequired、BuildRequired、ApprovedExceptions（无则 []）、BlockingGaps、QAStatus: NotRun、NextRequiredSkill: plaud-theme-qa-intake、ReadyForDelivery: No，无自造字段、无漏字段；并说明 BaseHeadSha / ChangeSetFingerprint 是交付当刻用 §2 命令现场生成的。",
       "assertions": [
         "ChangeSetId",
         "BaseHeadSha",
@@ -171,11 +173,70 @@
         "BlockingGaps",
         "QAStatus: NotRun",
         "NextRequiredSkill: plaud-theme-qa-intake",
-        "ReadyForDelivery: No"
+        "ReadyForDelivery: No",
+        "yaml 块含 ApprovedExceptions 字段（无声明时为 []）。",
+        "yaml 块含 OriginTriageRef 字段（非返工轮次填 N/A）。",
+        "yaml 块的 key 集合与 handoff-schema §4（20 字段） **完全一致**：20 个、顺序一致、无自造 key、无漏字段——多一个 key 或少一个 key 都算契约违规。"
       ],
       "forbidden": [
-        "QA-Global"
-      ]
+        "RequiredQAProfile: QA-Global",
+        "RequiredQAProfile 含 QA-Global",
+        "QA-A, QA-Global",
+        "QA-B, QA-Global",
+        "QA-C, QA-Global"
+      ],
+      "kind": "rule",
+      "validator": {
+        "type": "yaml-block-exact-keys",
+        "note": "string-contains 无法验证「完全一致」。需 harness 实现结构化校验：取回复最后一个 fenced yaml block → 解析 → Object.keys() 与 expectedKeys 严格相等且顺序相等 → 检查 yaml fence 之后无非空内容 → 检查 forbiddenKeys 均不存在。若 harness 未实现 validator，本条按「未验证」记，不得因 assertions 全中就判通过（v0.2.2 第九轮补：此前这四条只有 substring 断言，缺 key / 多 key / 顺序错都验不出来）。",
+        "expectedKeys": [
+          "ChangeSetId",
+          "BaseHeadSha",
+          "ChangeSetFingerprint",
+          "ReadOnlyProof",
+          "AssessmentRef",
+          "OriginTriageRef",
+          "Path",
+          "ReconMode",
+          "ModifiedFiles",
+          "RootCause",
+          "OptionsConsidered",
+          "RequiredQAProfile",
+          "ThemeCheckRequired",
+          "VisualRegressionRequired",
+          "BuildRequired",
+          "ApprovedExceptions",
+          "BlockingGaps",
+          "QAStatus",
+          "NextRequiredSkill",
+          "ReadyForDelivery"
+        ],
+        "forbiddenKeys": [
+          "SubmissionId",
+          "QAAdmissionStatus",
+          "QAAdmissionReason",
+          "ChangeSetIdMatched",
+          "FingerprintVerifiedAt",
+          "QAProfilesRun",
+          "ThemeCheck",
+          "ThemeCheckEvidence",
+          "ThemeRuntimePreview",
+          "AdminSchemaSave",
+          "RegressionMatrix",
+          "BreakpointsCovered",
+          "LocalizationCheck",
+          "A11yCheck",
+          "FixedDimensionCheck",
+          "ImageQualityCheck",
+          "CopyConfigurabilityCheck",
+          "StyleHardRuleCheck",
+          "ApprovedExceptionsChecked",
+          "ApprovedExceptionsEvidence",
+          "ProfileSpecificResults",
+          "Advisories",
+          "Evidence"
+        ]
+      }
     },
     {
       "id": "dev-13-path-boundary",
@@ -211,5 +272,6 @@
         "ReadyForDelivery: No"
       ]
     }
-  ]
+  ],
+  "description": "\n- 🔴 **不要把「否定短语」写成 forbidden**：正确答案常引用题面措辞来否定它（「不能 X」含「X」），全局 substring 会误判。要禁就禁**赋值形态**或明确的错误结论句。 forbidden 判据（v0.2.2 第九轮定稿）：只写「错误工件里必然出现、正确工件里不可能出现」的赋值形态；不要写否定短语或裸概念词（`可以并行` 会被「不可以并行」命中）；也不要写会被正确答案顺带复述的串——确实需要禁某个赋值时，同时在 expected_output 里注明「不要复述该串」。能用 assertions 表达的约束一律走 assertions，不进 forbidden。"
 }

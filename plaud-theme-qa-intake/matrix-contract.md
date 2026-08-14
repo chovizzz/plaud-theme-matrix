@@ -20,7 +20,7 @@
 
 | 上游 | 消费的字段 |
 |---|---|
-| `plaud-theme-dev` / `plaud-theme-section-build` / `plaud-theme-ux-migration` | §4 的 `ChangeSetId` `ChangeSetFingerprint` `ModifiedFiles` `AssessmentRef` `Path` `ReconMode`（三者的 `NextRequiredSkill` 均指向本 skill） |
+| `plaud-theme-dev` / `plaud-theme-section-build` / `plaud-theme-ux-migration` | §4 的 `ChangeSetId` `ChangeSetFingerprint` `ModifiedFiles` `AssessmentRef` `Path` `ReconMode` **`OriginTriageRef`**（三者的 `NextRequiredSkill` 均指向本 skill）。🔴 `OriginTriageRef` 是判首轮 / 返工的**唯一事实源**（`N/A` = 首轮 → `ReworkDeltaStatus: NotApplicable`；带 `TriageId` + `ItemId` = 返工 → 必须收到「本轮修改点」，否则 `Incomplete`；**整字段缺失 ≠ `N/A`**，缺失即停机要求重出）。v0.2.2 第九轮补：此前本清单漏了它，agent 没有事实源就只能默认填 `NotApplicable`，返工 delta 整份漏收 |
 | `plaud-theme-impact`（间接） | §3 的 `AssessmentRef` `ActualAffectedInstances` `ActiveInstances` `DisabledInstances` —— **只引用，不重算** |
 | 用户 / 运营 | 站点清单及其出处（`ScopeSourceRef`）、预览链接、配置与测试文档、断点截图 |
 

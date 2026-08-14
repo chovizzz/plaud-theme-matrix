@@ -79,9 +79,9 @@ ReadyForDelivery: No
 
 `ChangeSetId: N/A`、`BaseHeadSha: N/A`、`ChangeSetFingerprint: N/A`、`ModifiedFiles: []`、`AssessmentRef: N/A(ReadOnly)`、`ReconMode: N/A(ReadOnly)`、`ThemeCheckRequired: No`、`VisualRegressionRequired: No`、`BuildRequired: No`、`OptionsConsidered: Trivial`、`QAStatus: NotRun`、`NextRequiredSkill: None`、`ReadyForDelivery: N/A(ReadOnly)`。
 
-`ReadOnlyProof` **必填**：审计前后各取一次 `git rev-parse HEAD` + `git status --porcelain -z --untracked-files=all | tr '\0' '\n' | sort | shasum -a 256`，两次必须一致。不一致 = 这不是只读任务 → 退出只读通道，生成正式 `ChangeSetId` + 指纹，走完 Assess → Implement → Verify。
+`ReadOnlyProof` **必填**：审计前后各取一次 `git rev-parse HEAD` + **§2 的 `plaud_fingerprint`**（原样复制；**不得**用 `git status | shasum`——它不含内容、可被绕过，见 handoff-schema §2 零改动小节），两次必须一致。不一致 = 这不是只读任务 → 退出只读通道，生成正式 `ChangeSetId` + 指纹，走完 Assess → Implement → Verify。
 
 **不得借用 `ReconMode: InlineLite`** 表示只读（§2 明文禁止）。
 
-**归属**：无 `ChangeSetId` 的 code review / A11y 审计归本 skill，不归 `plaud-theme-qa`——QA 的触发前提是「已有 `ChangeSetId`」或「用户明确要最终交付判定」。
+**归属**：无 `ChangeSetId` 的 code review / A11y 审计归本 skill，不归 `plaud-theme-qa`——QA 的触发前提是「已有 `ChangeSetId`」或「用户明确要最终交付判定**且该任务确有改动**」。🔴 **用户要求「最终判定」不能把零改动任务推给 QA**（v0.2.2 第八轮）：QA 对所有零改动请求恒转回本 skill，两边都写「归对方」就成了死循环。本 skill 此时按 §2 只读通道收尾，并说明零改动不存在交付判定。
 审计后若用户要求动手改 → 那是**新的一次 Implement**，重新生成 `ChangeSetId`，重走 Assess 判定。

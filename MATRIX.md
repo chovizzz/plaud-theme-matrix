@@ -1,7 +1,7 @@
 # Skill Matrix — PLAUD Shopify Theme
 
 All listed skills live directly under the package root. The outer
-`plaud-shopify-theme-matrix-v0.2.1` directory is a distribution package, **not** an
+`plaud-shopify-theme-matrix-v0.2.2` directory is a distribution package, **not** an
 installable skill — never copy the package root itself into a skills directory.
 
 ## Order
@@ -44,7 +44,7 @@ installable skill — never copy the package root itself into a skills directory
 > Implement 与 Verify 之间还夹着 `plaud-theme-qa-intake` 的提测准入门（不占阶段轴，见下节）。
 
 阶段单向推进 `Assess → Implement → Verify`。跳过 Assess 的唯一情形是 `InlineLite` 豁免
-（四个条件见 handoff-schema §3，须全部满足）。**任何情况下不得跳过 Verify。**
+（四个条件见 handoff-schema §3，须全部满足）。**任何有改动的任务都不得跳过 Verify。**（有改动的任务；§2 的零改动只读任务免 QA）
 
 ### 阶段轴之外的四个 skill
 
@@ -80,11 +80,11 @@ Path A 的质量规则（全路径红线）全局继承，永远适用。
 | 阶段 | 产出方 | 关键工件 | 消费方 |
 |---|---|---|---|
 | Assess | `plaud-theme-impact` | `AssessmentRef`（`ASMT-<YYYYMMDD>-<NN>`）、`ReadyForImplement` | 实现 skill / orchestrator |
-| Implement | dev / section-build / ux-migration | `ChangeSetId`（`CS-<YYYYMMDD>-<path><NN>`）、`ModifiedFiles`、`BaseHeadSha`、`ChangeSetFingerprint`、`RequiredQAProfile`（共 19 字段） | **`plaud-theme-qa-intake`** |
+| Implement | dev / section-build / ux-migration | `ChangeSetId`（`CS-<YYYYMMDD>-<path><NN>`）、`ModifiedFiles`、`BaseHeadSha`、`ChangeSetFingerprint`、`RequiredQAProfile`、`ApprovedExceptions`（共 20 字段） | **`plaud-theme-qa-intake`** |
 | 提测（过渡） | `plaud-theme-qa-intake` | `SubmissionId`（`SUB-<YYYYMMDD>-<NN>`）、`PackageFingerprint`、`TargetSites`、`ThemeIds`、六项材料的 `Complete/Incomplete` | `plaud-theme-qa` |
-| Verify | `plaud-theme-qa` | `QAAdmissionStatus`、`ChangeSetIdMatched`、逐项 Passed/Failed/Blocked/NotApplicable、`Advisories`、`ReadyForDelivery`（共 24 字段） | 用户 / `release-ops` / 回退到实现 skill |
+| Verify | `plaud-theme-qa` | `QAAdmissionStatus`、`ChangeSetIdMatched`、逐项 Passed/Failed/Blocked/NotApplicable、`ApprovedExceptionsChecked`、`Advisories`、`ReadyForDelivery`（共 26 字段） | 用户 / `release-ops` / 回退到实现 skill |
 | 反馈（事件） | `plaud-theme-feedback-triage` | `TriageId`（`TRI-…`）、`ClassificationRecommendation`、`EvidenceRefs`、`PMDecision`、`NextRoute` | PM / 新工作项回 Assess |
-| 发版 | `plaud-theme-release-ops` | `ReleaseId`（`REL-…`）、`ReleaseScope`（逐块 QA 结论 + 验收状态）、`IntegrationQARef`、`TargetSites`、`ThemeIds`、`SiteListConfirmedBy`、`AuthorizationRef`、`PushResult`、`RegressionCasesAdded` | 用户（推送需显式授权） |
+| 发版 | `plaud-theme-release-ops` | `ReleaseId`（`REL-…`）、`ReleaseScope`（逐块 QA 结论 + 验收状态）、`TargetSites`、`ThemeIds`、`SiteListConfirmedBy`、`AuthorizationRef`、`PushResult`、`RegressionCasesAdded`、`TestSetTraceAfterArchive` | 用户（推送需显式授权） |
 
 ## Flow
 

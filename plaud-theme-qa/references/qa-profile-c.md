@@ -133,7 +133,7 @@ git diff HEAD -- <theme-root>/sections/<x>.liquid | grep -n '"options"'  # 是�
 判定：
 
 - 动了 `templates/*.json` 而无用户授权引用 → `Failed`。
-- 改了 schema `options` 的 value → `Failed`（硬规则）。
+- **删除或修改**既有 schema `options` 的 `value` → `Failed`（🔴，会让存量实例存值静默失效；只能在 Liquid 端做映射）。**纯新增 option 不判 Failed**，但 `OptionsConsidered` 必须给出新 value 的 Liquid 映射、schema 保存验证与旧存值兼容结论，缺则按 🟠 `EvidenceBased` 判 `Blocked`（`handoff-schema.md` §8.1 第 9 条）。
 - 模板用量与所选入口的风险档不匹配（如用量 1 却改模块代码影响全站、或用量 50+ 却逐模板改存值）→ `Failed`，说明应选哪层。
 
 ## C4. 20 条踩坑规则中的适用项

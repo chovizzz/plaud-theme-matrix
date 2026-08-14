@@ -63,23 +63,46 @@
 
 ### 测试集溯源：一行 `TestSetTrace`（DTC §一 第 3 条）
 
-DTC 要求 agency **维护测试集并随交付更新，不是一次性文档**。v0.2.0 为此要求三项分别手写；**设计方评审指出「测试做太多重复性工作很影响效率」**，v0.2.1 据此收敛为**一行**：
+DTC 要求 agency **维护测试集并随交付更新，不是一次性文档**。v0.2.0 为此要求三项分别手写；**设计方评审指出「测试做太多重复性工作很影响效率」**，v0.2.1 据此收敛为一行；v0.2.2 又补了两处（三类分列、与上一轮比对），因为只有本轮一行仍证明不了"跨交付的增量维护"。
+
+语法：
 
 ```yaml
-TestSetTrace: <稳定文档ID>@<不可变revision>; Added/Updated/Removed=[TC-ID…] | None(<reason>)
+TestSetTrace: <稳定文档ID>@<不可变revision>; Added=[TC-…]; Updated=[TC-…]; Removed=[TC-…]
+# 本轮无增删时：
+TestSetTrace: <稳定文档ID>@<不可变revision>; None(<reason>)
+PreviousAcceptedTestSetTrace: <上一轮已通过准入的同一行原文> | None(FirstSubmission) | Unavailable(<原因>)
 ```
 
 | 组成 | 取值 | 说明 |
 |---|---|---|
 | `<稳定文档ID>` | 测试集的**长期**文档 ID（不是本次临时文档的链接） | 只有它能证明是同一份长期资产 |
 | `@<不可变revision>` | 版本号 / revision / 快照时间 | 🔴 **不可省略**。URL 可以被覆盖内容，不带 revision 就无法区分"增量维护"与"每次现编"。**若平台 URL 本身已含不可变 revision，两段合并成一个字段即可** |
-| `Added/Updated/Removed=[…]` | 本轮变动的用例 ID | **不要另写一份清单**：测试报告里每条用例自带 `Added` / `Updated` / `Unchanged` 标记时，这段直接由标记推出 |
-| `None(<reason>)` | 本轮确实没有增删时的合法取值 | 必须给理由（如 `None(纯样式改动，复用 TC-042/TC-043)`）。**空着不算** |
+| `Added=[…]` / `Updated=[…]` | 本轮新增 / 修改的用例 ID，**三类分列**（v0.2.1 写成 `Added/Updated/Removed=[…]` 一个列表，无法表达某个 ID 属于哪类，已废） | 这两类**不要另写清单**：测试报告里每条用例自带 `Added` / `Updated` / `Unchanged` 标记时，直接由标记汇总 |
+| `Removed=[…]` | 本轮从测试集**删除**的用例 ID | ⚠️ **必须显式列，推不出来**：被删的用例已不在本轮报告里，`Added/Updated/Unchanged` 标记覆盖不到它。无删除时写 `Removed=[]` |
+| `None(<reason>)` | 本轮确实没有增删时的合法取值（替代上面三段） | 必须给理由（如 `None(纯样式改动，复用 TC-042/TC-043)`）。**空着不算** |
+| `PreviousAcceptedTestSetTrace` | 上一轮通过准入时那一行的**原文** | 🔴 **这是"长期增量维护"唯一能被查证的地方**（v0.2.2 补）。只比 ID 与 revision，**不复制测试集内容** |
 
 | 判定 | 条件 |
 |---|---|
-| `Complete` | `TestSetTrace` 一行齐全（含 revision，且 delta 段有值或有 `None(reason)`） |
-| `Incomplete` | 缺 revision（只给链接）；或 delta 段留空；或文档 ID 指向本次临时文档 |
+| `Complete` | `TestSetTrace` 齐全（含 revision；三段分列或 `None(reason)`）**且** `PreviousAcceptedTestSetTrace` 的稳定文档 ID 与本轮一致、revision 不同（= 同一份资产往前推进了一版） |
+| `Incomplete` | 缺 revision（只给链接）；delta 段留空；`Removed` 段缺失；文档 ID 指向本次临时文档 |
+| `Incomplete` | **文档 ID 与上一轮不同**且未说明迁移原因 —— 这正是「每轮新建一份文档并称其为稳定 ID」的绕过形态 |
+| `Incomplete` | revision 与上一轮**完全相同**却声明了 `Added` / `Updated` / `Removed` —— 自相矛盾（测试集没变却说改了用例） |
+| 首次提测 | `PreviousAcceptedTestSetTrace: None(FirstSubmission)` 合法，但**只有第一次** |
+
+**上一轮那一行从哪里来（v0.2.2 明确取数路径，避免这条控制写了却不可执行）：**
+
+| 优先级 | 来源 | 说明 |
+|---|---|---|
+| ① | 项目侧 `memory/changeset-log.md` 里**最近一条 `TestSetTrace` 非 `N/A` 的行** | v0.2.2 起该列由 `plaud-theme-qa` 在本轮 **`QAAdmissionStatus: Accepted`** 时写入（与 `ReadyForDelivery` 无关，所以 QA 失败的返工轮也有值；列定义见 `plaud-theme-shared/references/handoff-schema.md` §9.2「`memory/` 记录字段」）。这是唯一权威来源 |
+| ② | 用户直接给的上一轮 `QAIntake` 工件原文 | ①不可得时用；须是**已通过准入**（`QAAdmissionStatus: Accepted`）的那一轮，不是任意一轮草稿 |
+| ③ | 都拿不到 | 🔴 **不判 `Incomplete`，也不假装查过**：本轮 `PreviousAcceptedTestSetTrace` 填 `Unavailable(<原因>)`，`SelfTestReportStatus` 按其余条件判定，并在 QA 的 `Advisories` 记「测试集跨轮次连续性本轮无法核验」。**这是过渡条款**：`changeset-log.md` 在 v0.2.2 之前没有 `TestSetTrace` 列，早期项目必然命中③；一旦该列有值就不再适用 |
+
+> ⚠️ **`Unavailable(...)` 的成立条件（v0.2.2 收紧措辞）**：**在 `changeset-log.md` 里找不到任何一条 `TestSetTrace` 非 `N/A` 的历史行，且用户也给不出上一轮已通过准入的工件**。
+> 这包含三种真实情形：① 日志根本没有这一列（v0.2.2 之前的旧日志）；② 有这一列但历史行全是 `N/A(NotAccepted)` / `N/A(NoTestSet)`（例如前几轮都卡在准入）；③ 日志文件本身缺失。
+> **不成立**的情形：日志里明明有可用的历史 trace 却填 `Unavailable` = 契约违规。
+> 填了 `Unavailable` 就必须在 QA 的 `Advisories` 记「测试集跨轮次连续性本轮无法核验」+ 写明属于上面哪一种。
 
 > ⚠️ **矩阵不拥有测试集本身**（与 `memory/` 同类，项目侧长期资产，不随包分发）。这里只查"有没有挂在测试集上、这一版是哪一版、这轮动了哪几条"，**不查测试集内容**。
 > Aily 的审查是**外部人工流程**，矩阵不代替：尚未双方固化时记 QA 的 `Advisories`，**不进 `BlockingGaps`**（那是停机项），也**不因此判 `Incomplete`**。

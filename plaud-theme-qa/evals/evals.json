@@ -1,7 +1,7 @@
 {
   "skill_name": "plaud-theme-qa",
   "matrix": "plaud-shopify-theme-matrix",
-  "version": "v0.2.1",
+  "version": "v0.2.2",
   "evals": [
     {
       "id": 1,
@@ -14,7 +14,7 @@
         "输出判定 ChangeSetIdMatched: No。",
         "输出明确拒绝把额外改动一起验证，要求实现 skill 重新生成 ChangeSetId 与 ChangeSetFingerprint。",
         "输出 ReadyForDelivery: No。",
-        "输出把十个状态字段（含 StyleHardRuleCheck）标为 Blocked（含 FixedDimensionCheck / ImageQualityCheck / CopyConfigurabilityCheck），绝不改填 NotApplicable 或 Passed。",
+        "输出把十一个状态字段（含 StyleHardRuleCheck）标为 Blocked（含 FixedDimensionCheck / ImageQualityCheck / CopyConfigurabilityCheck），绝不改填 NotApplicable 或 Passed。",
         "输出的 ChangeSetIdMatched 取 No（该字段封闭枚举只有 Yes / No，不用 Blocked）。",
         "输出的记录字段（QAProfilesRun / BreakpointsCovered / FingerprintVerifiedAt / Evidence）不填状态枚举。"
       ]
@@ -190,7 +190,7 @@
       "id": 14,
       "route": "output-contract",
       "prompt": "验收结论按矩阵格式给我。",
-      "expected_output": "回复最后是 handoff-schema §5 定义的 23 个字段的 yaml 块（含 FingerprintVerifiedAt），字段名与顺序一字不差。",
+      "expected_output": "回复最后是 handoff-schema §5 定义的 26 个字段的 yaml 块（含 FingerprintVerifiedAt），字段名与顺序一字不差。",
       "files": [],
       "assertions": [
         "输出的最后是一个 yaml 代码块。",
@@ -200,8 +200,63 @@
         "yaml 块包含 ProfileSpecificResults、Evidence、BlockingGaps、ReadyForDelivery 字段。",
         "FingerprintVerifiedAt 如实写出 Step1（验证前）与 Step2（验证后）两次重算的值，不是「已核验」。",
         "yaml 块未出现 handoff-schema §5 之外自造的字段名（例如 QAStatus、Invalidated）。",
-        "即便在用户豁免场景，yaml 块也只含 §5 的 23 个字段，QAStatus 不出现在块内。"
-      ]
+        "即便在用户豁免场景，yaml 块也只含 §5 的 26 个字段，QAStatus 不出现在块内。",
+        "yaml 块还含这些字段：SubmissionId、QAAdmissionStatus、QAAdmissionReason、StyleHardRuleCheck、ApprovedExceptionsChecked、ApprovedExceptionsEvidence、Advisories（v0.2.2 第八轮补：此前断言只覆盖了一部分，漏的字段可以整个不写而 eval 仍通过）。",
+        "yaml 块的 key 集合与 handoff-schema §5（26 字段） **完全一致**：26 个、顺序一致、无自造 key、无漏字段——多一个 key 或少一个 key 都算契约违规。"
+      ],
+      "kind": "rule",
+      "validator": {
+        "type": "yaml-block-exact-keys",
+        "note": "string-contains 无法验证「完全一致」。需 harness 实现结构化校验：取回复最后一个 fenced yaml block → 解析 → Object.keys() 与 expectedKeys 严格相等且顺序相等 → 检查 yaml fence 之后无非空内容 → 检查 forbiddenKeys 均不存在。若 harness 未实现 validator，本条按「未验证」记，不得因 assertions 全中就判通过（v0.2.2 第九轮补：此前这四条只有 substring 断言，缺 key / 多 key / 顺序错都验不出来）。",
+        "expectedKeys": [
+          "ChangeSetId",
+          "SubmissionId",
+          "QAAdmissionStatus",
+          "QAAdmissionReason",
+          "ChangeSetIdMatched",
+          "FingerprintVerifiedAt",
+          "QAProfilesRun",
+          "ThemeCheck",
+          "ThemeCheckEvidence",
+          "ThemeRuntimePreview",
+          "AdminSchemaSave",
+          "RegressionMatrix",
+          "BreakpointsCovered",
+          "LocalizationCheck",
+          "A11yCheck",
+          "FixedDimensionCheck",
+          "ImageQualityCheck",
+          "CopyConfigurabilityCheck",
+          "StyleHardRuleCheck",
+          "ApprovedExceptionsChecked",
+          "ApprovedExceptionsEvidence",
+          "ProfileSpecificResults",
+          "Advisories",
+          "Evidence",
+          "BlockingGaps",
+          "ReadyForDelivery"
+        ],
+        "forbiddenKeys": [
+          "BaseHeadSha",
+          "ChangeSetFingerprint",
+          "ReadOnlyProof",
+          "AssessmentRef",
+          "OriginTriageRef",
+          "Path",
+          "ReconMode",
+          "ModifiedFiles",
+          "RootCause",
+          "OptionsConsidered",
+          "RequiredQAProfile",
+          "ThemeCheckRequired",
+          "VisualRegressionRequired",
+          "BuildRequired",
+          "ApprovedExceptions",
+          "QAStatus",
+          "NextRequiredSkill",
+          "ReadyForImplement"
+        ]
+      }
     },
     {
       "id": 15,
@@ -225,7 +280,7 @@
       "expected_output": "零改动 / 无 ChangeSet 的审计不归 QA：说明归属并转给 plaud-theme-dev，不输出 §5 块、不给 ReadyForDelivery。",
       "files": [],
       "assertions": [
-        "输出说明本 skill 的触发前提是已有 ChangeSetId 或用户明确要最终交付判定。",
+        "输出说明本 skill 的触发前提是已有 ChangeSetId，或用户明确要最终交付判定且该任务确有改动；零改动只读任务即使用户点名也归 plaud-theme-dev。",
         "输出把该请求转给 plaud-theme-dev 的零改动 / 只读通道（由它出 ReadOnlyProof）。",
         "输出不产出 §5 的 yaml 契约块，也不给 ReadyForDelivery。",
         "输出说明 handoff-schema §2 规定零改动任务免 QA（NextRequiredSkill: None）。",
@@ -318,20 +373,25 @@
         "输出说明指纹不匹配即 ChangeSetIdMatched: No，必须停机。",
         "输出拒绝以「我记得代码没动」为由放行。",
         "输出要求上游重新生成 ChangeSetId + ChangeSetFingerprint + BaseHeadSha。",
-        "输出说明 QA 期间不应在仓库里留临时文件，它们会进指纹导致失配。"
+        "输出说明 QA 期间不应在仓库里留临时文件，它们在 memory/ 之外，会进指纹导致失配。"
       ]
     },
     {
       "id": 24,
       "route": "fingerprint-self-invalidation",
       "prompt": "你把 QA 结果写进 memory/changeset-log.md 之后，再算一次指纹发现变了，是不是这次 QA 又失效了？",
-      "expected_output": "指纹须排除 changeset-log，且先算指纹再写 log。",
+      "expected_output": "不是，而且前提就不对：v0.2.2 起 §2 的指纹命令带 `-- . ':(exclude)memory/'`，写 changeset-log 根本不会改变指纹。真变了说明动的是 memory/ 之外的东西——最常见是 QA 自己在仓库里留了临时文件（tc-diff.js / tc-before.json 等），那些必须放 scratchpad。顺序上仍建议先算完 Step2 再写 log（时间顺序与因果顺序一致），但正确性不再依赖这个顺序。",
       "files": [],
       "assertions": [
-        "输出识别出这是 QA 自己写日志导致的自失效，不是真实代码变动。",
-        "输出说明 handoff-schema §2 的指纹命令用 --untracked-files=all，会把 changeset-log 的改动算进去。",
-        "输出说明正确顺序是先算完 Step2 指纹再写 changeset-log。",
-        "输出说明 QA 的临时文件（tc-diff.js / tc-before.json 等）必须放 scratchpad，不能留在仓库里。"
+        "输出说明 §2 的指纹已排除 memory/，写 changeset-log 不会改变指纹。",
+        "输出指出指纹真变了说明动的是 memory/ 之外的东西。",
+        "输出说明 QA 的临时文件（tc-diff.js / tc-before.json 等）必须放 scratchpad，不能留在仓库里。",
+        "输出说明先算 Step2 再写 log 仍是建议做法，但正确性不再依赖它。"
+      ],
+      "forbidden": [
+        "指纹命令会把 changeset-log 的改动算进去",
+        "靠先算指纹再写 log 来规避自失效",
+        "这次 QA 确实又失效了"
       ]
     },
     {
@@ -429,7 +489,7 @@
       "expected_output": "零改动 / 无 ChangeSet 的审计不归 QA：说明归属并转给 plaud-theme-dev，不输出 §5 块、不给 ReadyForDelivery。",
       "files": [],
       "assertions": [
-        "输出说明本 skill 的触发前提是已有 ChangeSetId 或用户明确要最终交付判定。",
+        "输出说明本 skill 的触发前提是已有 ChangeSetId，或用户明确要最终交付判定且该任务确有改动；零改动只读任务即使用户点名也归 plaud-theme-dev。",
         "输出把该请求转给 plaud-theme-dev 的零改动 / 只读通道（由它出 ReadOnlyProof）。",
         "输出不产出 §5 的 yaml 契约块，也不给 ReadyForDelivery。",
         "输出说明 handoff-schema §2 规定零改动任务免 QA（NextRequiredSkill: None）。",
@@ -453,12 +513,19 @@
       "id": 34,
       "route": "no-qa-global-in-required-profile",
       "prompt": "上游工件里 RequiredQAProfile 写的是 QA-A, QA-Global。按这个跑吧。",
-      "expected_output": "QA-Global 由 QA 按 §5 恒执行，不需要上游声明；照跑但指出工件写法有误。",
+      "expected_output": "停机。`QA-Global` 不在 `RequiredQAProfile` 的封闭枚举内（handoff-schema §9.2），属工件不合格：Step 1 的结构核判 ChangeSetIdMatched: No、ReadyForDelivery: No、十一个检查项全 Blocked，BlockingGaps 要求实现 skill 重新输出 §4 工件。不得自行把 QA-Global 删掉照跑——那是 QA 替上游修工件，下一轮同样的错还会来。QA-Global 本身由 QA 按 §5 恒执行，不需要任何声明。",
       "files": [],
       "assertions": [
-        "输出说明 QA-Global 与路径无关、恒执行，不需要上游在 RequiredQAProfile 里声明。",
-        "输出仍然执行 QA-Global 的全部检查。",
-        "输出指出上游工件的 RequiredQAProfile 写法与 handoff-schema §3/§4 不符。"
+        "输出停机，判 ChangeSetIdMatched: No 与 ReadyForDelivery: No。",
+        "输出说明 QA-Global 不在 RequiredQAProfile 的封闭枚举内，属工件不合格。",
+        "输出拒绝自行删掉 QA-Global 后照跑。",
+        "输出说明 QA-Global 由 QA 恒执行、不需要上游声明。",
+        "输出要求实现 skill 重新输出 §4 工件。"
+      ],
+      "forbidden": [
+        "照跑但指出写法有误",
+        "仍然执行全部检查后判 Passed",
+        "我把 QA-Global 忽略掉继续验"
       ]
     },
     {
@@ -530,16 +597,24 @@
     },
     {
       "id": 40,
-      "route": "orange-tier-approval-ref-empty",
-      "prompt": "这个 ChangeSet 故意给一个不合规的默认值（新加的标题字段默认值用了已废止的 tertiary 灰）。实现方在 OptionsConsidered 里写了「与设计确认过，先这样」。可以放行吗？",
-      "expected_output": "不放行。这属于 ApprovedException，必须有 PM / 设计 / 技术 owner 的书面 ApprovalRef；「与设计确认过」没有链接视同为空，ApprovalRef 为空直接 Failed。而且它是本次新建字段的默认值，红线⑩下仍是 🔴。",
+      "route": "approved-exception-closed-list",
+      "prompt": "这个 ChangeSet 给新加的标题字段设了一个不合规的默认值（用了已废止的 tertiary 灰）。我拿到了设计负责人在飞书上的书面批准链接，走 ApprovedException 放行吧？",
+      "expected_output": "不行。§8.1 第 10 条「本次新建/修改字段的默认值合规性」是 🔴，不在 ApprovedException 的封闭适用清单内——当前清单里只有 §8 红线⑤ 的 A11y 3.0–4.5 allowlist 配对一项。有效的批准链接也不改判：只能进 BlockingGaps 记「规范缺口待裁决」，StyleHardRuleCheck 仍 Failed，ApprovedExceptionsChecked: Failed（Clause 不在清单内）。正确处理是先改规范或改默认值再交付。",
       "files": [],
       "assertions": [
-        "输出区分 EvidenceBased 与 ApprovedException 两类，不把它当成写了理由就放行。",
-        "输出指出 ApprovalRef 为空时判 Failed，不是 Blocked。",
-        "输出指出无链接的口头确认视同为空。",
-        "输出指出本次新建/修改字段的默认值仍属红线，不适用存量豁免。",
+        "输出拒绝放行，判 Failed。",
+        "输出说明 ApprovedException 有封闭适用清单，第 10 条不在其中。",
+        "输出说明当前封闭清单里只有 A11y 3.0–4.5 allowlist 一项。",
+        "输出 ApprovedExceptionsChecked: Failed 并给出理由是 Clause 不在清单内。",
+        "输出说明正确处理是先改规范或改默认值，批准链接只能进 BlockingGaps。",
         "输出 ReadyForDelivery: No。"
+      ],
+      "forbidden": [
+        "有 ApprovalRef 就可以判 Passed",
+        "拿到设计方书面批准即可放行",
+        "判定 StyleHardRuleCheck: Passed",
+        "判定 ReadyForDelivery: Yes",
+        "判定 ApprovedExceptionsChecked: Passed"
       ]
     },
     {
@@ -554,7 +629,100 @@
         "输出拒绝跳过空配置 / 满配置双测。",
         "输出要求给出 BaseHeadSha 已存在的可复跑证据命令，举证责任在实现方。",
         "输出要求回归仍覆盖 plaud-theme-impact 的 ActualAffectedInstances。"
+      ],
+      "forbidden": [
+        "存量豁免覆盖本次新挂载带来的可达路径，可判 Passed",
+        "本轮可以跳过空配置与满配置双测",
+        "回归范围可以按存量豁免缩小",
+        "无需提供 BaseHeadSha 证据即可适用豁免"
+      ]
+    },
+    {
+      "id": 42,
+      "route": "approved-exceptions-empty-vs-notapplicable",
+      "prompt": "这个 ChangeSet 一条 ApprovedException 都没声明，ApprovedExceptions 我填了 []。ApprovedExceptionsChecked 填 Blocked 还是 NotApplicable？",
+      "expected_output": "填 NotApplicable —— §4 的 ApprovedExceptions 为 [] 时本项就是 NotApplicable。注意本字段的取值界线：ApprovalRef 为空 / 越界 / 自批 → Failed（判过了，不成立）；提供了但核不动（403、权限不足、平台故障）→ Blocked；这里两种都不是。",
+      "files": [],
+      "assertions": [
+        "输出 ApprovedExceptionsChecked: NotApplicable。",
+        "输出说明 §4 为 [] 是本项 NotApplicable 的条件。",
+        "输出说明 ApprovalRef 为空属于 Failed，不是 Blocked。",
+        "输出说明 Blocked 留给「提供了但核不动」的情形。"
+      ],
+      "forbidden": [
+        "ApprovedExceptionsChecked: Blocked",
+        "QAAdmissionStatus: Blocked"
+      ]
+    },
+    {
+      "id": 43,
+      "route": "changeset-log-testsettrace-column",
+      "prompt": "全部检查通过，ReadyForDelivery: Yes。我按老格式往 memory/changeset-log.md 追加了一行（ChangeSetId / Path / QAProfilesRun / ReadyForDelivery / RunAt / ChangeSetFingerprint / Status / Note）。另外提测包里那行 TestSetTrace 我看格式有点乱，帮它规整了一下再抄进去可以吧？",
+      "expected_output": "两处要改。① v0.2.2 起 changeset-log 多一列 TestSetTrace，Yes 的行必须填；② 必须原样抄自 QAIntake 工件，不得规整或补全——下一轮 qa-intake 要拿它和新一轮比对，改写过就失去比对意义。另外注意写 log 的时点在 Step 2 指纹重算之后。（🔴 harness 是全局 substring：回答里**不要复述** forbidden 列出的那串错误赋值，要指代就换个说法，例如「不得把该字段填成 Yes」。）",
+      "files": [],
+      "assertions": [
+        "输出指出 changeset-log 需要 TestSetTrace 列。",
+        "输出要求原样抄自 QAIntake 工件，不得规整或补全。",
+        "输出说明下一轮 qa-intake 靠这一列核跨轮次连续性。",
+        "输出提醒先重算 Step 2 指纹再写 log。"
+      ],
+      "forbidden": [
+        "ApprovedExceptionsChecked: Blocked"
+      ]
+    },
+    {
+      "id": 44,
+      "route": "changeset-log-trace-on-qa-failure",
+      "prompt": "这轮提测包是齐的、准入过了（QAAdmissionStatus: Accepted），但 QA-C 首项 Failed，ReadyForDelivery: No。写 changeset-log 时 TestSetTrace 那列我填 N/A(NotAccepted) 吧？",
+      "expected_output": "不对。锚点是 QAAdmissionStatus: Accepted，与 ReadyForDelivery 无关——本轮准入过了就要把 QAIntake 工件里那一行原样抄进 TestSetTrace。填 N/A(NotAccepted) 会让下一轮 qa-intake 取不到历史 trace，测试集连续性在返工轮断链，而返工正是最容易换文档的时候。N/A(NotAccepted) 只用于 QAAdmissionStatus: Blocked。",
+      "files": [],
+      "assertions": [
+        "输出指出锚点是 QAAdmissionStatus: Accepted，不是 ReadyForDelivery。",
+        "输出要求把 QAIntake 工件里那一行原样抄进 TestSetTrace。",
+        "输出说明 N/A(NotAccepted) 只用于 QAAdmissionStatus: Blocked。",
+        "输出说明填错会让下一轮取不到历史 trace、连续性在返工轮断链。"
+      ],
+      "forbidden": [
+        "ReadyForDelivery: No 时应填 N/A(NotAccepted)",
+        "我按 QA 失败跳过了 TestSetTrace"
+      ]
+    },
+    {
+      "id": 45,
+      "route": "malformed-section4-artifact-missing-fields",
+      "prompt": "上游交过来的工件里 ChangeSetId / BaseHeadSha / ChangeSetFingerprint / ModifiedFiles 都有，但没有 ApprovedExceptions 和 OriginTriageRef 这两行。本块确实没有批准例外、也不是返工，你就当它们是空的往下验吧？",
+      "expected_output": "不行，停机。§4 是 20 个字段，**整字段缺失 ≠ 填 [] 或 N/A**：前者是工件不完整（退回重出），后者才是\"本块没有\"。Step 1 的结构核判 ChangeSetIdMatched: No、ReadyForDelivery: No、十一个检查项全 Blocked，BlockingGaps 逐个列出缺的字段，要求实现 skill 重新输出。不得替上游补上。",
+      "files": [],
+      "assertions": [
+        "输出停机，不执行检查项。",
+        "输出说明 §4 是 20 个字段，缺字段即工件不完整。",
+        "输出区分「整字段缺失」与「填 [] / N/A」两者不等价。",
+        "输出拒绝替上游补字段。",
+        "输出 BlockingGaps 里逐个列出缺失字段名。"
+      ],
+      "forbidden": [
+        "当它们是空的继续验",
+        "我替上游补上这两个字段",
+        "缺这两行不影响验收"
+      ]
+    },
+    {
+      "id": "qa-46-memory-commit-invalidates",
+      "prompt": "QA 都跑完了，结论也写进 memory/changeset-log.md 了，我顺手把这个 log 一起 commit 了。现在重算指纹跟记录的对不上——不过改的只是 memory/，指纹本来就排除它，应该可以当作没变吧？",
+      "expected_output": "不能。指纹排除 memory/ 只覆盖**工作树与暂存区**：payload 的第一行是 git rev-parse HEAD，git commit 改了 HEAD，指纹与 BaseHeadSha 就一起变了——「排除 memory/」这个保证只在日志**不被提交**时成立。所以本轮判 Invalidated：要求实现 skill 生成新的 ChangeSetId + BaseHeadSha + ChangeSetFingerprint，整轮重跑，不得只补验变动的那部分。并说明正确做法：memory/ 的更新留在工作树不单独 commit；确需入库只能在出结论**之前**连同主题改动一起提交，然后重新取证。",
+      "assertions": [
+        "输出判定为失效 / Invalidated，不放行。",
+        "输出指出 HEAD 在指纹 payload 里，commit 会同时改变 ChangeSetFingerprint 与 BaseHeadSha。",
+        "输出指出「排除 memory/」只覆盖工作树与暂存区，不覆盖 commit。",
+        "输出要求整轮重跑而不是只补验变动部分。",
+        "输出给出正确做法：memory/ 更新不单独 commit，确需入库须在出结论之前连同主题改动一起提交并重新取证。"
+      ],
+      "forbidden": [
+        "ChangeSetIdMatched: Yes",
+        "ReadyForDelivery: Yes",
+        "我按 memory/ 已排除放行了"
       ]
     }
-  ]
+  ],
+  "description": "\n- 🔴 **不要把「否定短语」写成 forbidden**：正确答案常引用题面措辞来否定它（「不能 X」含「X」），全局 substring 会误判。要禁就禁**赋值形态**或明确的错误结论句。 forbidden 判据（v0.2.2 第九轮定稿）：只写「错误工件里必然出现、正确工件里不可能出现」的赋值形态；不要写否定短语或裸概念词（`可以并行` 会被「不可以并行」命中）；也不要写会被正确答案顺带复述的串——确实需要禁某个赋值时，同时在 expected_output 里注明「不要复述该串」。能用 assertions 表达的约束一律走 assertions，不进 forbidden。"
 }

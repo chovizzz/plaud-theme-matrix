@@ -8,9 +8,12 @@ description: >
   disconnectedCallback 没清理 timer/observer、DOMParser 重复创建、循环里输出
   stylesheet_tag、图片没 width/height 导致 CLS、lazy-load 与 Swiper effect 冲突、
   组件写死宽高需要适配、给某个 section 加个新功能/新开关；
-  以及**没有 ChangeSetId、用户也没要求最终交付判定**时的只读 code review /
-  A11y 无障碍审计 / 对比度、aria-label、focus-visible 审计
-  （已有 ChangeSetId 或用户要最终交付判定 → 改走 plaud-theme-qa）。
+  以及**零改动（没有 ChangeSetId）**的只读 code review /
+  A11y 无障碍审计 / 对比度、aria-label、focus-visible 审计——
+  **用户要不要"最终交付判定"都不改变归属**：零改动没有 ChangeSet 可绑，
+  plaud-theme-qa 结构上接不了、会原样转回来（v0.2.2 第八轮修掉的 dev↔QA 回环）；
+  此时按 §2 只读通道出 ReadOnlyProof，ReadyForDelivery 填 N/A(ReadOnly) 并说明
+  "零改动不存在交付判定"。已有 ChangeSetId（即有改动）→ 走 plaud-theme-qa。
   只要是 Plaud 主题（plaudRelease、plaudAsen、
   PLAUD SG、shopify-plaud-sg-test 等仓库）的 sections/snippets/assets/Liquid/CSS/JS
   改动且不属于 Path B / Path C，就用本 skill。
@@ -187,7 +190,7 @@ Path A 的实现层。**输入**是 `plaud-theme-impact` 的 Assess 工件，**�
 
 ### 只读任务（零改动）的契约变形 —— 全部取自 `handoff-schema.md` §2「零改动任务」
 
-**无 `ChangeSetId` 的只读审计（code review / A11y 审计）归本 skill**，不归 `plaud-theme-qa`——QA 的触发前提是「已有 `ChangeSetId`」或「用户明确要最终交付判定」。
+**无 `ChangeSetId` 的只读审计（code review / A11y 审计）归本 skill**，不归 `plaud-theme-qa`——QA 的触发前提是「已有 `ChangeSetId`」或「用户明确要最终交付判定**且该任务确有改动**」。🔴 零改动时用户要「最终判定」也不转 QA（v0.2.2 第八轮修的 dev↔QA 回环）：直接答复「零改动没有 ChangeSet 可绑，不存在交付判定」，出 `ReadOnlyProof` + `ReadyForDelivery: N/A(ReadOnly)` 收尾。
 
 | 字段 | 只读任务取值 |
 |---|---|
@@ -210,9 +213,12 @@ Path A 的实现层。**输入**是 `plaud-theme-impact` 的 Assess 工件，**�
 否则可以先改代码、再输出 `ModifiedFiles: []` 并声称"这只是审计"，从而完全绕开 QA。**审计开始前和结束后各取一次快照，两次必须完全一致**：
 
 ```bash
+# 🔴 用 handoff-schema §2 那段 plaud_fingerprint，原样复制。
 git rev-parse HEAD
-git status --porcelain -z --untracked-files=all | tr '\0' '\n' | sort | shasum -a 256
+plaud_fingerprint
 ```
+
+> 🔴 **不要用 `git status --porcelain | shasum` 做这个快照**（v0.2.2 第五轮修）：它只含状态码与路径、不含内容。工作树**一开始就 dirty** 时，审计中改**同一个文件的内容**，前后两次 hash **完全相同**（已实测复现）——那正好是本节要堵的"先改代码再声称只读"，旧命令堵不住。
 
 两次的 HEAD 与 hash 如实写进 `ReadOnlyProof`。**两次不一致 = 这不是只读任务**：立即退出只读通道，生成正式 `ChangeSetId` + `BaseHeadSha` + `ChangeSetFingerprint`，走完 Assess → Implement → Verify。不得以"只是顺手改了一点"为由留在只读通道里。
 
@@ -269,19 +275,16 @@ git status --porcelain -z --untracked-files=all | tr '\0' '\n' | sort | shasum -
 ```bash
 # BaseHeadSha
 git rev-parse HEAD
-
-# ChangeSetFingerprint —— 覆盖内容、权限、删除态、未跟踪文件
-{
-  git rev-parse HEAD
-  git status --porcelain=v1 -z --untracked-files=all | tr '\0' '\n'
-  git diff HEAD --find-renames=false | git hash-object --stdin
-  git ls-files --others --exclude-standard -z | tr '\0' '\n' | sort | while read -r f; do
-    [ -n "$f" ] && printf '%s %s %s\n' "$f" "$(git hash-object "$f")" "$(ls -l "$f" | cut -c1-10)"
-  done
-} | shasum -a 256 | cut -d' ' -f1
 ```
 
-命令原文以 §2 为准（本节与 §2 冲突时以 §2 为准）。QA 会在**执行任何检查之前**用同一命令重算并精确比对；不一致即 `ChangeSetIdMatched: No` + 停机。**生成指纹后不要再动工作树**——包括"顺手把格式化跑一下"。
+🔴 **`ChangeSetFingerprint` 的命令不在本文件里，只在 `plaud-theme-shared/references/handoff-schema.md` §2。**
+去那里**原样复制**那段 `plaud_fingerprint()` 执行，不要凭记忆敲、不要用任何别处看到的版本。
+
+> **为什么这里不再内嵌一份副本**（v0.2.2 删除）：本节以前抄了一份，附一句"冲突时以 §2 为准"——但那句话拦不住任何人：命令是**可执行**的，抄本一旦落后就会真的算出另一个指纹。这份抄本当时落后了整整两代，仍在用 `--find-renames=false`、`printf "$(git hash-object …)"`（命令替换吞错）、`{ … } | shasum`（子 shell 吞错）、且不排除 `memory/`。
+> 后果不是"多阻断"，而是**producer 算出一个假指纹、QA 用 canonical 重算必然失配**——正常交付会被永久判 `ChangeSetIdMatched: No`；反过来若两边都用旧抄本，则未跟踪文件与 `memory/` 之外的改动可能压根不进指纹。
+> 指纹类命令**只允许有一处事实源**。
+
+QA 会在**执行任何检查之前**用同一命令重算并精确比对；不一致即 `ChangeSetIdMatched: No` + 停机。**生成指纹后不要再动工作树**——包括"顺手把格式化跑一下"。
 
 零改动（只读）任务这两个字段填 `N/A`，改填 `ReadOnlyProof`。
 
@@ -301,12 +304,16 @@ OriginTriageRef:          # 本块若由反馈返工产生：TriageId + ItemId�
 Path: A
 ReconMode:               # LegacyImpact | InlineLite（须附豁免理由 + 判定命令原文）；只读填 N/A(ReadOnly)
 ModifiedFiles:           # 逐个文件路径 + 一句话改动；必须与工作树一致；只读任务填 [] （不要留空 scalar）
+                         #   🔴 **不含 memory/ 下的文件**（不属于 ChangeSet，已排除在 §2 指纹与 QA 集合比对之外）
 RootCause:               # 机制层根因
 OptionsConsidered:       # 非平凡 ≥2 方案 + 取舍；平凡改动填 Trivial
 RequiredQAProfile:       # QA-A（可多选 QA-B / QA-C）。🔴 不得写 QA-Global——QA 按 §5 恒执行
 ThemeCheckRequired:      # Yes | No
 VisualRegressionRequired: # Yes | No
 BuildRequired:           # Yes | No
+ApprovedExceptions:      # 逐项声明的 🟠 ApprovedException；无则填 []
+                         #   Clause 只能取 shared §8.1 封闭清单内的条款；Scope 必须逐对象/配对绑定
+                         #   ApprovalRef 为空、或 ApprovedBy 是自己 → QA 判 Failed（见 shared §8.1）
 BlockingGaps:
 QAStatus: NotRun
 NextRequiredSkill: plaud-theme-qa-intake   # 零改动任务填 None

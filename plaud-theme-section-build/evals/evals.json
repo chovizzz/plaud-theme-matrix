@@ -1,7 +1,7 @@
 {
   "skill_name": "plaud-theme-section-build",
   "skill": "plaud-theme-section-build",
-  "version": "v0.2.1",
+  "version": "v0.2.2",
   "path": "B",
   "stage": "Implement",
   "evals": [
@@ -260,13 +260,18 @@
     {
       "id": "sb-22-empty-and-full-config-dual-test",
       "prompt": "section 写完了，我在后台填满内容看了一遍没问题，可以交了吗？",
-      "expected_output": "必须空配置与满配置双测，加英译德长文案与多语种自检；且实现侧无权判定通过，须先交 plaud-theme-qa-intake（提测准入），再由 plaud-theme-qa 判定。",
+      "expected_output": "必须空配置与满配置双测，加英译德长文案与多语种自检；且实现侧无权判定通过，NextRequiredSkill 填 plaud-theme-qa-intake（提测准入），材料齐了才由 plaud-theme-qa 判定。",
       "assertions": [
         "空配置",
         "满配置",
         "双测",
         "德",
-        "plaud-theme-qa"
+        "plaud-theme-qa-intake",
+        "plaud-theme-qa",
+        "输出的 NextRequiredSkill 是 plaud-theme-qa-intake（提测准入），不是直接给 plaud-theme-qa；并说明实现侧无权判定通过。"
+      ],
+      "forbidden": [
+        "ReadyForDelivery: Yes"
       ]
     },
     {
@@ -293,7 +298,7 @@
     {
       "id": "sb-25-handoff-contract-block",
       "prompt": "sa-shop-banner 做完了。上游评估是 ASMT-20260806-07（IntegrationSurface，ReadyForImplement: Yes，BlockingGaps 为空），git status 显示只有三个新增文件：sections/sa-shop-banner.liquid、assets/sa-shop-banner.css、snippets/sa-shop-banner-card.liquid。给我交接信息。",
-      "expected_output": "回复最后是 handoff-schema §4 的 yaml 块，含 CS-<YYYYMMDD>-B<NN> 格式的 ChangeSetId、交付当刻现算的 BaseHeadSha 与 ChangeSetFingerprint、ReadOnlyProof: N/A、Path: B、RequiredQAProfile 含 QA-B 且不含 QA-Global、QAStatus: NotRun、ReadyForDelivery: No、NextRequiredSkill: plaud-theme-qa。",
+      "expected_output": "回复最后是 handoff-schema §4 的 yaml 块，含 CS-<YYYYMMDD>-B<NN> 格式的 ChangeSetId、交付当刻现算的 BaseHeadSha 与 ChangeSetFingerprint、ReadOnlyProof: N/A、Path: B、RequiredQAProfile 含 QA-B 且不含 QA-Global、QAStatus: NotRun、ReadyForDelivery: No、NextRequiredSkill: plaud-theme-qa-intake，以及 ApprovedExceptions（本块无声明则为 []）。",
       "assertions": [
         "ChangeSetId:",
         "ReadOnlyProof",
@@ -314,14 +319,73 @@
         "ThemeCheckRequired:",
         "VisualRegressionRequired:",
         "BuildRequired:",
+        "ApprovedExceptions:",
         "BlockingGaps:",
         "QAStatus: NotRun",
         "NextRequiredSkill: plaud-theme-qa-intake",
-        "ReadyForDelivery: No"
+        "ReadyForDelivery: No",
+        "yaml 块还含这些字段：OriginTriageRef。",
+        "yaml 块的 key 集合与 handoff-schema §4（20 字段）**完全一致**：20 个、顺序一致、无自造 key、无漏字段。"
       ],
       "forbidden": [
-        "QA-Global"
-      ]
+        "RequiredQAProfile: QA-Global",
+        "RequiredQAProfile 含 QA-Global",
+        "QA-A, QA-Global",
+        "QA-B, QA-Global",
+        "QA-C, QA-Global"
+      ],
+      "kind": "rule",
+      "validator": {
+        "type": "yaml-block-exact-keys",
+        "note": "string-contains 无法验证「完全一致」。需 harness 实现结构化校验：取回复最后一个 fenced yaml block → 解析 → Object.keys() 与 expectedKeys 严格相等且顺序相等 → 检查 yaml fence 之后无非空内容 → 检查 forbiddenKeys 均不存在。若 harness 未实现 validator，本条按「未验证」记，不得因 assertions 全中就判通过（v0.2.2 第九轮补：此前这四条只有 substring 断言，缺 key / 多 key / 顺序错都验不出来）。",
+        "expectedKeys": [
+          "ChangeSetId",
+          "BaseHeadSha",
+          "ChangeSetFingerprint",
+          "ReadOnlyProof",
+          "AssessmentRef",
+          "OriginTriageRef",
+          "Path",
+          "ReconMode",
+          "ModifiedFiles",
+          "RootCause",
+          "OptionsConsidered",
+          "RequiredQAProfile",
+          "ThemeCheckRequired",
+          "VisualRegressionRequired",
+          "BuildRequired",
+          "ApprovedExceptions",
+          "BlockingGaps",
+          "QAStatus",
+          "NextRequiredSkill",
+          "ReadyForDelivery"
+        ],
+        "forbiddenKeys": [
+          "SubmissionId",
+          "QAAdmissionStatus",
+          "QAAdmissionReason",
+          "ChangeSetIdMatched",
+          "FingerprintVerifiedAt",
+          "QAProfilesRun",
+          "ThemeCheck",
+          "ThemeCheckEvidence",
+          "ThemeRuntimePreview",
+          "AdminSchemaSave",
+          "RegressionMatrix",
+          "BreakpointsCovered",
+          "LocalizationCheck",
+          "A11yCheck",
+          "FixedDimensionCheck",
+          "ImageQualityCheck",
+          "CopyConfigurabilityCheck",
+          "StyleHardRuleCheck",
+          "ApprovedExceptionsChecked",
+          "ApprovedExceptionsEvidence",
+          "ProfileSpecificResults",
+          "Advisories",
+          "Evidence"
+        ]
+      }
     },
     {
       "id": "sb-26-no-numeric-duplication",
@@ -376,5 +440,6 @@
         "不用于"
       ]
     }
-  ]
+  ],
+  "description": "\n- 🔴 **不要把「否定短语」写成 forbidden**：正确答案常引用题面措辞来否定它（「不能 X」含「X」），全局 substring 会误判。要禁就禁**赋值形态**或明确的错误结论句。 forbidden 判据（v0.2.2 第九轮定稿）：只写「错误工件里必然出现、正确工件里不可能出现」的赋值形态；不要写否定短语或裸概念词（`可以并行` 会被「不可以并行」命中）；也不要写会被正确答案顺带复述的串——确实需要禁某个赋值时，同时在 expected_output 里注明「不要复述该串」。能用 assertions 表达的约束一律走 assertions，不进 forbidden。"
 }

@@ -68,7 +68,7 @@ plaud-theme-release-ops ← 能不能推站
 ## 执行顺序
 
 ```
-Step 0  取上游 Implement 工件（ChangeSetId / ChangeSetFingerprint / ModifiedFiles / AssessmentRef）
+Step 0  取上游 Implement 工件（ChangeSetId / ChangeSetFingerprint / ModifiedFiles / AssessmentRef / OriginTriageRef）
 Step 1  确认提测材料**不在主题仓库工作树内**  ← 前置门，先于一切
 Step 2  逐项校验六份材料（见 references/package-checklist.md）
 Step 3  站点维度：TargetSites / ExcludedSites / ThemeIds / ScopeSourceRef
@@ -84,6 +84,14 @@ Step 5  汇总 SubmissionPackageStatus，输出 §9.1.2 契约块
 
 拿不到 `ChangeSetId` → 停机，要实现 skill 补。**不得**自己编一个。
 
+🔴 **`OriginTriageRef` 也必须在 Step 0 一起取**（v0.2.2 第八轮补）。它是 §4 里唯一承载"这一块是不是返工"的字段（`N/A` = 非返工；填了 §9.1.3 的 `TriageId` + `ItemId` = 由反馈返工产生）。Step 2 的 `ReworkDeltaStatus` 要判"首轮还是返工"，此前的消费清单里却没有它——没有事实源，agent 只能默认填 `NotApplicable`，于是**返工轮次的「本轮修改点」整份漏收**。判据固定为：
+
+| `OriginTriageRef` | `ReworkDeltaStatus` |
+|---|---|
+| `N/A` | `NotApplicable`（首轮提测） |
+| 有 `TriageId` + `ItemId` | 必须收到「本轮修改点」，否则 `Incomplete` |
+| 字段整个缺失 | 停机，要实现 skill 按 §4 重出——**缺失 ≠ `N/A`** |
+
 ### Step 1 — 材料不得落进主题仓库（前置门）
 
 > 🔴 这是本 skill 唯一会把整件事搞砸的操作，所以放在最前面。
@@ -94,10 +102,14 @@ Step 5  汇总 SubmissionPackageStatus，输出 §9.1.2 契约块
 
 ```bash
 # 在主题仓库根目录跑，确认工作树与 Implement 交付时一致
-git status --porcelain=v1 --untracked-files=all
+# 🔴 必须排除 memory/：它不属于 ChangeSet，也已排除在 §2 指纹与 QA 集合比对之外。
+#    不排除的话，Path C 合法的 memory/模块清单.md 更新会被当成"材料落仓"，正常流程被假阻断。
+git status --porcelain=v1 --untracked-files=all -- . ':(exclude)memory/'
 ```
 
-输出里若出现 `.png` / `.jpg` / `.md` / `.pdf` 等材料文件 → **停机**，要求把材料移到仓库外的独立目录或云文档，然后重新走 Implement 的指纹生成。
+输出里若出现 `.png` / `.jpg` / `.pdf` 等材料文件 → **停机**，要求把材料移到仓库外的独立目录或云文档，然后重新走 Implement 的指纹生成。
+
+> 🔴 **`.md` 不能一律当材料**：主题仓库里本来就有合法的 `.md`（`README` / `docs/` / `dev/` 下的说明）。判据是**这个文件是不是本次提测的六项材料之一**（截图 / 配置文档 / 测试报告 / 影响范围说明 / 返工修改点），不是看扩展名。拿不准就问，别按后缀一刀切。
 
 材料的正确落点：仓库外的独立目录、飞书云文档、Linear 附件。
 
@@ -109,10 +121,10 @@ git status --porcelain=v1 --untracked-files=all
 |---|---|
 | `PreviewManifestStatus` | 后台 + 前端链接都**实测访问过**并记时间；后台链接必须能看到并修改配置。内容记在 `PreviewManifest`，判定记在本字段 |
 | `ConfigurationGuideStatus` | 新 section / 新配置项必交，含字段说明 + 默认值 + 使用场景 + 填错怎么办 + **关键部分截图** |
-| `SelfTestReportStatus` | 用例四段式且**有附件截图/视频**；预期结果写"显示正常"的**视同未测**；另需一行 **`TestSetTrace`**（稳定文档 ID **@不可变 revision** + 本轮 Added/Updated/Removed 或 `None(reason)`） |
+| `SelfTestReportStatus` | 用例四段式且**有附件截图/视频**；预期结果写"显示正常"的**视同未测**；另需 **`TestSetTrace`** + **`PreviousAcceptedTestSetTrace`**（稳定文档 ID **@不可变 revision**；Added / Updated / Removed 三类分列，或 `None(reason)`；与上一轮同 ID、不同 revision）。`PreviousAcceptedTestSetTrace` 另可取 `None(FirstSubmission)` 或 `Unavailable(<原因>)`（后者仅限**找不到任何非 `N/A` 历史 trace 且用户给不出上一轮工件**，此时不判 `Incomplete`、改记 QA 的 `Advisories`）。完整规则见 `references/package-checklist.md` §3 |
 | `ScreenshotManifestStatus` | 8 张：`375 / 768 / 1024 / 1280 / 1440` + 边界 `767 / 1279 / 1599` |
 | `ImpactScopeStatus` | 引用 `AssessmentRef` 的模板/实例结论 + 本 skill 补的站点维度 |
-| `ReworkDeltaStatus` | 返工轮次必交「本轮修改点」；首轮提测填 `NotApplicable` |
+| `ReworkDeltaStatus` | 返工轮次必交「本轮修改点」；首轮提测填 `NotApplicable`。**首轮/返工以 Step 0 取到的 `OriginTriageRef` 判定**，不靠感觉、不靠用户口述 |
 
 ### Step 3 — 站点维度（`AssessmentRef` 覆盖不到）
 
@@ -131,7 +143,18 @@ git status --porcelain=v1 --untracked-files=all
 
 命令见 handoff-schema §9.1.2。它绑的是**材料本身**（各文件 hash + 预览 URL 原文），与主题仓库的 `ChangeSetFingerprint` 是两条独立的链。
 
-**材料放飞书云文档 / Linear 附件时**：本地目录放一份 `materials.tsv` manifest（材料名 / URI / 版本号 / digest 或人工核对时间）参与 hash，见 handoff-schema §9.1.2。manifest 只能证明"引用没变"，云文档内容变化只有平台给了版本号才能测出——这是该链的已知弱环，在 `BlockingGaps` 如实注明。
+**材料放飞书云文档 / Linear 附件时**：本地目录放一份 `materials.tsv` manifest（材料名 / URI / **不可变版本号或 revision** / **内容 digest**）参与 hash，见 handoff-schema §9.1.2。
+
+🔴 **不能内容绑定的材料一律判 `Incomplete`，不是"记进 `BlockingGaps` 就放行"**（v0.2.2 更正：此前这里写成"已知弱环，在 `BlockingGaps` 如实注明"，与 canonical 相反，等于给防替换链留了个公开的洞——把材料挂在无版本外链上、内容随便换、指纹照样对得上、`SubmissionPackageStatus` 照样 `Complete`）。
+
+| 材料位置 | 怎么进指纹链 |
+|---|---|
+| 本地文件（截图等） | 直接 hash 文件内容 |
+| 飞书云文档 | manifest 记 URI + **文档版本号 / revision**；改了内容版本号会变 → 指纹变 |
+| Linear 附件 | manifest 记 URI + 附件 ID |
+| **无版本号 / 无 digest 可取的外链** | 🔴 **不允许** → 该材料 `Incomplete`。要么下载一份到本地目录参与 hash，要么换成能取版本号的载体 |
+
+`BlockingGaps` 是**停机项**，不是免责栏。完整规则见 handoff-schema §9.1.2。
 
 拿到 `PACKAGE_FINGERPRINT_FAILED` 或空值 → 停机，不得用占位符填。
 
@@ -168,7 +191,7 @@ QA 的 Step 0 会读本工件：
 - `SubmissionPackageStatus: Complete` → `QAAdmissionStatus: Accepted`，QA 继续走它的指纹校验。
 - `SubmissionPackageStatus: Incomplete` → `QAAdmissionStatus: Blocked` + `ReadyForDelivery: No`，**QA 零验证项执行**，并把本 skill 的 `BlockingGaps` 原样带出。
 
-**唯一免提测包的情形**（此时 QA 填 `SubmissionId: N/A` + `QAAdmissionStatus: Accepted`）：**零改动只读任务**。
+🔴 **不存在"免提测包但仍进 QA"的情形**（v0.2.2 第八轮更正）。此前这里写「零改动只读任务免提测包，QA 填 `SubmissionId: N/A` + `QAAdmissionStatus: Accepted`」——那条路第七轮已随 `ZeroChangeReadOnly` 一并废止：零改动任务**根本不进本 skill、也不进 QA**（handoff-schema §2 / §5 准入门第 3 条），它由实现 skill 出 §4 工件 + `ReadOnlyProof`，`NextRequiredSkill: None`、`ReadyForDelivery: N/A(ReadOnly)` 收尾。给一个没有 ChangeSet 的只读审计发 `Accepted`，等于发一张没有验证含义的通过记录。
 
 用户说"这次不走提测流程"时，QA 的 `QAAdmissionStatus` 仍为 `Blocked`（按 handoff-schema §1.5 的弃检口径处理，`ReadyForDelivery` 恒为 `No`）——用户可以决定不交材料，但不会因此拿到一张"准入通过"的记录。
 

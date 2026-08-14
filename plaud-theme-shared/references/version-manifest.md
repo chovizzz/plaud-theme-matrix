@@ -8,9 +8,9 @@
 
 | 项 | 值 |
 |---|---|
-| 矩阵包版本 | **v0.2.1** |
-| 包名 | `plaud-shopify-theme-matrix-v0.2.1` |
-| 契约版本（`ContractVersion`） | **v0.2.1** |
+| 矩阵包版本 | **v0.2.2** |
+| 包名 | `plaud-shopify-theme-matrix-v0.2.2` |
+| 契约版本（`ContractVersion`） | **v0.2.2** |
 | 对应 UX Spec 版本 | **v1.3 · 2026-08-11 设计 Token 基线**（源文档 `Plaud-UX-v1.3`「设计 Token 与组件规范文档」，8 页 PDF）。它取代了 v0.1.0 依据的 `PLAUD_UX_规范基准_v1.3.md`（含 2026-07 补充修订 4 条）——版本号同为 v1.3，但内容是重新整理过的一版，差异见 CHANGELOG |
 | 对应交付标准 | **《DTC 开发交付标准 v1.0》**（2026-08-06，运营与产研共同维护，双周会可审议修订） |
 | 前身 | v0.1.0（7 skill）；再前身是单 skill 包 `plaud-shopify-theme-skill` |
@@ -25,7 +25,7 @@
 | order | skill | 一句话职责 | 阶段 / 路径 |
 |---|---|---|---|
 | **0** | `plaud-theme-shared` | 契约层：两轴状态机、handoff schema、全路径红线、视觉与技术基线的唯一副本。**不改任何代码** | 全部（被引用） |
-| **1** | `plaud-theme-orchestrator` | 全流程路由与阶段门控；仅跨多资源、B+C / A+C 交叉、迁移 wave 或用户明确要完整交付时进入 | 全部（编排） |
+| **1** | `plaud-theme-orchestrator` | 全流程路由与阶段门控；**唯一门槛是这件事能拆成 ≥2 个可独立验收的 ChangeSet**（迁移 wave、多块编排、Cross(A+C) 裂块，或用户点名把这样一批端到端管起来）。Cross(B+C) 不裂块、单一 ChangeSet 一律走单 skill | 全部（编排） |
 | **2** | `plaud-theme-impact` | Assess 阶段唯一执行者：影响面评估，只产出**事实**（理论引用 vs 实际影响），不下根因、不选方案 | Assess / A·B·C |
 | **3** | `plaud-theme-dev` | Path A 实现：bug 修复、性能、新功能、UX 微调、review、A11y | Implement / A |
 | **4** | `plaud-theme-section-build` | Path B 实现：Figma → `sa-*` section（`SA:` schema、BEM 根类、vendor 交付约束） | Implement / B |
@@ -65,10 +65,15 @@
 
 > **v0.2.1 修订**（评审回应，不新增 skill）：
 > `handoff-schema.md` §8.1 由「10 条一律红线」改为 **🔴 / 🟠 / 🟡 三档**（🟠 分 `EvidenceBased` 与 `ApprovedException`，后者缺 `ApprovalRef` 直接 `Failed`），#5 / #9 / #10 改为**按范围**判定；新增 §8.1.2 **存量复用豁免**（只免修复义务）；§8.1.1 测试集溯源三项收敛为一行 **`TestSetTrace`**（新增进 §9.1.2 工件与 §9.2 枚举）。
-> `typography.md` §4 整节重写（**撤回 H5 = 22px 与「复用 h5 全局规则」**，新增 §4.1 三套 h5 实现 / §4.2 语义类 vs 数字遗留类）；`colors-and-schemes.md` §3 outline 边框改为**先判两条样式链是否统一再决定复用或新增变量**；`repo-drift.md` 新增 §3.6 / §3.7。
+> `typography.md` §4 整节重写（**撤回 H5 = 22px 与「复用 h5 全局规则」**，新增 §4.1 仓库 h5 现状 / §4.2 语义类 vs 数字遗留类）；`colors-and-schemes.md` §3 outline 边框改为**先判两条样式链是否统一再决定复用或新增变量**；`repo-drift.md` 新增 §3.6 / §3.7。
 
-> 🔴 `repo-drift.md` 是**后加的第 9 个 reference**，`SKILL.md` 的 Reference 索引表（本版不可改）里没有它。
-> 加载规则：**任何要落地 spec 数值 / 依赖某个 token 或工具类的任务都应读**（build 产物滞后与仓库无关）；`typography.md` / `colors-and-schemes.md` / `responsive-and-spacing.md` 三处已在正文交叉指向它。下次可改 `SKILL.md` 时应补进索引表。
+> **v0.2.2 修订**（v0.2.1 的门禁收口，详见 CHANGELOG）：
+> `handoff-schema.md` §8.1 加 **`ApprovedException` 封闭适用清单**（清单内目前只有 A11y 3.0–4.5 一项，§8.1 十一条无一在内）；§4 加 `ApprovedExceptions`、§5 加 `ApprovedExceptionsChecked` / `ApprovedExceptionsEvidence`（§4=20 / §5=26 字段）；§2 与 §9.1.2 两段指纹命令**修掉两个静默失败点**（`{ … } | shasum` 的子 shell 吞错、未跟踪目录静默跳过）并**排除 `memory/`**；`package-checklist.md` §3 加 `PreviousAcceptedTestSetTrace` 与三级取数路径；`changeset-log.md` 加 `TestSetTrace` 列；§9.1.4 加 `TestSetTraceAfterArchive` 并移除跑不通的 `IntegrationQARef`。
+> **同时更正 v0.2.1 的一处措辞**：§4.1 原写「三套并行的 h5 实现」，实测 `--h0-size…--h6-size` 全仓无消费点，是死声明；现表述为「一套生效规则 + 一处死变量声明 + 一套与标签正交的语义体系」。
+
+> `repo-drift.md` 是**后加的第 9 个 reference**，已在 `plaud-theme-shared/SKILL.md` 的 Reference 索引表里（标为「要落地任何 spec 数值、或依赖某个 token / 工具类之前（必读）」）。
+> 加载规则：**任何要落地 spec 数值 / 依赖某个 token 或工具类的任务都应读**（build 产物滞后与仓库无关）；`typography.md` / `colors-and-schemes.md` / `responsive-and-spacing.md` 三处也在正文交叉指向它。
+> （v0.2.2 更正：v0.2.1 及以前这里写「索引表里没有它、下次补进」，实际早已补进，属过时描述。）
 
 **按需加载，不要全读。** Path A 改一个 JS timer 时不需要加载完整字阶表。
 

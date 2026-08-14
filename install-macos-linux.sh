@@ -5,7 +5,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PACKAGE_NAME="plaud-shopify-theme-matrix"
-PACKAGE_VERSION="v0.2.1"
+PACKAGE_VERSION="v0.2.2"
 
 # Skills that this matrix supersedes and that must not stay installed alongside it.
 # Keeping the old single skill causes routing competition: two different specs
@@ -177,13 +177,28 @@ validate_skills_dir() {
   parent="$(dirname "$d")"
   [[ -n "$parent" && "$parent" != "$d" ]] || { echo "cannot resolve parent of: $d"; return 1; }
   # Lexical checks are not enough: a symlinked `skills` dir (or a symlinked
-  # ancestor) would let a delete escape to a completely different tree. Resolve
-  # physically and require the resolved path to still look like a skills dir.
+  # ancestor) would let a delete escape to a completely different tree.
+  #
+  # v0.2.2 ninth review: the old check only ran when `$d` already existed, and
+  # only required the resolved path to still end in `skills` -- so a first-time
+  # install skipped it entirely, and a `skills -> /elsewhere/skills` link passed.
+  # install-windows.ps1 already walks every ancestor and rejects any reparse
+  # point; match that posture here instead of the weaker resolve-and-sniff.
+  local walk="$d"
+  while [[ -n "$walk" && "$walk" != "/" ]]; do
+    if [[ -L "$walk" ]]; then
+      echo "path traverses a symlink at '$walk': $d"; return 1
+    fi
+    local up
+    up="$(dirname "$walk")"
+    [[ -n "$up" && "$up" != "$walk" ]] || break
+    walk="$up"
+  done
   if [[ -d "$d" ]]; then
     local real
     real="$(cd -P "$d" 2>/dev/null && pwd -P)" || { echo "cannot resolve physical path of: $d"; return 1; }
     [[ -n "$real" && "$real" != "/" ]] || { echo "resolves to the filesystem root: $d"; return 1; }
-    [[ "$(basename "$real")" == "skills" ]] || { echo "resolves through a symlink to a non-skills dir: $d -> $real"; return 1; }
+    [[ "$real" == "${d%/}" ]] || { echo "physical path differs from lexical path: $d -> $real"; return 1; }
     [[ -z "$HOME_DIR" || "$real" != "${HOME_DIR%/}" ]] || { echo "resolves to the home directory: $d"; return 1; }
   fi
   return 0
@@ -586,6 +601,22 @@ install_one_skill() {
   fi
 
   mkdir -p "$skills_dir"
+  # v0.2.2 eighth review: validate_skills_dir() only runs its physical-path check
+  # when the directory already exists, so a first-time install created the tree
+  # here and reached `rm -rf` with no symlink check at all. Re-validate after
+  # mkdir, and always surface the physical target of the destructive step.
+  if ! validate_skills_dir "$skills_dir" >/dev/null 2>&1; then
+    say "Refusing to install: $skills_dir failed validation after creation" >&2
+    return 1
+  fi
+  local skills_real
+  skills_real="$(cd -P "$skills_dir" 2>/dev/null && pwd -P)" || {
+    say "Refusing to install: cannot resolve physical path of $skills_dir" >&2
+    return 1
+  }
+  if [[ "$skills_real" != "${skills_dir%/}" ]]; then
+    say "  note: $skills_dir resolves to $skills_real (symlinked); rm -rf will act there"
+  fi
   if [[ -e "$dest" ]]; then
     say "Overwriting existing install at $dest"
     rm -rf "$dest"
@@ -698,6 +729,12 @@ for t in "${TARGETS[@]}"; do
     install_one_skill "$s" "$t" && ok=$((ok + 1)) || true
   done
 done
+# v0.2.2 ninth review: every per-skill failure was swallowed by `|| true` and the
+# script still exited 0. With an injected failing `tar` the reviewer saw all 20
+# copies fail, zero files land, and rc=0 -- so CI (and the agent reading the exit
+# code) treats "old skills deleted, nothing installed" as a successful install.
+# The expected count is exact: one copy per (target, source) pair.
+expected=$(( ${#TARGETS[@]} * ${#SOURCES[@]} ))
 
 say ""
 if [[ "$DRY_RUN" == 1 ]]; then
@@ -705,6 +742,15 @@ if [[ "$DRY_RUN" == 1 ]]; then
 else
   say "Done. Installed $ok skill copy/copies from ${PACKAGE_NAME} ${PACKAGE_VERSION}."
   verify_versions
+fi
+
+if [[ "$ok" -ne "$expected" ]]; then
+  say ""
+  say "FAILED: $ok of $expected skill copies installed ($(( expected - ok )) failed)."
+  say "Do NOT treat this as a completed install -- the destination may hold a"
+  say "partially removed or partially written skill tree. Re-run after fixing the"
+  say "cause, then verify with the per-client tree diff printed above."
+  exit 1
 fi
 
 if [[ "$EXIT_UNSUPPORTED" == 1 ]]; then

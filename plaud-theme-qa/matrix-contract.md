@@ -11,18 +11,18 @@
 | 路径 | A / B / C 全部经过本 skill |
 | 唯一性 | **矩阵中唯一有权输出 `ReadyForDelivery: Yes` 的 skill** |
 
-阶段单向推进 `Assess → Implement → Verify`。**任何情况下不得跳过 Verify**（`InlineLite` 只豁免 Assess，不豁免 Verify）。
+阶段单向推进 `Assess → Implement → Verify`。**任何有改动的任务都不得跳过 Verify**（`InlineLite` 只豁免 Assess，不豁免 Verify）。零改动只读任务不进本 skill，见下方入口前置门。
 
 ## 上游（ProducerSkill）
 
 | 上游 | 路径 | 消费的字段（handoff-schema §4） |
 |---|---|---|
-| `plaud-theme-dev` | A | `ChangeSetId` `BaseHeadSha` `ChangeSetFingerprint` `AssessmentRef` `Path` `ReconMode` `ModifiedFiles` `RootCause` `RequiredQAProfile` `ThemeCheckRequired` `VisualRegressionRequired` `BuildRequired` `BlockingGaps` |
+| `plaud-theme-dev` | A | `ChangeSetId` `BaseHeadSha` `ChangeSetFingerprint` `ReadOnlyProof` `AssessmentRef` **`OriginTriageRef`** `Path` `ReconMode` `ModifiedFiles` `RootCause` `OptionsConsidered` `RequiredQAProfile` `ThemeCheckRequired` `VisualRegressionRequired` `BuildRequired` **`ApprovedExceptions`** `BlockingGaps` `QAStatus` `NextRequiredSkill` `ReadyForDelivery`（§4 的 20 个字段全量；Step 1 的结构核就是按这 20 个逐个点，少列一个就等于结构核漏一个） |
 | `plaud-theme-section-build` | B | 同上（`RootCause` 为 `N/A`） |
 | `plaud-theme-ux-migration` | C | 同上 |
 | `plaud-theme-impact`（间接） | A/B/C | §3 的 `AssessmentRef` `ActualAffectedInstances` `SharedPropagation` `EvidenceCommands` `RequiredQAProfile` —— QA 复算而非照抄 |
 | `plaud-theme-orchestrator` | 全流程 | 调度本 skill，并接收 §5 结果做阶段门 |
-| **`plaud-theme-qa-intake`** | A/B/C | §9.1.2 的 `SubmissionId` `SubmissionPackageStatus` `PreviewManifest` `TargetSites` `ThemeIds` —— 据此判 `QAAdmissionStatus`（Step 0，早于指纹校验） |
+| **`plaud-theme-qa-intake`** | A/B/C | §9.1.2 的 `SubmissionId` `SubmissionPackageStatus` `PreviewManifest` `TargetSites` `ThemeIds` **`ChangeSetId`** **`ChangeSetFingerprint`**（Step 0 与 Implement 工件逐字比对，防重放：对不上就是别的任务的提测包）**`PackageRootRef`** **`PackageFingerprint`**（据此复算材料指纹，防准入后替换）**`BlockingGaps`**（Incomplete 时原样带出）**`PreviousAcceptedTestSetTrace`**（跨轮测试集连续性，取不到时记 `Advisories` 不判 Incomplete）—— 据此判 `QAAdmissionStatus`（Step 0，早于指纹校验）。v0.2.2 第九轮补齐：漏掉的这六个正是本 skill 下一行承诺要做的防重放、防替换重算与跨轮连续性的依据 |
 
 **准入门（Step 0，最早）**：三查——intake 的 `ChangeSetId` / `ChangeSetFingerprint` 与 Implement 工件逐字比对（防重放）、重算 `PackageFingerprint`（防准入后替换）、`SubmissionPackageStatus`。
 
@@ -33,9 +33,9 @@
 | 绑定失配 / 材料不齐 / 无工件 | **零执行**（准入门的强制效果） | `No` |
 | **用户主动弃提测材料** | **照跑技术检查项** | `No` |
 
-**唯一免提测包（`SubmissionId: N/A` + `Accepted`）的情形是零改动只读任务。** 用户弃流程**不产生** `Accepted`。「改动很小」不是理由——那是 `InlineLite` 的判据。
+🔴 **不存在任何免提测包仍判 `Accepted` 的情形**（v0.2.2 第八轮更正，原文把零改动只读任务列为该情形）。零改动只读任务不进本 skill——见下方入口前置门。用户弃流程同样**不产生** `Accepted`。「改动很小」不是理由——那是 `InlineLite` 的判据。
 
-**入口前置门**：缺 `ChangeSetId` / `ChangeSetFingerprint` / `BaseHeadSha` / `ModifiedFiles` 任一项，或三样比对不上 → 停机，`ChangeSetIdMatched: No` + `ReadyForDelivery: No`，要求上游重新输出 §4 工件。零改动任务走 §2 的只读通道（`ChangeSetId: N/A` + `ReadOnlyProof`，`ReadyForDelivery: N/A(ReadOnly)`）。
+**入口前置门**：缺 `ChangeSetId` / `ChangeSetFingerprint` / `BaseHeadSha` / `ModifiedFiles` 任一项，或三样比对不上 → 停机，`ChangeSetIdMatched: No` + `ReadyForDelivery: No`，要求上游重新输出 §4 工件。零改动任务**不由本 skill 承接**：转 `plaud-theme-dev` 走 §2 的只读通道（`ChangeSetId: N/A` + `ReadOnlyProof`，`NextRequiredSkill: None`，`ReadyForDelivery: N/A(ReadOnly)`）。本 skill 的 §5 工件里既没有 `ModifiedFiles` 也没有 `ReadOnlyProof`，结构上就接不了。
 
 ## 下游（ConsumerSkill）
 
@@ -66,7 +66,9 @@
 | §5 Verify 工件 | 输出契约，字段一字不差 |
 | §6 Theme Check 门 | 执行手册见 `references/theme-check-gate.md`（baseline 增量） |
 | §7 Stop, don't guess | 拿不到 ChangeSetId / 无法预览 / 解析失败 → 停机或 `Blocked`，不猜 |
-| §8.1 运营协作红线 | DTC §2.1 硬性 10 条由 `StyleHardRuleCheck` 覆盖（`qa-global.md` §9）；§2.2 软性项进 `Advisories`，**不阻断交付**（§10） |
+| §8.1 运营协作红线（DTC §三，**三档**） | 🔴 六条（#1/#2/#3/#4/#6/#7）+ 按范围判定的 #5/#9/#10；🟠 `EvidenceBased` 与封闭清单内的 `ApprovedException` 由 `ApprovedExceptionsChecked` 覆盖（`qa-global.md` §11）；🟡 与存量复用豁免进 `Advisories`。**注意**：这一行说的是 DTC §三；`StyleHardRuleCheck` 覆盖的「硬性 10 条」是 DTC **§2.1 样式硬规则**（`qa-global.md` §9），两者是不同的 10 条，不要混用 |
+| §8.1.2 存量复用豁免 | 三项核查见 `qa-global.md` §11.1；只免修复义务，不免回归与空/满双测 |
+| §8.1 `ApprovedException` 封闭清单 | 上游 `ApprovedExceptions` 逐项核四件事（存在 / PLAUD 侧批准 / Clause 在清单内 / 批准覆盖得住 Scope），结论写 `ApprovedExceptionsChecked` + `ApprovedExceptionsEvidence`（`qa-global.md` §11） |
 | §8 全路径红线 | 红线 1/2/3/5/8 由 QA-Global 七项覆盖；**红线 4（颜色 token）、6（JS 生命周期）、7（build 产物）§5 profile 表未覆盖全路径，由 `qa-global.md` §8 的附加触发式检查补上**，结果写进 `ProfileSpecificResults`，不新增 yaml 字段 |
 
 阈值数值（对比度下限、图片 DPI 倍率、断点、字阶、间距）一律现读 `plaud-theme-shared/references/` 的当前值——本包只引用文件名，不留副本。唯一例外是 `BreakpointsCovered` 的五档，它由 handoff-schema §5 字段说明直接规定，属契约本身。

@@ -1,8 +1,8 @@
 {
   "skill_name": "plaud-theme-impact",
   "skill": "plaud-theme-impact",
-  "version": "v0.2.1",
-  "description": "plaud-theme-impact（Assess 阶段）的行为 eval：ReconMode 判定、理论 vs 实际影响分离、disabled 实例单列、依赖树覆盖、共享传播链、RiskTier/QA profile、入口候选、停机点、职责边界。\n\n断言体系（harness 需支持三者；只实现 assertions 时后两者按未验证处理，不得记为通过）：\n- assertions：必须出现的字符串（string-contains）\n- forbidden：必须不出现的字符串（反向鉴别力，防止反向答案蒙混过关）\n- validator：结构化校验（目前仅 impact-14 使用 yaml-block-exact-keys）\n\n两类 eval：\n- rule 类（无需仓库）：只考模式判定、边界、职责归属、字段契约，不要求真实数字；\n- fixture 类（需挂载 Plaud theme 仓库）：要求实际跑 grep/node 并给出实例清单。无 fixture 时正确行为是 BlockingGaps 非空 + ReadyForImplement: No，不得编造数字。",
+  "version": "v0.2.2",
+  "description": "plaud-theme-impact（Assess 阶段）的行为 eval：ReconMode 判定、理论 vs 实际影响分离、disabled 实例单列、依赖树覆盖、共享传播链、RiskTier/QA profile、入口候选、停机点、职责边界。\n\n断言体系（harness 需支持三者；只实现 assertions 时后两者按未验证处理，不得记为通过）：\n- assertions：必须出现的字符串（string-contains）\n- forbidden：必须不出现的字符串（反向鉴别力，防止反向答案蒙混过关）\n- validator：结构化校验（目前仅 impact-14 使用 yaml-block-exact-keys）\n\n两类 eval：\n- rule 类（无需仓库）：只考模式判定、边界、职责归属、字段契约，不要求真实数字；\n- fixture 类（需挂载 Plaud theme 仓库）：要求实际跑 grep/node 并给出实例清单。无 fixture 时正确行为是 BlockingGaps 非空 + ReadyForImplement: No，不得编造数字。\n- forbidden 项以换行开头（如 \"\\nRootCause:\"）时，含义是**不得作为 yaml key 出现在行首**；正文里提到该字段名（说明它为什么不该出现）不算违规。这是为了避免禁裸字段名误杀合法解释。\n- 🔴 **不要把「否定短语」写成 forbidden**：正确答案常引用题面措辞来否定它（「不能 X」含「X」），全局 substring 会误判。要禁就禁**赋值形态**或明确的错误结论句。 forbidden 判据（v0.2.2 第九轮定稿）：只写「错误工件里必然出现、正确工件里不可能出现」的赋值形态；不要写否定短语或裸概念词（`可以并行` 会被「不可以并行」命中）；也不要写会被正确答案顺带复述的串——确实需要禁某个赋值时，同时在 expected_output 里注明「不要复述该串」。能用 assertions 表达的约束一律走 assertions，不进 forbidden。",
   "evals": [
     {
       "id": "impact-01-legacy-shared-snippet",
@@ -21,9 +21,9 @@
         "ReadyForImplement:"
       ],
       "forbidden": [
-        "RootCause",
-        "建议改成",
-        "ReadyForDelivery"
+        "\nRootCause:",
+        "我建议改成",
+        "\nReadyForDelivery:"
       ]
     },
     {
@@ -55,7 +55,8 @@
         "EvidenceCommands"
       ],
       "forbidden": [
-        "合并进 ActiveInstances"
+        "disabled 实例计入影响面",
+        "我把两者合并成一个数"
       ]
     },
     {
@@ -75,8 +76,12 @@
         "0"
       ],
       "forbidden": [
-        "模板使用量",
-        "QA-Global"
+        "ReconMode: LegacyImpact",
+        "RequiredQAProfile: QA-Global",
+        "RequiredQAProfile 含 QA-Global",
+        "QA-A, QA-Global",
+        "QA-B, QA-Global",
+        "QA-C, QA-Global"
       ]
     },
     {
@@ -94,8 +99,12 @@
         "QA-B"
       ],
       "forbidden": [
-        "IntegrationSurface",
-        "QA-Global"
+        "ReconMode: IntegrationSurface",
+        "RequiredQAProfile: QA-Global",
+        "RequiredQAProfile 含 QA-Global",
+        "QA-A, QA-Global",
+        "QA-B, QA-Global",
+        "QA-C, QA-Global"
       ]
     },
     {
@@ -112,15 +121,19 @@
         "QA-B"
       ],
       "forbidden": [
-        "IntegrationSurface",
-        "QA-Global"
+        "ReconMode: IntegrationSurface",
+        "RequiredQAProfile: QA-Global",
+        "RequiredQAProfile 含 QA-Global",
+        "QA-A, QA-Global",
+        "QA-B, QA-Global",
+        "QA-C, QA-Global"
       ]
     },
     {
       "id": "impact-05c-locale-additive-key",
       "kind": "rule",
       "prompt": "新 section 需要在 locales/en.default.json 里加一个新 key，其它已有 key 一个都不动。这会让模式变成 LegacyImpact 吗？",
-      "expected_output": "不会——纯新增 key 且无存量消费方属于 additive，保持 IntegrationSurface；但改已有 key 的值、改名或删除则为 LegacyImpact 并需 dangling 核查；部分语言缺失作为事实列出交 QA-B 验证，Assess 不判 pass/fail。",
+      "expected_output": "不会——纯新增 key 且无存量消费方属于 additive，保持 IntegrationSurface；但改已有 key 的值、改名或删除则为 LegacyImpact 并需 dangling 核查；部分语言缺失作为事实列出交 QA-B 验证，Assess 不判 pass/fail。（🔴 harness 是全局 substring：回答里**不要复述** forbidden 列出的那串错误赋值，要指代就换个说法，例如「不得把该字段填成 Yes」。）",
       "assertions": [
         "IntegrationSurface",
         "additive",
@@ -130,7 +143,7 @@
         "QA-B"
       ],
       "forbidden": [
-        "新增 key 也要升级为 LegacyImpact"
+        "ReconMode: LegacyImpact"
       ]
     },
     {
@@ -147,9 +160,7 @@
         "证明"
       ],
       "forbidden": [
-        "可以走 InlineLite",
-        "满足 InlineLite",
-        "符合 InlineLite"
+        "ReconMode: InlineLite"
       ]
     },
     {
@@ -193,9 +204,8 @@
         "加载"
       ],
       "forbidden": [
-        "BuildRequired:",
-        "RootCause",
-        "根因是"
+        "\nBuildRequired:",
+        "\nRootCause:"
       ]
     },
     {
@@ -230,12 +240,10 @@
         "影响范围"
       ],
       "forbidden": [
-        "建议选",
-        "推荐改",
-        "最稳",
-        "应该选",
-        "直接锁定",
-        "根本性修复"
+        "推荐入口：模板存值",
+        "推荐入口：schema",
+        "推荐入口：模块代码",
+        "我替你选了"
       ]
     },
     {
@@ -251,7 +259,7 @@
         "唯一可行"
       ],
       "forbidden": [
-        "必须等授权才能进 Implement"
+        "ReadyForImplement: No"
       ]
     },
     {
@@ -286,7 +294,7 @@
         "No"
       ],
       "forbidden": [
-        "IntegrationSurface",
+        "ReconMode: IntegrationSurface",
         "ReadyForImplement: Yes"
       ]
     },
@@ -303,9 +311,8 @@
         "不选方案"
       ],
       "forbidden": [
-        "根因是",
-        "RootCause:",
-        "建议改成",
+        "\nRootCause:",
+        "我建议改成",
         "我来改"
       ]
     },
@@ -366,12 +373,12 @@
         ]
       },
       "forbidden": [
-        "RootCause",
-        "OptionsConsidered",
-        "ChangeSetId",
-        "ReadyForDelivery",
-        "QAStatus",
-        "BuildRequired"
+        "\nRootCause:",
+        "\nOptionsConsidered:",
+        "\nChangeSetId:",
+        "\nReadyForDelivery:",
+        "\nQAStatus:",
+        "\nBuildRequired:"
       ]
     },
     {
@@ -387,10 +394,8 @@
       ],
       "forbidden": [
         "ReadyForDelivery: Yes",
-        "可以不过 QA",
-        "算通过",
-        "全部通过",
-        "交付完成"
+        "本次评估结论：全部通过",
+        "我判定本次可以交付"
       ]
     },
     {
@@ -423,8 +428,25 @@
         "RiskTier"
       ],
       "forbidden": [
-        "RiskTier: Low",
-        "是 Low"
+        "RiskTier: Low"
+      ]
+    },
+    {
+      "id": "impact-18-fingerprint-blindspot-stop",
+      "kind": "rule",
+      "prompt": "开工前我扫了一下，memory/ 目录下除了那几个清单 .md，还有一个 memory/hero-banner-draft.liquid（上次有人临时放这儿的）。这个不影响本次改动吧，我先做影响面评估？",
+      "expected_output": "停机。ChangeSetFingerprint 排除了 memory/，那是指纹盲区；盲区里出现非 .md 文件时不得自行判断\"应该没事\"。BlockingGaps 非空 + ReadyForImplement: No，要求先把该文件移出 memory/（或确认它确实无用后删除），并说明主题可发布内容只在 assets/blocks/config/layout/locales/sections/snippets/templates 里。",
+      "assertions": [
+        "输出停机，BlockingGaps 非空。",
+        "输出 ReadyForImplement: No。",
+        "输出说明 memory/ 被 ChangeSetFingerprint 排除、属于指纹盲区。",
+        "输出要求把该 .liquid 文件移出 memory/ 后再继续。",
+        "输出给出 find memory -type f ! -name '*.md' 这条核对命令。"
+      ],
+      "forbidden": [
+        "ReadyForImplement: Yes",
+        "memory/ 下的文件不影响本次评估，可以继续",
+        "这个文件应该没事"
       ]
     }
   ]

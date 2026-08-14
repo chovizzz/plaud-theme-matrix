@@ -1,8 +1,8 @@
 {
   "skill_name": "plaud-theme-orchestrator",
   "skill": "plaud-theme-orchestrator",
-  "version": "v0.2.1",
-  "description": "plaud-theme-orchestrator（编排层，order 1）的行为 eval。本 skill 最大的风险是**过度触发**——它的入口门槛只有一条「这项工作必须拆成 ≥2 个可独立验收的 ChangeSet」，任何把普通 bugfix、多文件单 ChangeSet、Cross(B+C) 吸进编排的行为都是不合格。因此负向用例（应输出 Mode: SingleSkill 并停手）占比过半。\n\n断言体系（与 plaud-theme-impact 一致；harness 需支持三者，只实现 assertions 时后两者按未验证处理，不得记为通过）：\n- assertions：必须出现的字符串（string-contains）\n- forbidden：必须不出现的字符串（反向鉴别力，防止反向答案蒙混过关）\n- validator：结构化校验（orch-14 使用 yaml-block-exact-keys，锁 handoff-schema §9.1 的字段集）\n\n全部为 rule 类，不需要挂载真实 Plaud theme 仓库：考的是路由门槛、串并行判定、阶段门、交付权归属与 §9.2 封闭枚举，不考真实文件数字。",
+  "version": "v0.2.2",
+  "description": "plaud-theme-orchestrator（编排层，order 1）的行为 eval。本 skill 最大的风险是**过度触发**——它的入口门槛只有一条「这项工作必须拆成 ≥2 个可独立验收的 ChangeSet」，任何把普通 bugfix、多文件单 ChangeSet、Cross(B+C) 吸进编排的行为都是不合格。因此负向用例（应输出 Mode: SingleSkill 并停手）占比过半。\n\n断言体系（与 plaud-theme-impact 一致；harness 需支持三者，只实现 assertions 时后两者按未验证处理，不得记为通过）：\n- assertions：必须出现的字符串（string-contains）\n- forbidden：必须不出现的字符串（反向鉴别力，防止反向答案蒙混过关）\n- validator：结构化校验（orch-14 使用 yaml-block-exact-keys，锁 handoff-schema §9.1 的字段集）\n\n全部为 rule 类，不需要挂载真实 Plaud theme 仓库：考的是路由门槛、串并行判定、阶段门、交付权归属与 §9.2 封闭枚举，不考真实文件数字。\n- forbidden 项以换行开头（如 \"\\nRootCause:\"）时，含义是**不得作为 yaml key 出现在行首**；正文里提到该字段名（说明它为什么不该出现）不算违规。这是为了避免禁裸字段名误杀合法解释。\n- 🔴 **不要把「否定短语」写成 forbidden**（如 `拆成两个 ChangeSet`、`省时间`、`标成 Done`）：正确答案常会引用题面措辞来否定它（「不能标成 Done」），全局 substring 会把正确答案判错。要禁就禁**赋值形态**（`ChangeSetStatus: Done`）或明确的错误结论句。 forbidden 判据（v0.2.2 第九轮定稿）：只写「错误工件里必然出现、正确工件里不可能出现」的赋值形态；不要写否定短语或裸概念词（`可以并行` 会被「不可以并行」命中）；也不要写会被正确答案顺带复述的串——确实需要禁某个赋值时，同时在 expected_output 里注明「不要复述该串」。能用 assertions 表达的约束一律走 assertions，不进 forbidden。",
   "evals": [
     {
       "id": "orch-01-negative-single-file-bugfix",
@@ -17,8 +17,8 @@
       ],
       "forbidden": [
         "Mode: FullFlow",
-        "ChangeSetPlan",
-        "ParallelSafe",
+        "ChangeSetPlan:",
+        "ParallelSafe:",
         "ArtifactKind: Coordination"
       ]
     },
@@ -33,8 +33,7 @@
       ],
       "forbidden": [
         "Mode: FullFlow",
-        "ChangeSetPlan",
-        "拆成"
+        "ChangeSetPlan:"
       ]
     },
     {
@@ -49,7 +48,7 @@
       ],
       "forbidden": [
         "Mode: FullFlow",
-        "ParallelSafe"
+        "ParallelSafe:"
       ]
     },
     {
@@ -66,8 +65,8 @@
       ],
       "forbidden": [
         "Mode: FullFlow",
-        "ChangeSetPlan",
-        "五个 ChangeSet"
+        "ChangeSetPlan:",
+        "ArtifactKind: Coordination"
       ]
     },
     {
@@ -85,27 +84,28 @@
       ],
       "forbidden": [
         "Mode: FullFlow",
-        "必须走 orchestrator",
-        "ChangeSetPlan"
+        "ChangeSetPlan:"
       ]
     },
     {
       "id": "orch-06-negative-cross-bc-no-split",
       "kind": "rule",
       "prompt": "设计给了一个新的 Figma 稿要做成 sa-promo-banner section，同时这个 section 必须对齐 UX Spec v1.3 的间距和字阶。B 和 C 都命中了，要拆成两个 ChangeSet 分别验吗？",
-      "expected_output": "不拆。Cross(B+C) 是一个 Path B 的 ChangeSet 用 Path C 的 spec 取值，Path 填 B，QA profile 为 QA-B + QA-C + QA-Global。硬拆会拆到无法独立验收。单个这样的任务不进编排，直接走 plaud-theme-section-build。",
+      "expected_output": "不拆。Cross(B+C) 是一个 Path B 的 ChangeSet 用 Path C 的 spec 取值，Path 填 B，RequiredQAProfile 填 QA-B, QA-C（不含 QA-Global —— 它由 QA 恒执行，写进该字段是枚举违规）。硬拆会拆到无法独立验收。单个这样的任务不进编排，直接走 plaud-theme-section-build。",
       "assertions": [
         "Mode: SingleSkill",
         "plaud-theme-section-build",
         "不裂块",
         "一个 ChangeSet",
         "QA-B",
-        "QA-C"
+        "QA-C",
+        "输出的 RequiredQAProfile 不含 QA-Global。"
       ],
       "forbidden": [
         "Mode: FullFlow",
-        "拆成两个 ChangeSet",
-        "两个 ChangeSetId"
+        "ChangeSetPlan:",
+        "RequiredQAProfile: QA-B, QA-C, QA-Global",
+        "QA-B + QA-C + QA-Global"
       ]
     },
     {
@@ -119,8 +119,8 @@
       ],
       "forbidden": [
         "Mode: FullFlow",
-        "ChangeSetPlan",
-        "plaud-theme-dev"
+        "ChangeSetPlan:",
+        "NextRequiredSkill: plaud-theme-dev"
       ]
     },
     {
@@ -140,15 +140,16 @@
       "forbidden": [
         "Mode: SingleSkill",
         "ReadyForDelivery: Yes",
-        "Done",
-        "Partial"
+        "ChangeSetStatus: Done",
+        "Stage: Partial",
+        "ChangeSetStatus: Partial"
       ]
     },
     {
       "id": "orch-09-positive-token-then-downstream",
       "kind": "rule",
       "prompt": "先把品牌主色 token 改了，然后 hero、pricing、footer 这三个模块都要跟着调各自的配色映射，三个模块彼此不相干、想分别验收。",
-      "expected_output": "命中门槛（4 个 ChangeSet）。Mode: FullFlow。token 改动作为底座排最前，三个下游模块 DependsOn 它；三个下游模块之间若 ModifiedFiles disjoint 则可并行。输出 §9.1 协调工件。",
+      "expected_output": "命中门槛（4 个 ChangeSet）。Mode: FullFlow。token 改动作为底座排最前，三个下游模块 DependsOn 它。🔴 同一棵工作树里三个下游块**仍须逐块串行**——ModifiedFiles disjoint 只解决文件冲突，解决不了 ChangeSetFingerprint 绑全树的问题；要真并行开发必须一块一棵独立 worktree，集成回主树时逐块串行并重新生成 ChangeSetId 重跑 QA。ParallelSafe 按这个口径填。输出 §9.1 协调工件。",
       "assertions": [
         "Mode: FullFlow",
         "ChangeSetPlan",
@@ -159,7 +160,8 @@
       ],
       "forbidden": [
         "Mode: SingleSkill",
-        "ReadyForDelivery: Yes"
+        "ReadyForDelivery: Yes",
+        "disjoint 就可以在同一棵树里并行"
       ]
     },
     {
@@ -177,8 +179,8 @@
       ],
       "forbidden": [
         "Mode: SingleSkill",
-        "同一个 ChangeSet",
-        "ReadyForDelivery: Yes"
+        "ReadyForDelivery: Yes",
+        "我把 bugfix 一起放进迁移的 ChangeSet"
       ]
     },
     {
@@ -195,7 +197,6 @@
       ],
       "forbidden": [
         "先做了",
-        "回头再补",
         "ReadyForImplement: Yes"
       ]
     },
@@ -212,9 +213,8 @@
         "ChangeSetId"
       ],
       "forbidden": [
-        "ReadyForDelivery: Yes",
-        "可以发布",
-        "交付完成",
+        "我判定可以发布",
+        "我宣布交付完成",
         "全部通过，可上线"
       ]
     },
@@ -222,7 +222,7 @@
       "id": "orch-13-delivery-partial-passed",
       "kind": "rule",
       "prompt": "5 个 ChangeSet 里 4 个 QA 过了，第 5 个 RegressionMatrix 是 Blocked（没法预览）。整体算过了吧，Blocked 不算失败。",
-      "expected_output": "不算。Blocked / NotRun / NotApplicable 不得折算为 pass；任一 ChangeSet 未拿到 ReadyForDelivery: Yes，AllChangeSetsDelivered 就是 No。第 5 个的阻塞原因写进 BlockingGaps。",
+      "expected_output": "不算。Blocked / NotRun / NotApplicable 不得折算为 pass；任一 ChangeSet 未拿到 ReadyForDelivery: Yes，AllChangeSetsDelivered 就是 No。第 5 个的阻塞原因写进 BlockingGaps。（🔴 harness 是全局 substring：回答里**不要复述** forbidden 列出的那串错误赋值，要指代就换个说法，例如「不得把该字段填成 Yes」。）",
       "assertions": [
         "AllChangeSetsDelivered: No",
         "Blocked",
@@ -230,9 +230,7 @@
         "BlockingGaps"
       ],
       "forbidden": [
-        "AllChangeSetsDelivered: Yes",
-        "ReadyForDelivery: Yes",
-        "整体算过"
+        "AllChangeSetsDelivered: Yes"
       ]
     },
     {
@@ -251,15 +249,15 @@
         "AllChangeSetsDelivered"
       ],
       "forbidden": [
-        "ReadyForDelivery",
-        "ModifiedFiles:",
-        "RootCause:",
-        "ThemeCheck:",
-        "ChangeSetIdMatched:"
+        "\nReadyForDelivery:",
+        "\nModifiedFiles:",
+        "\nRootCause:",
+        "\nThemeCheck:",
+        "\nChangeSetIdMatched:"
       ],
       "validator": {
         "type": "yaml-block-exact-keys",
-        "keys": [
+        "expectedKeys": [
           "ArtifactKind",
           "OrchestrationId",
           "PathResolved",
@@ -268,7 +266,8 @@
           "ChangeSetStatus",
           "BlockingGaps",
           "AllChangeSetsDelivered"
-        ]
+        ],
+        "note": "string-contains 无法验证「完全一致」。需 harness 实现结构化校验：取回复最后一个 fenced yaml block → 解析 → Object.keys() 与 expectedKeys 严格相等且顺序相等 → 检查 yaml fence 之后无非空内容 → 检查 forbiddenKeys 均不存在。若 harness 未实现 validator，本条按「未验证」记，不得因 assertions 全中就判通过（v0.2.2 第九轮补：此前这四条只有 substring 断言，缺 key / 多 key / 顺序错都验不出来）。"
       }
     },
     {
@@ -283,9 +282,9 @@
         "ParallelSafe"
       ],
       "forbidden": [
-        "可以并行",
         "ParallelSafe: CS-20260806-C03, CS-20260806-C07",
-        "省时间"
+        "ParallelSafe: 是",
+        "我标成可并行了"
       ]
     },
     {
@@ -298,10 +297,7 @@
         "无法确定",
         "ModifiedFiles"
       ],
-      "forbidden": [
-        "先按并行",
-        "真撞了再改"
-      ]
+      "forbidden": []
     },
     {
       "id": "orch-17-enum-no-done-invalidated",
@@ -318,10 +314,11 @@
         "重新生成"
       ],
       "forbidden": [
-        "标成 Done",
-        "标成 Invalidated",
-        "可以这样写",
-        "Partial"
+        "这样写没问题",
+        "Stage: Partial",
+        "ChangeSetStatus: Done",
+        "ChangeSetStatus: Invalidated",
+        "Stage: Done"
       ]
     },
     {
@@ -367,9 +364,8 @@
         "plaud-theme-qa"
       ],
       "forbidden": [
-        "Mode: FullFlow",
-        "ReadyForDelivery: Yes",
-        "可以发布"
+        "我判定可以发布",
+        "Mode: FullFlow"
       ]
     }
   ]

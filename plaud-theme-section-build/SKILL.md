@@ -91,20 +91,51 @@ Path B 的常态是 **`ReconMode: IntegrationSurface`**——纯新建，无存�
 **判定命令**。**开工前先存 baseline，收尾时只判定"本 ChangeSet 新产生的"变化**——工作树里开工前就存在的无关改动，既不吸收进 `ModifiedFiles`，也不单独导致本任务升级。
 
 ```bash
+# 🔴 baseline 与收尾必须用**同一个**采集函数（v0.2.2 第六轮修）。
+#    旧写法 baseline = git diff + git status、收尾只用 git diff：
+#      · 仓库里本来就有未跟踪文件 → baseline 多出 `?? …` 行，即使什么都没做也产生假 delta；
+#      · 新建的 sa-* section 是未跟踪的 → 根本不在收尾集合里，本轮真正的新文件被漏掉。
+#    两头都必须同时含「相对 HEAD 的改动」+「未跟踪文件」，且排除 memory/。
+sb_worktree_set() (
+  set -o pipefail
+  # 🔴 与 §2 同一条守卫：子目录下 `-- .` 会把范围收到该子目录，静默给出子集
+  _top=$(git rev-parse --show-toplevel 2>/dev/null)                              || return 1
+  [ -n "$_top" ] || return 1
+  [ "$(cd "$_top" && pwd -P)" = "$(pwd -P)" ] || {
+    printf 'NOT_REPO_ROOT: must run at repo root. cwd=%s toplevel=%s\n' "$(pwd -P)" "$_top" >&2
+    return 1; }
+  git diff --name-status HEAD -- . ':(exclude)memory/'                         || return 1
+  git ls-files --others --exclude-standard -z -- . ':(exclude)memory/' \
+    | tr '\0' '\n' | sed '/^$/d' | sed 's/^/?\t/'                            || return 1
+)
+
 # ① 开工前：记录 baseline（用 mktemp，避免并行任务互相覆盖）
-BASE=$(mktemp -t sb-baseline)
-git diff --name-status HEAD > "$BASE"
-git status --porcelain >> "$BASE"
+# 🔴 **不要写成 `sb_worktree_set | sort > "$BASE" || echo BASELINE_FAILED`**（v0.2.2 第八轮实测修）：
+#    管道的退出码是**最后一个命令**（`sort`）的，函数失败时 sort 照样返回 0 —— `|| echo` 永不触发，
+#    下面那条「拿到 BASELINE_FAILED → 停机」的守卫是**死的**。调用方这里没有 `set -o pipefail`
+#    （pipefail 只在函数自己的 `( )` 子壳里），所以必须先落盘再排序，用 if 判函数本身的退出码。
+#    实测：在子目录跑 → 函数打出 NOT_REPO_ROOT 并返回 1，而 BASELINE_FAILED 一个字都不打，
+#    baseline 文件为 0 字节 —— 接着 ④ 的 comm 会把**整棵工作树**当成"本 ChangeSet 新产生的"。
+# 🔴 **不要写 `mktemp -t sb-baseline`**（v0.2.2 第八轮）：GNU coreutils 的模板必须含 `XXX`，
+#    Linux 上这句直接报错、`BASE` 为空，后面就会往工作目录写 `.raw`、或让 comm 拿到空路径，
+#    整个 baseline 门无法执行。写全路径模板则 BSD/GNU 通吃；并且必须判它自己的退出码。
+BASE=$(mktemp "${TMPDIR:-/tmp}/sb-baseline.XXXXXX") || { echo "BASELINE_FAILED"; BASE=""; }
+# 🔴 `sort` 自己也要守（v0.2.2 第九轮）：第八轮只判了 sb_worktree_set 的退出码，
+#    评审注入失败的 `sort` 后，两家 shell 都只在 stderr 打错误、整段仍 rc=0，
+#    于是拿着一份**空的 $BASE** 继续 comm。函数与 sort 必须都成功才算 baseline 成立。
+if [ -n "$BASE" ] && sb_worktree_set > "$BASE.raw" && LC_ALL=C sort "$BASE.raw" > "$BASE"; then :; else echo "BASELINE_FAILED"; fi
 
-# ② 收尾时：相对 HEAD 的完整状态（含已暂存），这是主判据
-git diff --name-status HEAD
+# ② 收尾时：同一个函数再采一次，这是主判据
+if [ -n "$BASE" ] && sb_worktree_set > "$BASE.after.raw" && LC_ALL=C sort "$BASE.after.raw" > "$BASE.after"; then :; else echo "AFTER_FAILED"; fi
 
-# ③ 只看存量文件的写入：排除相对 HEAD 全新的文件（A）
-git diff --name-status --diff-filter=MDRCTU HEAD
+# ③ 只看存量文件的写入：排除相对 HEAD 全新的文件（A）与未跟踪新文件
+git diff --name-status --diff-filter=MDRCTU HEAD -- . ':(exclude)memory/'
 
-# ④ 与 baseline 比对，得出「本 ChangeSet 新产生的」那部分
-diff <(git diff --name-status HEAD) "$BASE"
+# ④ 本 ChangeSet 新产生的那部分 = after 减 baseline
+LC_ALL=C comm -13 "$BASE" "$BASE.after"
 ```
+
+> 拿到 `BASELINE_FAILED` / `AFTER_FAILED` → **停机**，不要拿半份集合去比。新建的 `sa-*` 文件会以 `?` + 制表符 + 路径 出现在 ①② 采集里 —— 那正是 Path B 的主体产出，漏了它等于没记录本轮做了什么。
 
 > 🛑 **baseline 已脏且与本任务路径重叠 → 停机。** name-status 只给"文件是否被改"，给不出"是谁改的"：某文件在 baseline 里已经是 `M`，收尾时仍是 `M`，diff 看不出本 ChangeSet 又动过它。**只要本任务需要写入的任何文件在 baseline 里已经是脏的，就停下要求先隔离**（stash / 单独 worktree / 先提交无关改动），不要在混合工作树上继续——`ModifiedFiles` 会被污染，QA 的 `ChangeSetIdMatched` 必失配。
 
@@ -310,19 +341,16 @@ Figma 值 v，spec 阶梯 …a < v < b…
 ```bash
 # BaseHeadSha
 git rev-parse HEAD
-
-# ChangeSetFingerprint —— 覆盖内容、权限、删除态、未跟踪文件
-{
-  git rev-parse HEAD
-  git status --porcelain=v1 -z --untracked-files=all | tr '\0' '\n'
-  git diff HEAD --find-renames=false | git hash-object --stdin
-  git ls-files --others --exclude-standard -z | tr '\0' '\n' | sort | while read -r f; do
-    [ -n "$f" ] && printf '%s %s %s\n' "$f" "$(git hash-object "$f")" "$(ls -l "$f" | cut -c1-10)"
-  done
-} | shasum -a 256 | cut -d' ' -f1
 ```
 
-命令原文以 §2 为准。QA 会在**执行任何检查之前**用同一命令重算并精确比对。**生成指纹后不要再动工作树。** Path B 尤其注意：新建的 `sa-*` 文件多为 untracked，上面命令的最后一段就是为它们准备的——漏掉它等于指纹不覆盖本次主体产出。
+🔴 **`ChangeSetFingerprint` 的命令不在本文件里，只在 `plaud-theme-shared/references/handoff-schema.md` §2。**
+去那里**原样复制**那段 `plaud_fingerprint()` 执行，不要凭记忆敲、不要用任何别处看到的版本。
+
+> **为什么这里不再内嵌一份副本**（v0.2.2 删除）：本节以前抄了一份，附一句"冲突时以 §2 为准"——但那句话拦不住任何人：命令是**可执行**的，抄本一旦落后就会真的算出另一个指纹。这份抄本当时落后了整整两代，仍在用 `--find-renames=false`、`printf "$(git hash-object …)"`（命令替换吞错）、`{ … } | shasum`（子 shell 吞错）、且不排除 `memory/`。
+> 后果不是"多阻断"，而是**producer 算出一个假指纹、QA 用 canonical 重算必然失配**——正常交付会被永久判 `ChangeSetIdMatched: No`；反过来若两边都用旧抄本，则未跟踪文件与 `memory/` 之外的改动可能压根不进指纹。
+> 指纹类命令**只允许有一处事实源**。
+
+QA 会在**执行任何检查之前**用同一命令重算并精确比对。**生成指纹后不要再动工作树。** Path B 尤其注意：新建的 `sa-*` 文件多为 untracked，上面命令的最后一段就是为它们准备的——漏掉它等于指纹不覆盖本次主体产出。
 
 ### HandoffContract
 
@@ -338,12 +366,16 @@ OriginTriageRef:          # 本块若由反馈返工产生：TriageId + ItemId�
 Path: B
 ReconMode:               # IntegrationSurface（纯新建常态）｜LegacyImpact（写入了任何存量文件——含 snippet/全局 CSS/token/既有 section/templates/layout/config/locales 既有 key/build 产物，或新增文件被存量机制自动消费——须回 impact 重评）
 ModifiedFiles:           # 逐个文件路径 + 一句话改动；必须与工作树一致
+                         #   🔴 **不含 memory/ 下的文件**（不属于 ChangeSet，已排除在 §2 指纹与 QA 集合比对之外）
 RootCause: N/A           # 新建 section 填 N/A
 OptionsConsidered:       # 非平凡任务 ≥2 方案 + 取舍；平凡改动填 Trivial
 RequiredQAProfile:       # QA-B；升级为 LegacyImpact 时加 QA-A；B+C 交叉时加 QA-C。🔴 不得写 QA-Global——QA 按 §5 恒执行
 ThemeCheckRequired:      # Yes | No（新建 .liquid + schema 恒为 Yes）
 VisualRegressionRequired: # Yes | No
 BuildRequired:           # Yes | No（是否动了 shopify-common/src 需 npm run build）
+ApprovedExceptions:      # 逐项声明的 🟠 ApprovedException；无则填 []
+                         #   Clause 只能取 shared §8.1 封闭清单内的条款；Scope 必须逐对象/配对绑定
+                         #   ApprovalRef 为空、或 ApprovedBy 是自己 → QA 判 Failed（见 shared §8.1）
 BlockingGaps:            # 实现中发现但无权处理的（素材来源、模板接入授权、spec 取值二选一…）
 QAStatus: NotRun         # 恒为 NotRun
 NextRequiredSkill: plaud-theme-qa-intake

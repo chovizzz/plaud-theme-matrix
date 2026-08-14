@@ -1,6 +1,6 @@
 {
   "skill_name": "plaud-theme-ux-migration",
-  "matrix": "plaud-shopify-theme-matrix-v0.2.1",
+  "matrix": "plaud-shopify-theme-matrix-v0.2.2",
   "path": "C",
   "stage": "Implement",
   "evals": [
@@ -188,7 +188,7 @@
       "id": 14,
       "route": "handoff-contract",
       "prompt": "今天第 2 个 Path C 改动做完了，按矩阵格式给我交接块。",
-      "expected_output": "输出 handoff-schema §4 的完整 yaml 块（19 个字段、顺序一致），ChangeSetId 为 CS-<YYYYMMDD>-C02，含交付当刻现算的 BaseHeadSha 与 ChangeSetFingerprint、ReadOnlyProof: N/A，Path: C，RequiredQAProfile 含 QA-C 且不含 QA-Global，QAStatus: NotRun，ReadyForDelivery: No。",
+      "expected_output": "输出 handoff-schema §4 的完整 yaml 块（20 个字段，含 ApprovedExceptions、顺序一致），ChangeSetId 为 CS-<YYYYMMDD>-C02，含交付当刻现算的 BaseHeadSha 与 ChangeSetFingerprint、ReadOnlyProof: N/A，Path: C，RequiredQAProfile 含 QA-C 且不含 QA-Global，QAStatus: NotRun，ReadyForDelivery: No。",
       "files": [],
       "assertions": [
         "输出最后是一个 yaml 代码块，且字段名与顺序与 handoff-schema.md §4 一致。",
@@ -198,8 +198,64 @@
         "输出包含 Path: C。",
         "输出的 RequiredQAProfile 含 QA-C（QA-Global 不写进该字段）。",
         "输出包含 QAStatus: NotRun、NextRequiredSkill: plaud-theme-qa-intake、ReadyForDelivery: No。",
-        "输出的 yaml 块不含 ChangeSetIdMatched、RegressionMatrix、ReadyForImplement 等其它阶段字段。"
-      ]
+        "输出的 yaml 块不含 ChangeSetIdMatched、RegressionMatrix、ReadyForImplement 等其它阶段字段。",
+        "yaml 块含 ApprovedExceptions 字段（无声明时为 []）。",
+        "yaml 块还含这些字段：AssessmentRef、OriginTriageRef、ReconMode、ModifiedFiles、RootCause、OptionsConsidered、ThemeCheckRequired、VisualRegressionRequired、BuildRequired、BlockingGaps（v0.2.2 第八轮补：此前断言只覆盖了一部分，漏的字段可以整个不写而 eval 仍通过）。",
+        "yaml 块的 key 集合与 handoff-schema §4（20 字段） **完全一致**：20 个、顺序一致、无自造 key、无漏字段——多一个 key 或少一个 key 都算契约违规。"
+      ],
+      "kind": "rule",
+      "validator": {
+        "type": "yaml-block-exact-keys",
+        "note": "string-contains 无法验证「完全一致」。需 harness 实现结构化校验：取回复最后一个 fenced yaml block → 解析 → Object.keys() 与 expectedKeys 严格相等且顺序相等 → 检查 yaml fence 之后无非空内容 → 检查 forbiddenKeys 均不存在。若 harness 未实现 validator，本条按「未验证」记，不得因 assertions 全中就判通过（v0.2.2 第九轮补：此前这四条只有 substring 断言，缺 key / 多 key / 顺序错都验不出来）。",
+        "expectedKeys": [
+          "ChangeSetId",
+          "BaseHeadSha",
+          "ChangeSetFingerprint",
+          "ReadOnlyProof",
+          "AssessmentRef",
+          "OriginTriageRef",
+          "Path",
+          "ReconMode",
+          "ModifiedFiles",
+          "RootCause",
+          "OptionsConsidered",
+          "RequiredQAProfile",
+          "ThemeCheckRequired",
+          "VisualRegressionRequired",
+          "BuildRequired",
+          "ApprovedExceptions",
+          "BlockingGaps",
+          "QAStatus",
+          "NextRequiredSkill",
+          "ReadyForDelivery"
+        ],
+        "forbiddenKeys": [
+          "SubmissionId",
+          "QAAdmissionStatus",
+          "QAAdmissionReason",
+          "ChangeSetIdMatched",
+          "FingerprintVerifiedAt",
+          "QAProfilesRun",
+          "ThemeCheck",
+          "ThemeCheckEvidence",
+          "ThemeRuntimePreview",
+          "AdminSchemaSave",
+          "RegressionMatrix",
+          "BreakpointsCovered",
+          "LocalizationCheck",
+          "A11yCheck",
+          "FixedDimensionCheck",
+          "ImageQualityCheck",
+          "CopyConfigurabilityCheck",
+          "StyleHardRuleCheck",
+          "ApprovedExceptionsChecked",
+          "ApprovedExceptionsEvidence",
+          "ProfileSpecificResults",
+          "Advisories",
+          "Evidence",
+          "ReadyForImplement"
+        ]
+      }
     },
     {
       "id": 15,
@@ -336,14 +392,22 @@
       "id": 25,
       "route": "legacy-module-preexisting-deviation",
       "prompt": "这个模块迁移时发现它本来就有别的 spec 偏差（正文色还是 #7A7A7A、圆角写了 8px）。我顺手一起修了吧？",
-      "expected_output": "不要求顺手修（handoff-schema §8.1.2 存量复用豁免）：记进迁移日志待评估项 + QA 的 Advisories。但三条不放松：举证该偏差在 BaseHeadSha 已存在、不得加重或让它变成新可达行为、回归仍按 plaud-theme-impact 的 ActualAffectedInstances 全量且空/满配置双测不豁免。要修就另开一个独立可验收的块。",
+      "expected_output": "不要求顺手修（handoff-schema §8.1.2 存量复用豁免）。但**验收前不写迁移日志**（hard-rules §2.3）：本轮先把它放进 Implement 工件的说明与 QA 的 Advisories，验收通过后才写进迁移日志的待评估项。豁免三条不放松：举证该偏差在 BaseHeadSha 已存在、不得加重或让它变成新可达行为、回归仍按 plaud-theme-impact 的 ActualAffectedInstances 全量且空/满配置双测不豁免。要修就另开一个独立可验收的块。",
       "files": [],
       "assertions": [
-        "输出说明存量偏差不要求顺手修，记待评估项与 Advisories。",
+        "输出说明存量偏差不要求顺手修。",
+        "输出说明验收前不写迁移日志，先记 Implement 说明与 QA 的 Advisories，验收后才入迁移日志待评估项。",
         "输出要求举证偏差在 BaseHeadSha 已存在。",
-        "输出说明豁免只免修复义务，不免验证范围与双测。",
+        "输出说明豁免只免修复义务，不免验证范围与空/满配置双测。",
         "输出建议要修则另开独立块，不夹带在本次迁移里。"
+      ],
+      "forbidden": [
+        "我已写进迁移日志的待评估项",
+        "我顺手把这两处偏差一起修了",
+        "回归范围可以缩小",
+        "本轮可以跳过空满配置双测"
       ]
     }
-  ]
+  ],
+  "description": "\n- 🔴 **不要把「否定短语」写成 forbidden**：正确答案常引用题面措辞来否定它（「不能 X」含「X」），全局 substring 会误判。要禁就禁**赋值形态**或明确的错误结论句。 forbidden 判据（v0.2.2 第九轮定稿）：只写「错误工件里必然出现、正确工件里不可能出现」的赋值形态；不要写否定短语或裸概念词（`可以并行` 会被「不可以并行」命中）；也不要写会被正确答案顺带复述的串——确实需要禁某个赋值时，同时在 expected_output 里注明「不要复述该串」。能用 assertions 表达的约束一律走 assertions，不进 forbidden。"
 }
