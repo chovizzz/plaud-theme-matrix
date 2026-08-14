@@ -1,0 +1,336 @@
+{
+  "skill_name": "plaud-theme-ux-migration",
+  "matrix": "plaud-shopify-theme-matrix-v0.1.0",
+  "path": "C",
+  "stage": "Implement",
+  "evals": [
+    {
+      "id": 1,
+      "route": "project-state-missing",
+      "prompt": "帮我把 product.note-0911 这个模板的 Multi Content - WW 实例按 UX Spec v1.3 刷一遍。项目里现在没有 memory 目录，你先自己整理一份模板清单和模块清单出来吧。",
+      "expected_output": "停机：按 plaud-theme-shared/SKILL.md「缺失时的唯一初始化规则」，memory 三文件缺失默认停机、不得凭空重建；仅当用户明确确认「首次接入、本项目无历史迁移状态」后才可复制 memory-seed 种子（2026-07 快照，需人工核对）。",
+      "files": [],
+      "assertions": [
+        "输出拒绝凭空重建模板清单/模块清单，明确说明不得自行编造项目状态。",
+        "输出说明缺失时的处理引用 plaud-theme-shared 的唯一初始化规则表，本 skill 不自行规定。",
+        "输出说明凭空重建会与真实迁移进度脱节，导致重复迁移或漏迁。",
+        "输出停机要用户提供 memory/模板清单.md、memory/模块清单.md、memory/全局已知偏差.md；只有在用户明确确认这是首次接入、无历史迁移状态时，才可复制 memory-seed 种子并声明是 2026-07 快照需人工核对。",
+        "输出把该缺失写进 BlockingGaps。",
+        "输出最后包含 yaml 契约块且 ReadyForDelivery 为 No。"
+      ]
+    },
+    {
+      "id": 2,
+      "route": "disabled-instances",
+      "prompt": "这个模板里有 3 个 Delta Accordion 实例，其中 1 个是 disabled 的。那个 disabled 实例的字号也偏离 spec，顺手一起改了吧，字号总览表也把它列上，反正以后可能会启用。",
+      "expected_output": "拒绝：disabled 实例不进字号总览、不进对比表、不动 stored 值，即使偏离 spec 也不改。",
+      "files": [],
+      "assertions": [
+        "输出拒绝修改 disabled 实例的 stored 值，并说明即使偏离 spec 也不改。",
+        "输出说明 disabled 实例不进字号总览、不进修改前后对比表。",
+        "输出给出 grep -B 1 '\"disabled\": true' 的检查命令或等价核查方式。",
+        "输出没有把 disabled 实例并入启用实例计数。"
+      ]
+    },
+    {
+      "id": 3,
+      "route": "empty-heading",
+      "prompt": "做字号总览的时候，Slideshow 这个模块有 pre_heading 和 subheading 字段，直接按 schema 里有的字段全列进总览表就行吧？",
+      "expected_output": "不行：只列实际渲染元素，stored 值为空字符串的 pre/sub heading 不列，且必须逐实例查而非逐模块。",
+      "files": [],
+      "assertions": [
+        "输出说明字号总览只列实际渲染元素，stored 值为空字符串的 pre/sub heading 不列。",
+        "输出要求逐个实例检查 stored 值，而不是按模块或按 schema 字段一刀切。",
+        "输出给出 awk/grep 检查 pre_heading / subheading / sub_heading stored 值的命令。",
+        "输出提到字段命名不统一的风险（subheading 与 sub_heading，或 Marquee 标题字段是 text_heading）。"
+      ]
+    },
+    {
+      "id": 4,
+      "route": "impact-boundary",
+      "prompt": "先帮我 grep 一下 ww-multi-content 在多少个模板里用了、多少个实例、多少个 disabled，然后据此决定改哪一层。",
+      "expected_output": "影响面数据来自 plaud-theme-impact 的 AssessmentRef，本 skill 不重算；只有 disabled 命令为审计目的重跑且需与 impact 一致。",
+      "files": [],
+      "assertions": [
+        "输出说明理论引用数/实例数/实际受影响实例来自 plaud-theme-impact 的 AssessmentRef，本 skill 不自行重算 blast radius。",
+        "输出指出两边各 grep 一遍会产生两个口径的问题。",
+        "输出在没有 AssessmentRef 且不满足 InlineLite 豁免时要求回到 Assess 阶段。",
+        "输出仍保留三层入口（模板存值/schema/模块代码）的选择职责在本 skill。"
+      ]
+    },
+    {
+      "id": 5,
+      "route": "figma-snap",
+      "prompt": "Figma 上这个卡片的内边距标的是 20，spec 阶梯里有 16 和 24，你就近取一个吧，别问我了，快点改。",
+      "expected_output": "停机：20 到 16 与 24 的 delta 相等，属等距两可，必须问用户选哪档，不得擅自 snap。",
+      "files": [],
+      "assertions": [
+        "输出识别出 20 在 16 与 24 之间两侧 delta 相等，属于等距两可。",
+        "输出拒绝擅自 snap，坚持请用户选择档位。",
+        "输出把该项写进 BlockingGaps 或等价的停机说明。",
+        "输出没有直接给出一个已选定的内边距值当作结论。"
+      ]
+    },
+    {
+      "id": 6,
+      "route": "template-readonly",
+      "prompt": "这个模板的 Slideshow 还在用旧的 Image Slide，直接把 new_slide 的 disabled 去掉、旧 slider_item 加上 disabled 就完事了，你改吧。",
+      "expected_output": "翻 disabled 属模板存值编辑，templates/*.json 默认只读，需用户明确批准；并提示 new_banner_enbale 与切换前的核对项。",
+      "files": [],
+      "assertions": [
+        "输出说明 templates/*.json 默认只读，翻 disabled 属模板存值编辑，需用户明确批准。",
+        "输出要求切换前核对 new_slide 与被隐藏 slider_item 的 heading/图片/按钮对应关系。",
+        "输出提到 new_slide 依赖 section 级 new_banner_enbale，以及开启后高度改走全局主题设置、背景图变成裁切填充。",
+        "输出提到文字块定位系统或入场动效可能变化，需预览确认。",
+        "输出逐模板进行而不是一次全站切换。"
+      ]
+    },
+    {
+      "id": 7,
+      "route": "loading-layer-fouc",
+      "prompt": "这个 FAQ item 是 section-scoped 的异步 bundle，我把 spec 字号写进模块 SCSS 了，颜色也用 var(--color-label-tertiary) 留在同一个 SCSS 里，这样最干净对吧？",
+      "expected_output": "不对：async bundle 会 FOUC，字号与颜色都要用 critical utility class 挂 HTML；padding/背景/圆角/间隙同理；动态内容是允许的例外。",
+      "files": [],
+      "assertions": [
+        "输出指出 section-scoped async bundle 里写字号/颜色会造成首屏 FOUC。",
+        "输出要求把字号和颜色都改成 critical bundle 的 utility class 挂在 HTML 上。",
+        "输出提醒不止字号颜色，首屏可见的 padding/背景/圆角/间隙同样要走 critical 工具类。",
+        "输出说明判断 bundle 是否 async 的方法是看 layout/theme.liquid 有无 media=\"print\" onload。",
+        "输出说明 richtext/metaobject 等动态内容加不了类，保留 token 是允许的例外。"
+      ]
+    },
+    {
+      "id": 8,
+      "route": "pitfall-grid-gap",
+      "prompt": "这个 .grid.grid-cols 的网格列间距要对到 spec 的 24，我直接给它叠一个 gap-sp-6 就好了吧？另外我还想给容器加 my-0 顺便清掉上间距。",
+      "expected_output": "两条都踩坑：grid-cols 禁叠 gap-sp-*，要用内联 --col-gap；my-0 会连下间距一起归零，应用 mt-0 + mar-b-*。",
+      "files": [],
+      "assertions": [
+        "输出禁止在 .grid.grid-cols 上叠 gap-sp-*，说明会与列宽 calc 冲突。",
+        "输出给出内联 --col-gap: var(--space-N) 的正确做法。",
+        "输出指出 grid-cols 本身不写 gap 属性，需要再叠 .gap 类。",
+        "输出指出 my-0 会把上下 margin 都归零、盖掉 mar-b-*，应改用 mt-0 + mar-b-*。"
+      ]
+    },
+    {
+      "id": 9,
+      "route": "pitfall-ww-richtext",
+      "prompt": "WW 模块的脚注要改成 spec 的浅灰，我打算在 rich_description 字段里给 <p> 加个 class=\"text-tertiary\"。",
+      "expected_output": "richtext 字段的 <p> 禁带 class/style，Shopify 校验会拒绝整模板上传；应改用 description（textarea）+ <span class>。",
+      "files": [],
+      "assertions": [
+        "输出指出 rich_description 是 richtext 字段，<p> 加 class/style 会被 Shopify 校验拒绝、整模板上传失败。",
+        "输出给出解法：内容放 description（textarea）字段并清空 rich_description，用 <span class=\"text-…\"> 包裹。",
+        "输出说明 richtext 里 <p> 还有更高特异性的着色规则会盖过 .text-* 类。",
+        "输出提到颜色仍走规范 token 类而不是写死 hex。",
+        "输出提醒改模板存值需要用户明确批准。"
+      ]
+    },
+    {
+      "id": 10,
+      "route": "pitfall-section-header-align",
+      "prompt": "这几个模块的移动端区头都要改左对齐。模块代码之前已经迁过了，我批量把所有实例的 header_align_mb 都设成 left 就行了吧？",
+      "expected_output": "三个易错点：左值因模块而异（left vs start）、字段名因模块而异、标题字段名不统一；且要逐实例查存值、补存值需授权。",
+      "files": [],
+      "assertions": [
+        "输出指出「左」的存值因模块而异，ww-multi-content/tt-fade-switch-video 是 left，delta-trust-carousel/ss-marquee 是 start，不能统一写 left。",
+        "输出指出对齐字段名因模块而异（header_alignment_mobile / header_align_mb / title_align_mb）。",
+        "输出指出标题字段名不统一（Marquee 是 text_heading），批量 grep \"heading\" 会漏。",
+        "输出说明「模块已迁」不等于该实例已左对齐，必须逐实例查存值、缺字段走 schema 默认居中。",
+        "输出说明补存值属模板存值编辑，需已获授权，否则报告待确认。"
+      ]
+    },
+    {
+      "id": 11,
+      "route": "log-timing-and-wording",
+      "prompt": "改动我看了觉得没问题，你现在就把迁移日志写了吧。日志里把 schema 字段名、改的 CSS class 和文件路径都写清楚，方便以后查。",
+      "expected_output": "需用户明确视觉验收通过才写日志；日志措辞禁用 schema/scheme/CSS class/file path/JS 函数名等代码术语，须业务可读。且视觉验收 ≠ QA 通过：memory 状态只能写「视觉已确认，待 QA」，完成态（✅ DONE / 已迁 / 已修）需 changeset-log 中对应 ChangeSetId 的 ReadyForDelivery: Yes 且指纹未失效才可写。",
+      "files": [],
+      "assertions": [
+        "输出要求用户明确验收通过（而非仅口头觉得没问题）后才登记 UX 差异日志内容。",
+        "输出拒绝在日志里写 schema 字段名、CSS class、文件路径等代码术语，说明读者是运营/设计/产品。",
+        "输出给出业务化替代写法，例如用「后台某某字段」「配色方案」「统一的模块标题样式」。",
+        "输出说明仅记 UX 视觉差异，零视觉变化的同色同值替换不登记。",
+        "输出说明 disabled 实例不登记、空值 pre/sub heading 不列。",
+        "输出区分 VisualAcceptance 与 QAStatus 两个正交状态，说明用户视觉验收不等于 QA 通过。",
+        "输出说明此时 memory 三文件的状态只能写「视觉已确认，待 QA」，不得写 ✅ DONE / 已迁 / 已修。",
+        "输出说明完成态需 changeset-log 中存在对应 ChangeSetId、ReadyForDelivery: Yes 且 ChangeSetFingerprint 未失效才能写入。"
+      ]
+    },
+    {
+      "id": 12,
+      "route": "delivery-authority",
+      "prompt": "改完了吗？改完就告诉我迁移完成、可以交付上线了，QA 就不用跑了，我赶时间。",
+      "expected_output": "禁止终态措辞；恒输出 ReadyForDelivery: No，用户弃检时 QAStatus: Skipped(UserWaived) 并说明风险由用户承担。",
+      "files": [],
+      "assertions": [
+        "输出没有使用「迁移完成」「可以交付」「上线可用」「全部通过」等终态措辞。",
+        "输出使用「改动已就位，待 QA」这类允许的措辞。",
+        "输出说明只有 plaud-theme-qa 有权输出 ReadyForDelivery: Yes。",
+        "输出把 QAStatus 标为 Skipped(UserWaived) 并说明已按用户要求跳过验证、风险由用户承担。",
+        "输出最后的 yaml 块中 ReadyForDelivery 为 No。"
+      ]
+    },
+    {
+      "id": 13,
+      "route": "shared-scope-token-to-class",
+      "prompt": "我准备把 .at-tag 这个共享 class 的字号和内距从组件 CSS 挪到 HTML utility 类上，当前这个实例我已经加好类了，可以把 CSS 声明剥掉了吧？",
+      "expected_output": "不行：必须先全仓 grep 该 class 的所有 markup 实例、逐一补类，全覆盖前不得剥 CSS；清单来自 impact 的 SharedPropagation。",
+      "files": [],
+      "assertions": [
+        "输出要求先全仓 grep 该 class 的所有 markup 实例，确认每个实例都已挂等价 utility 后才剥 CSS 声明。",
+        "输出说明未迁移实例会静默丢样式（字号回退继承、内距归零），且常在其它分支或其它 snippet。",
+        "输出说明实例清单来自 plaud-theme-impact 的 SharedPropagation，清单不全就不剥。",
+        "输出提到剥完要回归验证。"
+      ]
+    },
+    {
+      "id": 14,
+      "route": "handoff-contract",
+      "prompt": "今天第 2 个 Path C 改动做完了，按矩阵格式给我交接块。",
+      "expected_output": "输出 handoff-schema §4 的完整 yaml 块（18 个字段、顺序一致），ChangeSetId 为 CS-<YYYYMMDD>-C02，含交付当刻现算的 BaseHeadSha 与 ChangeSetFingerprint、ReadOnlyProof: N/A，Path: C，RequiredQAProfile 含 QA-C 且不含 QA-Global，QAStatus: NotRun，ReadyForDelivery: No。",
+      "files": [],
+      "assertions": [
+        "输出最后是一个 yaml 代码块，且字段名与顺序与 handoff-schema.md §4 一致。",
+        "输出的 ChangeSetId 形如 CS-<YYYYMMDD>-C02。",
+        "输出含 BaseHeadSha 与 ChangeSetFingerprint，并说明是交付工件时当场用 §2 的命令生成的。",
+        "输出含 ReadOnlyProof（有改动任务填 N/A）。",
+        "输出包含 Path: C。",
+        "输出的 RequiredQAProfile 含 QA-C（QA-Global 不写进该字段）。",
+        "输出包含 QAStatus: NotRun、NextRequiredSkill: plaud-theme-qa、ReadyForDelivery: No。",
+        "输出的 yaml 块不含 ChangeSetIdMatched、RegressionMatrix、ReadyForImplement 等其它阶段字段。"
+      ]
+    },
+    {
+      "id": 15,
+      "route": "pitfall-4-1-4-5-utility-bundle",
+      "prompt": "我需要一个 spec 值对应的 padding 工具类，现在没有。我打算写进 shopify-common/src/base.css，然后 grep assets/critical.css 确认它进了 critical。",
+      "expected_output": "§4.1 + §4.5：base.css 不放 spec utility；critical.css 已禁用 grep 无意义；应加到 design-utilities.scss 再 build，并在 design-system.liquid 验证。",
+      "files": [],
+      "assertions": [
+        "输出指出 base.css 只放 Tailwind preflight 与 legacy 兼容，不得写入新的 spec utility。",
+        "输出指出 assets/critical.css 已在 theme.liquid 注释禁用，grep 它无意义。",
+        "输出要求把新 utility 加到 design-utilities.scss，再 build，并在 snippets/design-system.liquid 验证已进 critical。",
+        "输出要求扫命名冲突（Tailwind、旧主题类名、HTML 裸类引用）。"
+      ]
+    },
+    {
+      "id": 16,
+      "route": "pitfall-4-2-4-3-hex-comments",
+      "prompt": "我顺手把这个文件里所有小写 hex 都统一成大写了，还给每处改动加了注释说明是为了本次 UX 迁移加的，方便以后查。",
+      "expected_output": "§4.2 老代码小写 hex 不连动改；§4.3 默认不写注释，禁止指向当下任务的注释和跨文件指引。",
+      "files": [],
+      "assertions": [
+        "输出说明只有新写的 spec 字符串统一大写，老代码小写 hex 不连动改。",
+        "输出要求删掉「为本次迁移加的」这类指向当下任务的注释。",
+        "输出说明默认不写注释，只在 WHY 非显然时一行说明，且禁止跨文件指引。"
+      ]
+    },
+    {
+      "id": 17,
+      "route": "pitfall-4-4-schema-compat",
+      "prompt": "这个模块的 column_gap 是 step:5 max:50，spec 值命不中。我把 step 改成 1、max 改成 60，同时把 step 收紧到 2 更精确，另外还想删掉那个已经没用的 H1-H6 字号 select。",
+      "expected_output": "§4.4：拉高上限安全、收紧步长会让历史存值非法；删 schema 字段允许且不违反 templates 只读；删后要跑 dangling 扫描。",
+      "files": [],
+      "assertions": [
+        "输出指出放宽前要确认老的合法存值在新约束下仍合法，收紧步长会让历史值非法。",
+        "输出说明默认值改动只影响新建实例、存量不变。",
+        "输出说明删 schema 字段是允许的，残留 stored 值被 Shopify 忽略，且与 templates 只读不冲突。",
+        "输出要求删字段后全仓 grep 残留引用（settings.xxx / var(--xxx) / data-*）确认无 dangling。"
+      ]
+    },
+    {
+      "id": 18,
+      "route": "pitfall-4-6-scheme-fixed-color",
+      "prompt": "这个卡片开了配色方案之后底色跟着方案变了，我想让它固定。是不是得像以前那样加一个独立色板配置？另外那个空的 color_scheme:\"\" 实例应该等于没方案吧？",
+      "expected_output": "§4.6/§4.6.1：2026-06 标准化后多数场景直接用 .bg-card/.bg-soft 跟随 surface 即可，独立色板仅特例；空 color_scheme 会继承 :root 上的 default 方案。",
+      "files": [],
+      "assertions": [
+        "输出说明配色方案标准化后多数场景不再需要独立色板，卡片用 .bg-card/.bg-soft 走独立 surface 色即可拉开层次。",
+        "输出说明独立色板是受控例外（对 vendor 后台不提供独立颜色配置的例外），新建 sa-* section 不得套用。",
+        "输出说明独立色板的关键是用自定义变量名（如 --card-bg）天然免疫重绑，不要用 .bg-soft。",
+        "输出纠正「空 color_scheme 等于没方案」，说明它会匹配不到 .color-{id} 而继承 :root 上挂的第一个/default 方案。",
+        "输出说明只有挂了 .text-*/.bg-*/.separator-* 的元素才会被重绑，写死 hex 或内联 style 的不受影响。"
+      ]
+    },
+    {
+      "id": 19,
+      "route": "pitfall-4-7-swiper-controls",
+      "prompt": "这个模块只有 2 张卡，桌面一屏就放下了，轮播控件用 Swiper 的 lock 类把按钮和分页隐藏掉就行了吧？另外旧的 trust-swiper 类和自定义进度条我先留着。",
+      "expected_output": "§4.7：lock 类只隐藏内部元素、容器 padding 仍留空白，须隐藏整个 .cs-section-swiper；旧控件 DOM 与 trust-swiper 类要删。",
+      "files": [],
+      "assertions": [
+        "输出指出仅靠 Swiper lock 类隐藏内部按钮/分页仍会留下 .cs-section-swiper 的容器空白，需要隐藏整个控件容器。",
+        "输出给出按「数量 > 当前断点每屏数」用 critical 内联 CSS 控制 display 的做法（或 --action-display 变量法）。",
+        "输出要求删除旧控件 DOM 与 trust-swiper 类（它带多余的 padding-bottom），并保留 swiper 核心类与懒加载类。",
+        "输出提到统一改用 {% render 'section-swiper' %}，其样式在 critical、无 FOUC。"
+      ]
+    },
+    {
+      "id": 20,
+      "route": "pitfall-4-10-lineheight-richtext",
+      "prompt": "这个组件原来是紧凑行高，我换成 fs-body-lg 了，然后又显式写了 line-height 保证一致。另外富文本块里运营会放 h2/h3，我打算写一条 .xxx *:not(sub,sup){font-size:inherit} 统一。",
+      "expected_output": "§4.10：fs-* 自带 line-height，显式再写是冗余；换成正文类行高会变松，要保留必须显式覆盖并知会用户；富文本应用现成的 .richtext-container。",
+      "files": [],
+      "assertions": [
+        "输出说明 fs-* 类已自带 line-height（标题类与正文类分别消费 --head-line-height / --body-line-height），显式再写是冗余。",
+        "输出指出把紧凑行高的文字换成 fs-body-* 会让行高变松，要保留必须显式覆盖并知会用户。",
+        "输出要求改用 critical 现成的 .richtext-container，而不是自写 *:not(sub,sup){font-size:inherit} 的 scoped 规则。",
+        "输出提到容器已挂工具类时不要在 scss 里把同属性再固定一遍。"
+      ]
+    },
+    {
+      "id": 21,
+      "route": "pitfall-4-14-third-party",
+      "prompt": "Affirm 的分期文案字号不对，我直接改 affirmShopify.js 里那段设 inline font-size 的代码，顺便把它的 line-height 也改成规范行高。",
+      "expected_output": "§4.14：不改插件生成文件（无效且会被更新覆盖），在主题层 base-more-style.liquid 覆盖并用 !important；line-height 谨慎动、须用户确认或登记为已批准偏差。",
+      "files": [],
+      "assertions": [
+        "输出禁止修改插件生成的 JS/CSS，说明运行时会重新生成或被插件更新覆盖。",
+        "输出要求在主题层集中覆盖（如 snippets/base-more-style.liquid），插件用 inline style 时需 !important。",
+        "输出提醒插件里「看着像品牌色」的值先查是不是已有 spec token，可直接 token 化。",
+        "输出提醒改插件小组件的 line-height 可能撑乱布局，须经用户确认或明确登记为已批准偏差。"
+      ]
+    },
+    {
+      "id": 22,
+      "route": "pitfall-4-18-4-19-4-20",
+      "prompt": "我在 flex flex-col gap-sp-6 的父级里加了一个可能为空的注入区 div，另外样式我直接改在 snippets/design-system.liquid 和 assets/sectionsTT.min.css 里了，改完就生效很方便。",
+      "expected_output": "§4.18 空 wrapper 仍吃 gap 需条件渲染；§4.20 这两个是 build 产物，改动要落到源并重新 build。",
+      "files": [],
+      "assertions": [
+        "输出指出空的 wrapper div 仍是 flex item、照样吃 gap，会撑出幽灵空白。",
+        "输出给出 capture + strip + if blank 的条件渲染写法。",
+        "输出指出 design-system.liquid 与 sectionsTT.min.css 是 build 产物，不得手改。",
+        "输出要求改到 shopify-common/src 等源文件并重新 build，并以 layout/theme.liquid 确认真正加载的是哪一份。"
+      ]
+    },
+    {
+      "id": 23,
+      "route": "platform-and-preflight",
+      "prompt": "我在 Windows 上做这个迁移。你把审计要跑的命令给我，我照着贴。",
+      "expected_output": "前置：平台检测，Bash 命令须换 PowerShell 等价物，不得原样假跑；并提示必读文件定位。",
+      "files": [],
+      "assertions": [
+        "输出说明本包命令示例是 Bash，Windows 下需换成 PowerShell 等价命令（如 Select-String）。",
+        "输出提醒不得原样贴一条跑不了的命令然后当作已核查。",
+        "输出提到仓库根路径按本地 clone 位置调整。",
+        "输出仍要求跑 disabled 实例与空 heading 两项核查。"
+      ]
+    },
+    {
+      "id": 24,
+      "route": "out-of-scope",
+      "prompt": "我们要做个全新的 sa-hero-banner section，设计稿在 Figma 上，顺便按 v1.3 spec 对齐一下。",
+      "expected_output": "新建 sa-* 属 Path B，主体交 plaud-theme-section-build；B+C 交叉时走 B 的实现规则 + C 的 spec 取值。单一 ChangeSet 能装下就直接由 section-build 实现、不绕 orchestrator；只有还需拆出第二个可独立验收的 ChangeSet 时才进 orchestrator。RequiredQAProfile 为 QA-B, QA-C（不含 QA-Global）。",
+      "files": [],
+      "assertions": [
+        "输出说明新建 sa-* section 属 Path B，由 plaud-theme-section-build 负责，本 skill 不做。",
+        "输出说明 B+C 交叉时走 B 的实现规则加 C 的 spec 取值。",
+        "输出说明单一 ChangeSet 能装下的 B+C 直接走 plaud-theme-section-build，不必绕 plaud-theme-orchestrator；只有需要拆出第二个可独立验收的 ChangeSet 时才进 orchestrator。",
+        "输出说明 RequiredQAProfile 需多选（QA-B 与 QA-C）。",
+        "输出没有直接开始写新 section 的 liquid 代码。"
+      ]
+    }
+  ]
+}

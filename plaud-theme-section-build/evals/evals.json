@@ -1,0 +1,380 @@
+{
+  "skill_name": "plaud-theme-section-build",
+  "skill": "plaud-theme-section-build",
+  "version": "v0.1.0",
+  "path": "B",
+  "stage": "Implement",
+  "evals": [
+    {
+      "id": "sb-01-routing-figma-new-section",
+      "prompt": "这是 Figma 设计稿，帮我在 Plaud 主题里做一个新的 shop banner 模块。",
+      "expected_output": "路由到 Path B / plaud-theme-section-build，先要 plaud-theme-impact 的 IntegrationSurface 评估，给出 sa-shop-banner 命名方案。",
+      "assertions": [
+        "plaud-theme-section-build",
+        "Path B",
+        "IntegrationSurface",
+        "plaud-theme-impact",
+        "sections/sa-shop-banner.liquid",
+        "SA: Shop Banner"
+      ]
+    },
+    {
+      "id": "sb-02-routing-not-applicable-existing-section",
+      "prompt": "首页那个已有的 multi-content 模块在移动端错位了，帮我修一下。",
+      "expected_output": "不属于 Path B，转 plaud-theme-dev（Path A），不套用 sa-* 命名。",
+      "assertions": [
+        "plaud-theme-dev",
+        "Path A"
+      ]
+    },
+    {
+      "id": "sb-03-routing-not-applicable-ux-migration",
+      "prompt": "把 delta-accordion 按 UX Spec v1.3 刷一遍，对齐 spec。",
+      "expected_output": "不属于 Path B，转 plaud-theme-ux-migration（Path C）。",
+      "assertions": [
+        "plaud-theme-ux-migration",
+        "Path C"
+      ]
+    },
+    {
+      "id": "sb-04-naming-five-places",
+      "prompt": "新建 section 的文件名、CSS 文件名、schema name、根类名分别该怎么写？",
+      "expected_output": "五处同一个 feature 串：sections/sa-<feature>.liquid、snippets/sa-<feature>-<part>.liquid、assets/sa-<feature>.css、\"name\": \"SA: xxx\"、BEM 根类 sa-<feature>。",
+      "assertions": [
+        "sections/sa-",
+        "snippets/sa-",
+        "assets/sa-",
+        "\"name\": \"SA:",
+        "BEM"
+      ]
+    },
+    {
+      "id": "sb-05-vendor-8-default-filter",
+      "prompt": "标题字段运营可能不填，我在 Liquid 里写 {{ section.settings.heading | default: 'Featured' }} 兜底可以吗？",
+      "expected_output": "违反 §8.2，禁止 | default: '...' 兜底展示文案；正确做法是 != blank 判断，为空时不渲染 DOM。",
+      "assertions": [
+        "§8",
+        "禁止",
+        "default:",
+        "!= blank",
+        "不渲染",
+        "小语种"
+      ]
+    },
+    {
+      "id": "sb-06-vendor-8-schema-label-english",
+      "prompt": "schema 里 settings 的 label 和 info 要不要用 t: 走 locales？",
+      "expected_output": "schema 编辑器标签 label/info/content/option label 直接写英文，不用 t: 前缀；storefront 展示文案才走 schema 字段或 locales。",
+      "assertions": [
+        "直接",
+        "英文",
+        "t:",
+        "storefront"
+      ]
+    },
+    {
+      "id": "sb-07-vendor-8-truncation",
+      "prompt": "卡片描述太长会撑破布局，我加个 -webkit-line-clamp: 2 截断吧？",
+      "expected_output": "违反 §8.3，禁止 line-clamp/ellipsis/overflow:hidden+固定高截断配置文案；用 min-height + stretch 让内容撑开；折叠组件是唯一例外且须有展开方式并经 PM 确认。",
+      "assertions": [
+        "§8.3",
+        "line-clamp",
+        "禁止",
+        "min-height",
+        "折叠",
+        "展开"
+      ]
+    },
+    {
+      "id": "sb-08-vendor-9-button-class",
+      "prompt": "页面中部这个卡片区（不是 Banner）的按钮样式跟现有的不太一样，我新建一个 .sa-hero__btn 类写它的背景色和 padding 行不行？",
+      "expected_output": "违反 §9，禁止自创按钮类名；只能用 btn-primary/btn-outline/btn-white + 纯尺寸类 btn-primary-{lg|md|sm}，特殊定制只覆盖颜色 CSS 变量。",
+      "assertions": [
+        "§9",
+        "btn-primary",
+        "btn-outline",
+        "btn-white",
+        "btn-primary-md",
+        "禁止自创",
+        "颜色 CSS 变量"
+      ]
+    },
+    {
+      "id": "sb-09-vendor-9-button-size-rule",
+      "prompt": "这个模块的 CTA 按钮该用哪个尺寸档？",
+      "expected_output": "LG 只用在 Banner，其它一律 MD，仅特殊说明才 SM；不得写死宽高，只允许 min-width/min-height。",
+      "assertions": [
+        "LG",
+        "Banner",
+        "MD",
+        "SM",
+        "min-width",
+        "min-height"
+      ]
+    },
+    {
+      "id": "sb-10-vendor-10-price",
+      "prompt": "这个卡片要显示产品价格，我直接写 ${{ product.price | divided_by: 100 }} 就行吧？",
+      "expected_output": "违反 §10，禁止硬编码货币符号与拼接价格；用 render 'price-format'，外层 price-wrap + white-space: nowrap。",
+      "assertions": [
+        "§10",
+        "price-format",
+        "price-wrap",
+        "nowrap",
+        "货币符号"
+      ]
+    },
+    {
+      "id": "sb-11-vendor-10-nowrap-per-unit",
+      "prompt": "原价和划线价并排显示，我在外层容器上加一个 white-space: nowrap 统一处理可以吗？",
+      "expected_output": "不可以，必须在每一个 price-wrap 单元各自加 nowrap，不整体包一层，否则窄屏溢出。",
+      "assertions": [
+        "每一个",
+        "price-wrap",
+        "nowrap",
+        "不要整体包一层"
+      ]
+    },
+    {
+      "id": "sb-12-vendor-11-swiper",
+      "prompt": "轮播的翻页箭头设计稿上是居中的，我在 section CSS 里重写一下 .swiper-button-next 的样式。",
+      "expected_output": "违反 §11，禁止在 section 内重写分页/翻页视觉；复用 section-swiper snippet，位置调整通过 class 参数（justify-center 等）传入。",
+      "assertions": [
+        "§11",
+        "section-swiper",
+        "禁止",
+        "重写",
+        "class",
+        "justify-center"
+      ]
+    },
+    {
+      "id": "sb-13-media-assets-redline",
+      "prompt": "设计稿里有三张产品图和两个 icon，我把它们导出成 png/svg 放进 assets/ 然后用 asset_url 引用。",
+      "expected_output": "违反媒体资源红线；内容图片/视频/icon 不得写死进 assets 或用 asset_url，须走 image_picker/video/url schema 字段或产品/metaobject 数据源；assets 只放 CSS/JS 与全站固定技术资源，例外须用户确认。",
+      "assertions": [
+        "asset_url",
+        "image_picker",
+        "metaobject",
+        "只放 CSS",
+        "用户确认"
+      ]
+    },
+    {
+      "id": "sb-14-section-space-and-container",
+      "prompt": "新 section 的上下间距我在 CSS 里写 margin-top: 120px 就好了吧？",
+      "expected_output": "不可以，间距走 section_top_pc / section_bottom_pc schema，CSS 不为 section 硬编码 margin；内容区用 container；具体间距数值在 shared 的 responsive-and-spacing.md。",
+      "assertions": [
+        "section_top_pc",
+        "section_bottom_pc",
+        "container",
+        "margin",
+        "硬编码"
+      ]
+    },
+    {
+      "id": "sb-15-color-scheme-two-classes",
+      "prompt": "我加了 color_scheme 字段，Liquid 里写 class=\"color-{{ section.settings.color_scheme }}\" 就够了吗？",
+      "expected_output": "不够，必须同时加 gradient 和 color-{scheme} 两个类，缺一不可。",
+      "assertions": [
+        "gradient",
+        "color-{{",
+        "同时",
+        "缺一不可"
+      ]
+    },
+    {
+      "id": "sb-16-section-header-reuse",
+      "prompt": "模块标题我自己写一套 h2 + 副标题的结构可以吗？heading 字段用 text 类型。",
+      "expected_output": "不可以，标题必须复用 section-header snippet；pre_heading/heading/sub_heading 一律用 textarea；anchor_id_for_category 在 .container 同层。",
+      "assertions": [
+        "section-header",
+        "textarea",
+        "复用"
+      ]
+    },
+    {
+      "id": "sb-17-responsive-three-tier",
+      "prompt": "响应式怎么写？我打算在 media query 里直接改 padding 和 font-size 的 px 值。",
+      "expected_output": "走三层变量：端变量 --sa-xxx-m/--sa-xxx-pc → 运行变量 --sa-xxx → 属性只读运行变量；断点内只改变量映射不写死 px；mobile-first，grid 从 1 列起。",
+      "assertions": [
+        "--sa-",
+        "-m",
+        "-pc",
+        "运行变量",
+        "只改变量映射",
+        "mobile-first",
+        "1 列"
+      ]
+    },
+    {
+      "id": "sb-18-figma-value-equidistant-stop",
+      "prompt": "Figma 上这个间距标的是 20px，spec 阶梯里只有 16 和 24，我取 24 吧。",
+      "expected_output": "等距两可必须停机问用户选哪一档，不得擅自定；输出 BlockingGaps 说明属性、Figma 值与候选档位。",
+      "assertions": [
+        "等距",
+        "停",
+        "问用户",
+        "不得擅自",
+        "BlockingGaps"
+      ]
+    },
+    {
+      "id": "sb-19-figma-value-snap-and-literal",
+      "prompt": "Figma 标 15px，spec 有 16 和 8；另一个圆角标 7px，spec 阶梯里完全没有近邻值但视觉上很关键。",
+      "expected_output": "第一个值明显更近某一档 → 就近 snap 并在正文留痕；第二个值无近邻 token 且视觉重要 → 先与用户确认后才可用字面 px，并标注为已确认例外。",
+      "assertions": [
+        "就近",
+        "snap",
+        "留痕",
+        "无近邻",
+        "确认",
+        "字面 px",
+        "例外"
+      ]
+    },
+    {
+      "id": "sb-20-legacy-impact-upgrade",
+      "prompt": "做这个新 sa-* section 的时候我顺手在 snippets/section-header.liquid 里加了个可选参数，这样评估还是 IntegrationSurface 吧？",
+      "expected_output": "不是。写入了存量共享 snippet → 必须升级为 LegacyImpact 并回 plaud-theme-impact 重评；QA profile 加 QA-A；判定门是「有没有写入存量文件」而非「能不能找到调用方」；不得复制 snippet 规避升级。",
+      "assertions": [
+        "LegacyImpact",
+        "升级",
+        "plaud-theme-impact",
+        "重评",
+        "QA-A",
+        "QA-B"
+      ]
+    },
+    {
+      "id": "sb-21-legacy-impact-uncertain",
+      "prompt": "我改了一个 snippet，不太确定还有没有别的地方在用它。",
+      "expected_output": "拿不准就按 LegacyImpact 处理，保守方向永远是升级不是降级。",
+      "assertions": [
+        "拿不准",
+        "LegacyImpact",
+        "升级",
+        "不是降级"
+      ]
+    },
+    {
+      "id": "sb-22-empty-and-full-config-dual-test",
+      "prompt": "section 写完了，我在后台填满内容看了一遍没问题，可以交了吗？",
+      "expected_output": "必须空配置与满配置双测，加英译德长文案与多语种自检；且实现侧无权判定通过，须交 plaud-theme-qa。",
+      "assertions": [
+        "空配置",
+        "满配置",
+        "双测",
+        "德",
+        "plaud-theme-qa"
+      ]
+    },
+    {
+      "id": "sb-23-no-delivery-authority",
+      "prompt": "都做完了，可以说交付完成、上线可用了吗？",
+      "expected_output": "禁止终态措辞；只能说「改动已就位，待 QA」；恒输出 QAStatus: NotRun / ReadyForDelivery: No。",
+      "assertions": [
+        "改动已就位，待 QA",
+        "QAStatus: NotRun",
+        "ReadyForDelivery: No",
+        "plaud-theme-qa"
+      ]
+    },
+    {
+      "id": "sb-24-user-waives-qa",
+      "prompt": "不用检查了，你直接告诉我可以上线就行。",
+      "expected_output": "仍输出 ReadyForDelivery: No，QAStatus 写 Skipped(UserWaived)，正文说明风险由用户承担。",
+      "assertions": [
+        "ReadyForDelivery: No",
+        "Skipped(UserWaived)",
+        "风险由用户承担"
+      ]
+    },
+    {
+      "id": "sb-25-handoff-contract-block",
+      "prompt": "sa-shop-banner 做完了。上游评估是 ASMT-20260806-07（IntegrationSurface，ReadyForImplement: Yes，BlockingGaps 为空），git status 显示只有三个新增文件：sections/sa-shop-banner.liquid、assets/sa-shop-banner.css、snippets/sa-shop-banner-card.liquid。给我交接信息。",
+      "expected_output": "回复最后是 handoff-schema §4 的 yaml 块，含 CS-<YYYYMMDD>-B<NN> 格式的 ChangeSetId、交付当刻现算的 BaseHeadSha 与 ChangeSetFingerprint、ReadOnlyProof: N/A、Path: B、RequiredQAProfile 含 QA-B 且不含 QA-Global、QAStatus: NotRun、ReadyForDelivery: No、NextRequiredSkill: plaud-theme-qa。",
+      "assertions": [
+        "ChangeSetId:",
+        "ReadOnlyProof",
+        "ChangeSetFingerprint",
+        "BaseHeadSha",
+        "CS-",
+        "-B",
+        "Path: B",
+        "AssessmentRef:",
+        "ASMT-20260806-07",
+        "ReconMode:",
+        "IntegrationSurface",
+        "ModifiedFiles:",
+        "RootCause: N/A",
+        "OptionsConsidered:",
+        "RequiredQAProfile:",
+        "QA-B",
+        "ThemeCheckRequired:",
+        "VisualRegressionRequired:",
+        "BuildRequired:",
+        "BlockingGaps:",
+        "QAStatus: NotRun",
+        "NextRequiredSkill: plaud-theme-qa",
+        "ReadyForDelivery: No"
+      ],
+      "forbidden": [
+        "QA-Global"
+      ]
+    },
+    {
+      "id": "sb-26-no-numeric-duplication",
+      "prompt": "新 section 的标题字号和容器最大宽度是多少？直接告诉我数值。",
+      "expected_output": "本 skill 不持有数值，须读 plaud-theme-shared/references/typography.md 与 responsive-and-spacing.md 后作答并注明来源，不在本 skill 内复制数值（避免双事实源）。",
+      "assertions": [
+        "plaud-theme-shared/references/",
+        "typography.md",
+        "responsive-and-spacing.md"
+      ]
+    },
+    {
+      "id": "sb-27-stylesheet-tag-in-loop",
+      "prompt": "每个 block 的卡片样式我在 block 循环里 render 了一个 snippet，里面带 stylesheet_tag。",
+      "expected_output": "循环内输出 stylesheet_tag 会重复 N 次；stylesheet_tag 应在 section 顶层输出一次；section 内 <style> 只输出 CSS 自定义属性。",
+      "assertions": [
+        "stylesheet_tag",
+        "循环",
+        "顶层",
+        "一次",
+        "CSS 自定义属性"
+      ]
+    },
+    {
+      "id": "sb-28-blocking-gaps-template-authorization",
+      "prompt": "section 写好了，顺便帮我把它加到 templates/index.json 里。",
+      "expected_output": "templates/*.json 默认只读，需用户明确授权；未授权则写进 BlockingGaps 停机。",
+      "assertions": [
+        "templates/",
+        "只读",
+        "授权",
+        "BlockingGaps"
+      ]
+    },
+    {
+      "id": "sb-29-fixed-dimensions",
+      "prompt": "卡片高度我写 height: 320px 保证对齐。",
+      "expected_output": "禁止写死组件宽高；用 min-height + align-items: stretch + flex；固定尺寸例外见 shared handoff-schema §8.2，且须说明原因。",
+      "assertions": [
+        "min-height",
+        "stretch",
+        "禁止",
+        "写死"
+      ]
+    },
+    {
+      "id": "sb-30-not-applicable-non-plaud",
+      "prompt": "帮我给一个 Hydrogen 店铺按 Figma 做个新组件。",
+      "expected_output": "不用于本矩阵；Hydrogen/headless 不在适用范围。",
+      "assertions": [
+        "Hydrogen",
+        "不用于"
+      ]
+    }
+  ]
+}

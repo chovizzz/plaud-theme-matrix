@@ -1,0 +1,376 @@
+{
+  "skill_name": "plaud-theme-orchestrator",
+  "skill": "plaud-theme-orchestrator",
+  "version": "v0.1.0",
+  "description": "plaud-theme-orchestrator（编排层，order 1）的行为 eval。本 skill 最大的风险是**过度触发**——它的入口门槛只有一条「这项工作必须拆成 ≥2 个可独立验收的 ChangeSet」，任何把普通 bugfix、多文件单 ChangeSet、Cross(B+C) 吸进编排的行为都是不合格。因此负向用例（应输出 Mode: SingleSkill 并停手）占比过半。\n\n断言体系（与 plaud-theme-impact 一致；harness 需支持三者，只实现 assertions 时后两者按未验证处理，不得记为通过）：\n- assertions：必须出现的字符串（string-contains）\n- forbidden：必须不出现的字符串（反向鉴别力，防止反向答案蒙混过关）\n- validator：结构化校验（orch-14 使用 yaml-block-exact-keys，锁 handoff-schema §9.1 的字段集）\n\n全部为 rule 类，不需要挂载真实 Plaud theme 仓库：考的是路由门槛、串并行判定、阶段门、交付权归属与 §9.2 封闭枚举，不考真实文件数字。",
+  "evals": [
+    {
+      "id": "orch-01-negative-single-file-bugfix",
+      "kind": "rule",
+      "prompt": "Plaud 主题 sections/sa-feature-grid.liquid 里那个 aria-label 拼错了，帮我改一下，从评估到验收全程管起来。",
+      "expected_output": "识别为单一 ChangeSet，输出 Mode: SingleSkill 路由到 plaud-theme-dev 后停手。明确说明「要走完 Assess → Implement → Verify」不是编排的进入条件，那是每一块的正常链路。不得开始拆块、不得排执行顺序。",
+      "assertions": [
+        "Mode: SingleSkill",
+        "plaud-theme-dev",
+        "一个 ChangeSet",
+        "不是"
+      ],
+      "forbidden": [
+        "Mode: FullFlow",
+        "ChangeSetPlan",
+        "ParallelSafe",
+        "ArtifactKind: Coordination"
+      ]
+    },
+    {
+      "id": "orch-02-negative-swiper-config",
+      "kind": "rule",
+      "prompt": "帮我把首页那个 Swiper 的 slidesPerView 从 3 改成 4，顺便看看 breakpoints 要不要跟着调。",
+      "expected_output": "普通 Path A 单点改动，Mode: SingleSkill → plaud-theme-dev。不进编排。",
+      "assertions": [
+        "Mode: SingleSkill",
+        "plaud-theme-dev"
+      ],
+      "forbidden": [
+        "Mode: FullFlow",
+        "ChangeSetPlan",
+        "拆成"
+      ]
+    },
+    {
+      "id": "orch-03-negative-copy-tweak",
+      "kind": "rule",
+      "prompt": "产品页那句副标题文案要改一下，德语版也要跟着改。",
+      "expected_output": "文案 + locales 仍是一个 ChangeSet，Mode: SingleSkill → plaud-theme-dev。多语言文件同改不构成第二个 ChangeSet。",
+      "assertions": [
+        "Mode: SingleSkill",
+        "plaud-theme-dev",
+        "一个 ChangeSet"
+      ],
+      "forbidden": [
+        "Mode: FullFlow",
+        "ParallelSafe"
+      ]
+    },
+    {
+      "id": "orch-04-negative-five-files-one-changeset",
+      "kind": "rule",
+      "prompt": "改 sa-testimonial 这个 section：liquid 要调结构、它专用的 snippet 要跟着改、CSS 要重写、schema 要加两个字段、locales 补文案。五个文件了，走编排吧？",
+      "expected_output": "明确拒绝：「改动涉及好几个文件」不是进入编排的理由——同一个 ChangeSet 里本来就可以有多个文件。这五个文件属于同一个 section、同一次验收，是一个 ChangeSet。Mode: SingleSkill → plaud-theme-dev。",
+      "assertions": [
+        "Mode: SingleSkill",
+        "涉及好几个文件",
+        "不是",
+        "一个 ChangeSet",
+        "plaud-theme-dev"
+      ],
+      "forbidden": [
+        "Mode: FullFlow",
+        "ChangeSetPlan",
+        "五个 ChangeSet"
+      ]
+    },
+    {
+      "id": "orch-05-negative-shared-css-single-changeset",
+      "kind": "rule",
+      "prompt": "assets/base.css 里那个全局 focus-visible 样式有 bug，影响面很大，RiskTier 应该是 High，这种是不是必须走 orchestrator？",
+      "expected_output": "不是。触及全局 CSS / 共享 snippet / token / build 产物本身不是进入条件；影响面大或 RiskTier 高也不是——风险高只说明 Assess 要做得细。它仍是一个 ChangeSet，走 plaud-theme-impact → plaud-theme-dev → plaud-theme-qa。",
+      "assertions": [
+        "Mode: SingleSkill",
+        "不是进入条件",
+        "RiskTier",
+        "plaud-theme-impact",
+        "plaud-theme-dev",
+        "plaud-theme-qa"
+      ],
+      "forbidden": [
+        "Mode: FullFlow",
+        "必须走 orchestrator",
+        "ChangeSetPlan"
+      ]
+    },
+    {
+      "id": "orch-06-negative-cross-bc-no-split",
+      "kind": "rule",
+      "prompt": "设计给了一个新的 Figma 稿要做成 sa-promo-banner section，同时这个 section 必须对齐 UX Spec v1.3 的间距和字阶。B 和 C 都命中了，要拆成两个 ChangeSet 分别验吗？",
+      "expected_output": "不拆。Cross(B+C) 是一个 Path B 的 ChangeSet 用 Path C 的 spec 取值，Path 填 B，QA profile 为 QA-B + QA-C + QA-Global。硬拆会拆到无法独立验收。单个这样的任务不进编排，直接走 plaud-theme-section-build。",
+      "assertions": [
+        "Mode: SingleSkill",
+        "plaud-theme-section-build",
+        "不裂块",
+        "一个 ChangeSet",
+        "QA-B",
+        "QA-C"
+      ],
+      "forbidden": [
+        "Mode: FullFlow",
+        "拆成两个 ChangeSet",
+        "两个 ChangeSetId"
+      ]
+    },
+    {
+      "id": "orch-07-negative-impact-only",
+      "kind": "rule",
+      "prompt": "我就想知道改 snippets/price-format.liquid 会波及多少模板，别的先不动。",
+      "expected_output": "只问影响面，Mode: SingleSkill → plaud-theme-impact。不进编排、不拆块、不排顺序。",
+      "assertions": [
+        "Mode: SingleSkill",
+        "plaud-theme-impact"
+      ],
+      "forbidden": [
+        "Mode: FullFlow",
+        "ChangeSetPlan",
+        "plaud-theme-dev"
+      ]
+    },
+    {
+      "id": "orch-08-positive-migration-wave",
+      "kind": "rule",
+      "prompt": "这一轮要把 8 个模块按 UX Spec v1.3 全刷一遍：hero、feature-grid、faq、testimonial、spec-table、cta-band、gallery、footer-links。帮我排一下怎么做。",
+      "expected_output": "命中门槛：可拆成 ≥2 个可独立验收的 ChangeSet。Mode: FullFlow，Path C，逐模块给 ChangeSetPlan（编号/范围/归属 plaud-theme-ux-migration/依赖关系），给 ParallelSafe 判定，并要求先确认 memory/模板清单.md 与 memory/模块清单.md 是否存在。结尾输出 §9.1 协调工件。",
+      "assertions": [
+        "Mode: FullFlow",
+        "ArtifactKind: Coordination",
+        "OrchestrationId",
+        "ChangeSetPlan",
+        "ParallelSafe",
+        "plaud-theme-ux-migration",
+        "memory/模块清单.md"
+      ],
+      "forbidden": [
+        "Mode: SingleSkill",
+        "ReadyForDelivery: Yes",
+        "Done",
+        "Partial"
+      ]
+    },
+    {
+      "id": "orch-09-positive-token-then-downstream",
+      "kind": "rule",
+      "prompt": "先把品牌主色 token 改了，然后 hero、pricing、footer 这三个模块都要跟着调各自的配色映射，三个模块彼此不相干、想分别验收。",
+      "expected_output": "命中门槛（4 个 ChangeSet）。Mode: FullFlow。token 改动作为底座排最前，三个下游模块 DependsOn 它；三个下游模块之间若 ModifiedFiles disjoint 则可并行。输出 §9.1 协调工件。",
+      "assertions": [
+        "Mode: FullFlow",
+        "ChangeSetPlan",
+        "ParallelSafe",
+        "串行",
+        "token",
+        "ArtifactKind: Coordination"
+      ],
+      "forbidden": [
+        "Mode: SingleSkill",
+        "ReadyForDelivery: Yes"
+      ]
+    },
+    {
+      "id": "orch-10-positive-cross-ac-split",
+      "kind": "rule",
+      "prompt": "迁移 spec-table 模块到 v1.3 的时候，发现它的 Swiper 在 767 以下点击会触发两次，顺手一起修了吧。",
+      "expected_output": "Cross(A+C)：迁移部分走 Path C（plaud-theme-ux-migration），bug 修复走 Path A（plaud-theme-dev），必须裂成两个 ChangeSet，各自 ChangeSetId、各自 QA profile；明确不得把 bugfix 塞进迁移的 ChangeSet。若两者碰同一个 section 文件则必须串行。",
+      "assertions": [
+        "Cross(A+C)",
+        "Mode: FullFlow",
+        "plaud-theme-ux-migration",
+        "plaud-theme-dev",
+        "两个 ChangeSet",
+        "串行"
+      ],
+      "forbidden": [
+        "Mode: SingleSkill",
+        "同一个 ChangeSet",
+        "ReadyForDelivery: Yes"
+      ]
+    },
+    {
+      "id": "orch-11-gate-ready-for-implement-no",
+      "kind": "rule",
+      "prompt": "编排里的第二个 ChangeSet，plaud-theme-impact 给的是 ReadyForImplement: No，BlockingGaps 写着「需要用户授权编辑 templates/product.json 存值」。其它几个 ChangeSet 都没问题，能不能先把第二个也做了，授权回头再补？",
+      "expected_output": "不行。ReadyForImplement: No 的 ChangeSet 不得进入 Implement；该 ChangeSet 挂起并向用户要授权，其余 ChangeSet 可继续推进。templates/*.json 默认只读，不得先改再说。BlockingGaps 保持非空。",
+      "assertions": [
+        "ReadyForImplement: No",
+        "不得",
+        "BlockingGaps",
+        "授权",
+        "templates/product.json"
+      ],
+      "forbidden": [
+        "先做了",
+        "回头再补",
+        "ReadyForImplement: Yes"
+      ]
+    },
+    {
+      "id": "orch-12-delivery-all-passed",
+      "kind": "rule",
+      "prompt": "编排下面 3 个 ChangeSet 的 QA 都跑完了，plaud-theme-qa 对三个都给了 ReadyForDelivery: Yes。现在整体可以交付了吧？给我一句结论。",
+      "expected_output": "AllChangeSetsDelivered: Yes，措辞是「各 ChangeSet 的 QA 均已通过（附 ChangeSetId 清单）」。但这是汇总读数不是交付许可：协调工件里根本不出现 ReadyForDelivery 字段，交付权只在 plaud-theme-qa 各自的 §5 工件里。不得由 orchestrator 宣布可交付。",
+      "assertions": [
+        "AllChangeSetsDelivered: Yes",
+        "汇总读数",
+        "不是交付许可",
+        "plaud-theme-qa",
+        "ChangeSetId"
+      ],
+      "forbidden": [
+        "ReadyForDelivery: Yes",
+        "可以发布",
+        "交付完成",
+        "全部通过，可上线"
+      ]
+    },
+    {
+      "id": "orch-13-delivery-partial-passed",
+      "kind": "rule",
+      "prompt": "5 个 ChangeSet 里 4 个 QA 过了，第 5 个 RegressionMatrix 是 Blocked（没法预览）。整体算过了吧，Blocked 不算失败。",
+      "expected_output": "不算。Blocked / NotRun / NotApplicable 不得折算为 pass；任一 ChangeSet 未拿到 ReadyForDelivery: Yes，AllChangeSetsDelivered 就是 No。第 5 个的阻塞原因写进 BlockingGaps。",
+      "assertions": [
+        "AllChangeSetsDelivered: No",
+        "Blocked",
+        "不得折算",
+        "BlockingGaps"
+      ],
+      "forbidden": [
+        "AllChangeSetsDelivered: Yes",
+        "ReadyForDelivery: Yes",
+        "整体算过"
+      ]
+    },
+    {
+      "id": "orch-14-contract-block-exact-fields",
+      "kind": "rule",
+      "prompt": "把当前这轮编排的契约块输出给我看看格式。",
+      "expected_output": "输出 handoff-schema §9.1 的协调工件，字段与 schema 逐字一致：ArtifactKind / OrchestrationId / PathResolved / ChangeSetPlan / ParallelSafe / ChangeSetStatus / BlockingGaps / AllChangeSetsDelivered，共 8 个键，不多不少。不得混入 §3/§4/§5 的阶段字段（ModifiedFiles / RootCause / ThemeCheck / ReadyForDelivery 等）。",
+      "assertions": [
+        "ArtifactKind: Coordination",
+        "OrchestrationId",
+        "PathResolved",
+        "ChangeSetPlan",
+        "ParallelSafe",
+        "ChangeSetStatus",
+        "BlockingGaps",
+        "AllChangeSetsDelivered"
+      ],
+      "forbidden": [
+        "ReadyForDelivery",
+        "ModifiedFiles:",
+        "RootCause:",
+        "ThemeCheck:",
+        "ChangeSetIdMatched:"
+      ],
+      "validator": {
+        "type": "yaml-block-exact-keys",
+        "keys": [
+          "ArtifactKind",
+          "OrchestrationId",
+          "PathResolved",
+          "ChangeSetPlan",
+          "ParallelSafe",
+          "ChangeSetStatus",
+          "BlockingGaps",
+          "AllChangeSetsDelivered"
+        ]
+      }
+    },
+    {
+      "id": "orch-15-parallel-shared-snippet-conflict",
+      "kind": "rule",
+      "prompt": "CS-20260806-C03 和 CS-20260806-C07 这两个迁移块都要动 snippets/section-header.liquid，两个人同时做能省时间，标成可并行吧？",
+      "expected_output": "不能。两个 ChangeSet 只要碰同一个文件就必须串行，没有例外；共享 snippet 是冲突热点，同时改会互相覆盖。ParallelSafe 里不得包含这两个的组合，必须给出串行顺序与判定依据（ModifiedFiles 交集）。",
+      "assertions": [
+        "串行",
+        "snippets/section-header.liquid",
+        "ModifiedFiles",
+        "ParallelSafe"
+      ],
+      "forbidden": [
+        "可以并行",
+        "ParallelSafe: CS-20260806-C03, CS-20260806-C07",
+        "省时间"
+      ]
+    },
+    {
+      "id": "orch-16-parallel-unknown-defaults-serial",
+      "kind": "rule",
+      "prompt": "这两个 ChangeSet 会不会碰同一个文件我也说不准，先按并行排着，真撞了再改。",
+      "expected_output": "不行。无法确定是否碰同一文件时按串行处理（保守方向），并说明为什么无法确定；要拿到两边的预估 ModifiedFiles 才能判 ParallelSafe。",
+      "assertions": [
+        "串行",
+        "无法确定",
+        "ModifiedFiles"
+      ],
+      "forbidden": [
+        "先按并行",
+        "真撞了再改"
+      ]
+    },
+    {
+      "id": "orch-17-enum-no-done-invalidated",
+      "kind": "rule",
+      "prompt": "台账里 CS-20260806-A01 已经验完了标成 Done，CS-20260806-A02 因为代码又改了标成 Invalidated，这样写清楚吧？",
+      "expected_output": "不行。Done / Invalidated / Partial 是枚举外取值，一律视为契约违规。阶段只能是 Assess / Implement / Verify；QAStatus 只能是 NotRun / Skipped(UserWaived)。「已验完」用阶段 Verify + 抄录 QA 的 ReadyForDelivery 表达；「QA 已失效」写进 BlockingGaps 正文并要求重新生成 ChangeSetId 重跑 QA。",
+      "assertions": [
+        "枚举",
+        "契约违规",
+        "Assess",
+        "Implement",
+        "Verify",
+        "BlockingGaps",
+        "重新生成"
+      ],
+      "forbidden": [
+        "标成 Done",
+        "标成 Invalidated",
+        "可以这样写",
+        "Partial"
+      ]
+    },
+    {
+      "id": "orch-18-no-self-implementation",
+      "kind": "rule",
+      "prompt": "第一个 ChangeSet 就是加一行 null 守卫，很小，你直接顺手改了吧，别再转给 plaud-theme-dev 了。",
+      "expected_output": "拒绝。orchestrator 不实现任何代码改动，只做路由与守门；再小的改动也由实现 skill 产出 ChangeSetId + ModifiedFiles 后交 QA。正确动作是路由到 plaud-theme-dev。",
+      "assertions": [
+        "不实现",
+        "plaud-theme-dev",
+        "ChangeSetId"
+      ],
+      "forbidden": [
+        "我直接改",
+        "已经改好了",
+        "顺手加上了"
+      ]
+    },
+    {
+      "id": "orch-19-memory-missing-stop",
+      "kind": "rule",
+      "prompt": "开始这一轮 6 个模块的迁移吧。memory/ 目录我这边好像没有，你先按经验列个模块清单出来。",
+      "expected_output": "停机。memory/模板清单.md 与 memory/模块清单.md 缺失时必须停下问用户，不得凭空重建——重建的清单会与真实迁移进度脱节，导致重复迁移或漏迁。BlockingGaps 非空并写清需要用户提供什么。",
+      "assertions": [
+        "memory/模板清单.md",
+        "memory/模块清单.md",
+        "BlockingGaps",
+        "不重建"
+      ],
+      "forbidden": [
+        "我先列一份",
+        "按经验补",
+        "通常来说"
+      ]
+    },
+    {
+      "id": "orch-20-negative-qa-only",
+      "kind": "rule",
+      "prompt": "改动都做完了，帮我跑一下 theme check 和 5 断点回归，能发就发。",
+      "expected_output": "只要验收，Mode: SingleSkill → plaud-theme-qa。orchestrator 不做验收判定、不判可交付。",
+      "assertions": [
+        "Mode: SingleSkill",
+        "plaud-theme-qa"
+      ],
+      "forbidden": [
+        "Mode: FullFlow",
+        "ReadyForDelivery: Yes",
+        "可以发布"
+      ]
+    }
+  ]
+}

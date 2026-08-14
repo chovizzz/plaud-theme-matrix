@@ -1,0 +1,617 @@
+{
+  "skill_name": "plaud-theme-shared",
+  "contract_version": "v0.1.0",
+  "evals": [
+    {
+      "id": "v13-overrides-vendor-container-padding",
+      "prompt": "vendor 规范 §1 写 container 左右默认 15px 内边距，我按 15px 做对吗？",
+      "expected_output": "指出 15px 是被 v1.3 覆盖的旧值，现为 24px（XS/Mobile 断点），并指向 responsive-and-spacing.md。",
+      "assertions": [
+        "包含 24px",
+        "包含 15px",
+        "包含 旧值 或 已废 或 覆盖",
+        "包含 responsive-and-spacing"
+      ]
+    },
+    {
+      "id": "v13-overrides-container-max-width",
+      "prompt": "容器最大宽度阶梯是多少？我看到表里写 1480 和 1200。",
+      "expected_output": "给出 v1.3 token 阶梯 1600/1440/1280/1140/960/720/540，并说明 1480/1200 是已废旧值。",
+      "assertions": [
+        "包含 1600",
+        "包含 1440",
+        "包含 1280",
+        "包含 1140",
+        "包含 540",
+        "包含 1480",
+        "包含 旧值 或 已废"
+      ]
+    },
+    {
+      "id": "breakpoint-precision",
+      "prompt": "写移动端媒体查询用 max-width: 768px 可以吗？",
+      "expected_output": "否，CSS 判定统一 767.98 / 1279.98 / 1599.98；min-width 侧才是 768。",
+      "assertions": [
+        "包含 767.98",
+        "包含 1279.98",
+        "包含 1599.98"
+      ]
+    },
+    {
+      "id": "design-breakpoints-not-css",
+      "prompt": "设计稿断点是 390/768/1366/1440/1920，我照这个写 media query 吗？",
+      "expected_output": "不。这些是设计参考画板断点、非 CSS 判定值；CSS 一律用三个 .98 值。",
+      "assertions": [
+        "包含 设计参考 或 画板",
+        "包含 非 CSS 判定 或 不是 media query",
+        "包含 767.98"
+      ]
+    },
+    {
+      "id": "section-header-992-is-exception",
+      "prompt": "区头样式表按 992 分 PC/MB，那我全站组件是不是都该用 992？",
+      "expected_output": "不。992 是区头组件特例，勿泛化；全站判定仍是 767.98/1279.98/1599.98。",
+      "assertions": [
+        "包含 992",
+        "包含 特例",
+        "包含 勿泛化 或 不要泛化 或 不得泛化",
+        "包含 767.98"
+      ]
+    },
+    {
+      "id": "font-weight-single",
+      "prompt": "这个标题设计稿看着比较粗，我给它加 font-weight: 600 吧？",
+      "expected_output": "不允许。全站仅 Jokker Regular 400，标题不加粗。",
+      "assertions": [
+        "包含 400",
+        "包含 Jokker",
+        "包含 不加粗 或 不新增字重 或 禁止"
+      ]
+    },
+    {
+      "id": "fs-class-vs-text-token",
+      "prompt": "一个异步加载的 FAQ 组件要对齐 spec 字号，我该在组件 SCSS 里写 font-size: var(--text-headline) 吗？",
+      "expected_output": "不。section-scoped 异步组件要在 markup 上挂 .fs-headline（critical bundle 已加载，避免 FOUC）；组件 CSS 消费 var(--text-*) 是 universal 组件的做法。",
+      "assertions": [
+        "包含 fs-headline",
+        "包含 FOUC",
+        "包含 markup 或 HTML",
+        "包含 critical"
+      ]
+    },
+    {
+      "id": "body-md-vs-lg",
+      "prompt": "卡片下面的一行说明文字用 text-body-lg 还是 text-body-md？",
+      "expected_output": "卡片描述/辅助说明用 text-body-md（MB 14px）；长文阅读/正文段落才用 text-body-lg。",
+      "assertions": [
+        "包含 text-body-md",
+        "包含 14",
+        "包含 卡片描述 或 辅助说明",
+        "包含 text-body-lg"
+      ]
+    },
+    {
+      "id": "fs-class-line-height",
+      "prompt": "给标题挂了 fs-title-3，还要不要再写 line-height: 1.2？",
+      "expected_output": "不要。fs-* 自带 line-height（标题 1.2 / 正文 1.5）；另提醒换成 fs-body-* 会让行高由 1.2 变 1.5。",
+      "assertions": [
+        "包含 1.2",
+        "包含 1.5",
+        "包含 自带 或 冗余",
+        "包含 fs-body"
+      ]
+    },
+    {
+      "id": "section-heading-pc-40",
+      "prompt": "区头 Heading 的 PC 字号是 42px 吗？",
+      "expected_output": "不是。v1.3 已改为 40px（large-title-2），42px 是已消除的历史偏差。",
+      "assertions": [
+        "包含 40",
+        "包含 42",
+        "包含 large-title-2"
+      ]
+    },
+    {
+      "id": "color-scheme-two-classes",
+      "prompt": "section 要支持配色方案，我加了 color-{{ section.settings.color_scheme }} 就够了吗？",
+      "expected_output": "不够。必须同时加 gradient 和 color-{scheme} 两个类，缺一不可。",
+      "assertions": [
+        "包含 gradient",
+        "包含 color-",
+        "包含 同时 或 缺一不可"
+      ]
+    },
+    {
+      "id": "ai-gradient-not-violation",
+      "prompt": "AI 渐变里写了 #2ca3ff，这是不是违反了颜色不写死 hex 的红线？",
+      "expected_output": "不违反。AI 渐变是设计系统固定渐变资产、已文档化例外，非组件配色配方。",
+      "assertions": [
+        "包含 设计系统固定",
+        "包含 例外",
+        "包含 不违反 或 不算"
+      ]
+    },
+    {
+      "id": "use-color-scheme-inverse-not-rebound",
+      "prompt": "开了 use-color-scheme 之后，深底上的白字 label-inverse-primary 会跟着方案变吗？",
+      "expected_output": "不会。label-inverse-primary/-secondary 与 label-disabled 不重绑，是固定 spec 值。",
+      "assertions": [
+        "包含 不重绑",
+        "包含 inverse",
+        "包含 label-disabled",
+        "包含 固定"
+      ]
+    },
+    {
+      "id": "shared-section-real-impact",
+      "prompt": "给一个 17 个模板都在用的共享 section 加 use-color-scheme，是不是全站都会变色？",
+      "expected_output": "不一定。只有挂了 .text-*/.bg-*/.separator-* 的元素才被重绑；方案默认态≈零变化；空 scheme 跟随 default 方案。必须逐项核查真实影响，区分理论 blast radius 与实际受影响。",
+      "assertions": [
+        "包含 只有 或 仅",
+        "包含 text-",
+        "包含 默认",
+        "包含 逐项 或 真实影响 或 ActualAffected"
+      ]
+    },
+    {
+      "id": "grid-cols-gap-trap",
+      "prompt": "网格用了 grid grid-cols，我再叠一个 gap-sp-6 设 24px 列距行不行？",
+      "expected_output": "不行。grid-cols 用 --gap 参与列宽计算，叠 gap-sp-* 会冲突；应内联 --col-gap: var(--space-6)。",
+      "assertions": [
+        "包含 --col-gap",
+        "包含 冲突 或 错乱",
+        "包含 列宽",
+        "包含 space-6 或 var(--space-"
+      ]
+    },
+    {
+      "id": "my-0-overrides-mar-b",
+      "prompt": "我加了 my-0 和 mar-b-8，下间距怎么没了？",
+      "expected_output": "my-0 把上下 margin 都归 0，与 mar-b-* 同特异性、后加载者胜；改用 mt-0 + mar-b-*。",
+      "assertions": [
+        "包含 mt-0",
+        "包含 mar-b",
+        "包含 特异性 或 覆盖 或 归 0"
+      ]
+    },
+    {
+      "id": "mb-custom-unit-trap",
+      "prompt": "我给 --space-bottom 传了 var(--space-4)，用 pb-custom，结果内距整个不见了。",
+      "expected_output": "legacy mb-custom/pb-custom 用 calc(var(--space-bottom)*1px)，需要无单位数字；传 16px 会算成 calc(16px*1px) 非法静默归零。改用 .pad-b-* / .mar-b-* 工具类，或只填裸数字。",
+      "assertions": [
+        "包含 calc",
+        "包含 无单位 或 裸数字",
+        "包含 静默归零 或 非法",
+        "包含 pad-b 或 mar-b"
+      ]
+    },
+    {
+      "id": "section-space-schema-not-css",
+      "prompt": "新 section 上下留白我直接在 CSS 写 margin-top: 120px 可以吗？",
+      "expected_output": "不可以。section 上下间距走 section_top_pc / section_bottom_pc schema，CSS 不硬编码 margin。",
+      "assertions": [
+        "包含 section_top_pc",
+        "包含 section_bottom_pc",
+        "包含 不硬编码 或 禁止"
+      ]
+    },
+    {
+      "id": "image-width-not-a-quality-cap",
+      "prompt": "banner 图容器显示宽 1200，我用 image_url: width: 600 省流量行不行？",
+      "expected_output": "不行。展示型 section 不得加清晰度上限，width 须按容器实际显示宽 × 高 DPI（≥2×）取值；width 只用于防 CLS/适配容器。",
+      "assertions": [
+        "包含 清晰度",
+        "包含 DPI 或 2×",
+        "包含 CLS",
+        "包含 容器"
+      ]
+    },
+    {
+      "id": "lazy-incompatible-with-cards-cube",
+      "prompt": "Swiper cards 效果的图一直不加载，停在 data-src。",
+      "expected_output": "cards/cube 与 data-src 懒加载不兼容；改全量渲染或禁用 lazy。",
+      "assertions": [
+        "包含 cards",
+        "包含 cube",
+        "包含 data-src",
+        "包含 全量渲染 或 禁用 lazy"
+      ]
+    },
+    {
+      "id": "source-media-breakpoint",
+      "prompt": "video 的 source media 断点写 max-width: 768px 可以吗？",
+      "expected_output": "不。source media 也用 max-width: 767.98px，避免 768 整边界错位。",
+      "assertions": [
+        "包含 767.98",
+        "包含 source",
+        "包含 边界 或 错位"
+      ]
+    },
+    {
+      "id": "assets-hardcoded-media",
+      "prompt": "新建 sa-* section，卡片图我先放进 assets/ 用 asset_url 引用，可以吗？",
+      "expected_output": "不可以。运营可配置素材走 schema（image_picker/video/url）或数据源；assets/ 只放 CSS/JS 与全站固定技术资源，例外须经用户确认。",
+      "assertions": [
+        "包含 image_picker",
+        "包含 schema",
+        "包含 assets",
+        "包含 确认"
+      ]
+    },
+    {
+      "id": "no-liquid-default-fallback",
+      "prompt": "按钮文案我写 {{ bl.label | default: 'Learn more' }} 兜底行不行？",
+      "expected_output": "不行。Liquid 禁 | default: 兜底展示文案（运营清空后仍出硬编码英文，小语种站无法翻译）；改成 != blank 判断，空则不渲染。schema 的 default 字段填英文才是合法占位。",
+      "assertions": [
+        "包含 default",
+        "包含 blank",
+        "包含 不渲染 或 隐藏",
+        "包含 schema"
+      ]
+    },
+    {
+      "id": "schema-label-english-no-t-prefix",
+      "prompt": "schema 里的 label 和 info 要不要用 t: 前缀走 locales？",
+      "expected_output": "不用。schema 编辑器标签直接写英文，不用 t:，也不强制维护 locales/*.schema.json；locales 面向 storefront 展示文案。",
+      "assertions": [
+        "包含 英文",
+        "包含 t:",
+        "包含 不用 或 不使用 或 不强制"
+      ]
+    },
+    {
+      "id": "no-line-clamp-on-config-copy",
+      "prompt": "卡片描述太长了，我加 -webkit-line-clamp: 2 截断一下。",
+      "expected_output": "禁止。配置文案必须完整显示，不得用 line-clamp / 固定高 overflow 截断；例外仅折叠组件（须有展开方式）或经 PM 评审的标题省略。",
+      "assertions": [
+        "包含 line-clamp",
+        "包含 完整显示 或 禁止截断 或 不得",
+        "包含 折叠 或 展开"
+      ]
+    },
+    {
+      "id": "price-format-snippet",
+      "prompt": "我在 Liquid 里写 ${{ product.price | divided_by: 100 }} 显示价格。",
+      "expected_output": "不允许硬编码货币符号。用 render 'price-format'，外层 price-wrap + white-space: nowrap；JS 侧用 Shopify.formatMoney。",
+      "assertions": [
+        "包含 price-format",
+        "包含 price-wrap",
+        "包含 nowrap",
+        "包含 Shopify.formatMoney"
+      ]
+    },
+    {
+      "id": "theme-check-img-width-height",
+      "prompt": "Theme Check 报 ImgWidthAndHeight，我该看哪条规则？",
+      "expected_output": "指向 media-quality 的防 CLS 要求（img 必须带 width/height 布局尺寸），并提醒 HTML 尺寸属性只能是数字。",
+      "assertions": [
+        "包含 CLS",
+        "包含 width",
+        "包含 height",
+        "包含 数字"
+      ]
+    },
+    {
+      "id": "theme-check-undefined-object-render-scope",
+      "prompt": "抽了个公共 snippet 出来，Theme Check 报 UndefinedObject。",
+      "expected_output": "render 是隔离作用域，必须显式传参（product/section/各标志位），不能依赖外层变量可见。",
+      "assertions": [
+        "包含 render",
+        "包含 隔离作用域 或 作用域",
+        "包含 显式传"
+      ]
+    },
+    {
+      "id": "swiper-cube-fixed-height-exception",
+      "prompt": "Swiper cube 需要固定 px height，但红线说禁止写死宽高，冲突吗？",
+      "expected_output": "不冲突。cube/vertical 要求的固定 px height 是已文档化例外，但须在改动说明里写明原因。",
+      "assertions": [
+        "包含 例外",
+        "包含 cube",
+        "包含 vertical",
+        "包含 说明原因 或 写明"
+      ]
+    },
+    {
+      "id": "section-swiper-no-local-override",
+      "prompt": "这个 section 的轮播箭头设计稿不一样，我在 section CSS 里重写 .swiper-button-next 样式。",
+      "expected_output": "禁止在 section 内重写 pagination/arrow 视觉；统一用 render 'section-swiper'，位置用 class 参数调；有设计差异提 PM 评审后扩展公共样式。",
+      "assertions": [
+        "包含 section-swiper",
+        "包含 禁止 或 不得",
+        "包含 PM 或 评审",
+        "包含 class"
+      ]
+    },
+    {
+      "id": "js-lifecycle-cleanup",
+      "prompt": "custom element 里注册了 IntersectionObserver 和 setInterval，还要做什么？",
+      "expected_output": "在 disconnectedCallback 清理监听/timer/observer/subscription（以及 Swiper destroy），并做 null 守卫、TDZ 安全、无 console.log。",
+      "assertions": [
+        "包含 disconnectedCallback",
+        "包含 observer",
+        "包含 null 守卫 或 空值",
+        "包含 console.log"
+      ]
+    },
+    {
+      "id": "reuse-base-class",
+      "prompt": "要做一个新的弹窗，我自己写一套打开关闭逻辑。",
+      "expected_output": "先查现有基类：弹窗用 PopupBase、轮播用 SlideSection、通信用 pub/sub，不另起炉灶。",
+      "assertions": [
+        "包含 PopupBase",
+        "包含 SlideSection",
+        "包含 pub"
+      ]
+    },
+    {
+      "id": "a11y-needs-judgeable-method",
+      "prompt": "A11y 我检查过了，写 Passed 可以吗？",
+      "expected_output": "不可以。A11yCheck 记 Passed 必须附逐条判定证据（命令原文/可复核描述）；无法验证时记 Blocked，不得猜。",
+      "assertions": [
+        "包含 证据",
+        "包含 Blocked",
+        "包含 Passed",
+        "包含 不得 或 不可以"
+      ]
+    },
+    {
+      "id": "a11y-trapfocus-method",
+      "prompt": "怎么判断弹窗的 trapFocus 达标？",
+      "expected_output": "给出可执行判法：继承 PopupBase 或调用 trapFocus()、Tab 绕一圈不跑出弹层、Esc 可关、关闭后焦点归还触发元素、role=dialog + aria-modal + 可访问名、背景 inert/aria-hidden。",
+      "assertions": [
+        "包含 trapFocus",
+        "包含 Tab",
+        "包含 Esc",
+        "包含 焦点 归还 或 归还",
+        "包含 aria-modal 或 role=\"dialog\" 或 role=dialog"
+      ]
+    },
+    {
+      "id": "contrast-tertiary-risk",
+      "prompt": "正文用 .text-tertiary 压在白底上可以吗？",
+      "expected_output": "不可以承载正文。#A3A3A3 on #FFFFFF 约 2.5:1，低于 4.5:1，只能用于非必读的辅助信息；且开配色方案后要重测。",
+      "assertions": [
+        "包含 4.5",
+        "包含 A3A3A3",
+        "包含 辅助 或 非正文",
+        "包含 配色方案 或 方案"
+      ]
+    },
+    {
+      "id": "no-value-duplication-in-other-skills",
+      "prompt": "我想把间距阶梯表抄进 plaud-theme-ux-migration 的 reference，方便它自己查。",
+      "expected_output": "禁止。数值单一事实源在 plaud-theme-shared/references；其它 skill 只得引用，复制会产生多事实源、spec 升级必然漂移。",
+      "assertions": [
+        "包含 唯一事实源 或 单一事实源",
+        "包含 引用",
+        "包含 漂移",
+        "包含 禁止 或 不得"
+      ]
+    },
+    {
+      "id": "redline-vs-detail-split",
+      "prompt": "图片清晰度红线到底写在哪？references/media-quality.md 还是 handoff-schema.md？",
+      "expected_output": "红线正文在 handoff-schema.md §8.3；media-quality.md 只是它的可执行细则（适用范围与取值方法）。表述冲突以 handoff-schema.md 为准。",
+      "assertions": [
+        "包含 handoff-schema",
+        "包含 media-quality",
+        "包含 细则 或 操作化",
+        "包含 为准"
+      ]
+    },
+    {
+      "id": "ambiguous-value-stop-dont-guess",
+      "prompt": "Figma 给了 20px 间距，spec 阶梯是 16 和 24，我 snap 到 24 吧？",
+      "expected_output": "不。等距两可必须停下问用户选哪档，不得擅自 snap。",
+      "assertions": [
+        "包含 等距两可 或 两可",
+        "包含 问用户 或 停",
+        "包含 不得 或 不擅自",
+        "包含 16"
+      ]
+    },
+    {
+      "id": "h5-no-token-tier",
+      "prompt": "H5 是 22px，但 fs-* 里只有 24 和 20，我改成 20 吧？",
+      "expected_output": "不。22px 是现行规范值，只是没有同值工具类；不得擅自改成 20 或 24。优先复用既有 H5 全局规则，确需工具类化则停机请示是否新增语义 token。",
+      "assertions": [
+        "包含 22",
+        "包含 规范值 或 现行值",
+        "包含 不得 或 不要 或 不能",
+        "包含 停 或 请示 或 问用户",
+        "不建议改成 20 或 24"
+      ]
+    },
+    {
+      "id": "reference-load-discipline",
+      "prompt": "我只是改一个 JS 的 setInterval 清理，需要读哪些 reference？",
+      "expected_output": "只需 handoff-schema.md + javascript-swiper.md；不需要加载字阶表/颜色表，按需加载。",
+      "assertions": [
+        "包含 javascript-swiper",
+        "包含 handoff-schema",
+        "包含 按需",
+        "不包含 typography.md 作为必读"
+      ]
+    },
+    {
+      "id": "shared-contract-check-output",
+      "prompt": "引用 plaud-theme-shared 之后要回报什么？",
+      "expected_output": "输出 SharedContractCheck：ContractVersion v0.1.0、PathResolved、StageResolved、RequiredSkill、ReferencesLoaded、RedlinesApplicable、BlockingGaps。",
+      "assertions": [
+        "包含 SharedContractCheck",
+        "包含 ContractVersion",
+        "包含 ReferencesLoaded",
+        "包含 RedlinesApplicable",
+        "包含 v0.1.0"
+      ]
+    },
+    {
+      "id": "presets-sa-prefix",
+      "prompt": "新建 sa-shop-banner section，schema name 我写了 \"SA: Shop Banner\"，presets 里写 \"Shop Banner\" 行吗？",
+      "expected_output": "不行。presets[].name 同样要带 SA: 前缀。",
+      "assertions": [
+        "包含 presets",
+        "包含 SA:",
+        "包含 不行 或 不可以 或 也要"
+      ]
+    },
+    {
+      "id": "stylesheet-tag-placement",
+      "prompt": "section 的 CSS 我放在 block 循环里 render 的 snippet 中输出 stylesheet_tag。",
+      "expected_output": "不行。stylesheet_tag 只在 section 顶层输出一次；循环内会重复输出 N 次。已由全局 bundle 加载的不要重复输出。",
+      "assertions": [
+        "包含 stylesheet_tag",
+        "包含 顶层 或 一次",
+        "包含 循环",
+        "包含 重复"
+      ]
+    },
+    {
+      "id": "three-layer-html-structure",
+      "prompt": "迁移模块的 HTML 结构怎么分层？scheme 类放最外层、overflow-hidden 放里层可以吗？",
+      "expected_output": "三层：outer wrapper（scheme 类与 overflow-hidden 同层）→ inner container（anchor id + container + section_top_pc/bottom_pc）→ 内容。不要把两者拆到不同层；anchor_id 必须与 .container 同层。",
+      "assertions": [
+        "包含 同层",
+        "包含 overflow",
+        "包含 anchor",
+        "包含 container"
+      ]
+    },
+    {
+      "id": "text-align-emit-directly",
+      "prompt": "区头对齐要不要做 left→start / right→end 映射？",
+      "expected_output": "不必须。text-{align}!（含 start/end）已在 critical bundle，可直接 emit 物理值；映射降为逻辑属性偏好，仅当 emit 后未生效才退回 replace。schema option values 不得改。",
+      "assertions": [
+        "包含 critical",
+        "包含 直接 emit 或 可直接",
+        "包含 未生效 或 不生效",
+        "包含 option values 或 不得改"
+      ]
+    },
+    {
+      "id": "swiper-pagination-not-necessarily-button",
+      "prompt": "A11y 检查轮播，.swiper-pagination 这个 div 不是 button，算 Failed 吗？",
+      "expected_output": "不算。pagination 是容器，可以不是 button；prev/next 必须是 button。真正要查的是 clickable 时运行时生成的 bullet 是否可聚焦、可键盘操作、有可访问名——用了 section-swiper 也要查渲染后 DOM。",
+      "assertions": [
+        "包含 容器",
+        "包含 bullet",
+        "包含 prev",
+        "包含 渲染后 或 运行时 或 DOM"
+      ]
+    },
+    {
+      "id": "section-disclaimer-rules",
+      "prompt": "section_disclaimer 的字号和颜色我在模块 SCSS 里定义。",
+      "expected_output": "不要。disclaimer 字号/颜色用 critical utility class 挂 HTML；对齐跟随区头 alignment 映射变量；有内容才渲染；异步 CSS 里再固定一遍会 FOUC。",
+      "assertions": [
+        "包含 utility",
+        "包含 区头 或 header_align",
+        "包含 FOUC",
+        "包含 有内容 或 blank"
+      ]
+    },
+    {
+      "id": "btn-lg-font-size",
+      "prompt": "Banner 上的按钮用 btn-primary-lg，字号是多少？",
+      "expected_output": "LG = 18px PC / 16px MB（≤767.98 有覆盖）；padding 8/24（space-2/space-6），字重 400。",
+      "assertions": [
+        "包含 18",
+        "包含 16",
+        "包含 767.98 或 移动端 或 MB",
+        "包含 400"
+      ]
+    },
+    {
+      "id": "repo-drift-container-padding",
+      "prompt": "我在目标仓库的 design-system.liquid 里看到 .container 内边距是 15px，是不是规范就是 15px？我按 15px 改。",
+      "expected_output": "不是。规范值仍是 24px（DTC-399）；该仓库的 build 早于这次变更。build 产物滞后不能推翻规范，但动手前必须核对目标仓库的实际编译值。",
+      "assertions": [
+        "包含 24px",
+        "包含 15px",
+        "包含 build 或 编译产物",
+        "包含 滞后 或 落后",
+        "包含 规范值"
+      ]
+    },
+    {
+      "id": "repo-drift-check-before-edit",
+      "prompt": "按 v1.3 刷一个模块，直接照 reference 数值改就行吧？",
+      "expected_output": "先核对。design-system.liquid 是 build 产物，可能落后于规范；开工前 grep 目标仓库核对 token、container、use-color-scheme、工具类是否存在；冲突则停机报给用户，不擅自选一边，也不用实测值推翻规范。",
+      "assertions": [
+        "包含 repo-drift 或 design-system.liquid",
+        "包含 build 产物 或 编译产物",
+        "包含 核对",
+        "包含 停 或 BlockingGaps"
+      ]
+    },
+    {
+      "id": "repo-drift-scheme-collapse",
+      "prompt": "文档说 2026-06-30 已经把 inverse-* 从 use-color-scheme 重绑里移除了，那我开配色方案，深底白字应该没问题吧？",
+      "expected_output": "先 grep 目标仓库的 use-color-scheme 实际重绑范围。实测出现过仍停在修正前的仓库：inverse-*/disabled/tertiary 全部重绑、bg-* 全部塌到 background、separator 绑到 border；这类仓库仍会出现文档称已解决的塌缩，独立色板配方仍然需要。",
+      "assertions": [
+        "包含 grep 或 核对",
+        "包含 use-color-scheme",
+        "包含 塌缩 或 塌",
+        "包含 独立色板"
+      ]
+    },
+    {
+      "id": "utility-not-built-in-repo",
+      "prompt": "我给 footer 那条线加 .separator-b，但没生效。",
+      "expected_output": "先确认该工具类是否已 build 进目标仓库：grep -c '.separator-b' <repo>/snippets/design-system.liquid。实测中出现过不存在的情况；不存在应补源再 build，不要内联替代。",
+      "assertions": [
+        "包含 grep",
+        "包含 design-system.liquid",
+        "包含 build",
+        "包含 不要内联 或 补源 或 不内联"
+      ]
+    },
+    {
+      "id": "h1-48-40",
+      "prompt": "我在旧规范文档里看到 H1 是 64px PC / 36px MB，就按这个做吧？",
+      "expected_output": "不。H1 = 48px PC / 40px MB（large-title-1）；vendor §6 旧表的 64/36 已废止，不得照抄。",
+      "assertions": [
+        "包含 48",
+        "包含 40",
+        "包含 64",
+        "包含 已废 或 作废 或 废止",
+        "不建议采用 64/36"
+      ]
+    },
+    {
+      "id": "bg-card-vs-bg-soft-differ",
+      "prompt": "bg-card 和 bg-soft 是不是一样的，都是 #F7F7F7？",
+      "expected_output": "不一样。bg-card 消费 --color-bg-secondary(#F7F5F3)，bg-soft 消费 --color-bg-tertiary(#F7F7F7)；文档笼统说都是 surface #F7F7F7，实测两者不同，不要假设可互换。",
+      "assertions": [
+        "包含 F7F5F3",
+        "包含 F7F7F7",
+        "包含 bg-secondary",
+        "包含 bg-tertiary",
+        "包含 不一样 或 不同 或 不可互换"
+      ]
+    },
+    {
+      "id": "brand-var-naming-two-sets",
+      "prompt": "我写了 color: var(--color-purple)，颜色没出来。",
+      "expected_output": "该变量可能不在目标仓库的编译产物里——实测中出现过只有 --color-black/--color-white 与 highlight 系（--color-highlight-purple 等）的仓库；变量不存在且无 fallback 时整条声明直接失效。先 grep 确认，或改用 highlight 系命名。",
+      "assertions": [
+        "包含 --color-highlight-purple",
+        "包含 不存在 或 没有",
+        "包含 grep 或 确认",
+        "包含 失效"
+      ]
+    },
+    {
+      "id": "version-drift-halt",
+      "prompt": "某个 skill 报 ContractVersion v0.0.9，和 version-manifest 不一致。",
+      "expected_output": "停机，要求重装整包——部分安装会让两套 spec 处理同一 memory/。",
+      "assertions": [
+        "包含 停 或 halt",
+        "包含 重装",
+        "包含 版本",
+        "包含 memory"
+      ]
+    }
+  ]
+}

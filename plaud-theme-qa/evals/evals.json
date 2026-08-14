@@ -1,0 +1,532 @@
+{
+  "skill_name": "plaud-theme-qa",
+  "matrix": "plaud-shopify-theme-matrix",
+  "version": "v0.1.0",
+  "evals": [
+    {
+      "id": 1,
+      "route": "changeset-gate-mismatch",
+      "prompt": "plaud-theme-dev 刚交过来 ChangeSetId: CS-20260806-A03，ModifiedFiles 是 sections/delta-accordion.liquid 和 assets/delta-accordion.css。我看了下工作树，其实我顺手还改了 snippets/section-header.liquid。你直接一起验了吧，赶时间。",
+      "expected_output": "QA 在第一步就判 ChangeSetId 失配，停机要求重新生成，不执行任何检查项，ReadyForDelivery: No。",
+      "files": [],
+      "assertions": [
+        "输出说明要同时校验文件集合、ChangeSetFingerprint 和 BaseHeadSha 三样，只比文件名不合格。",
+        "输出判定 ChangeSetIdMatched: No。",
+        "输出明确拒绝把额外改动一起验证，要求实现 skill 重新生成 ChangeSetId 与 ChangeSetFingerprint。",
+        "输出 ReadyForDelivery: No。",
+        "输出把九个状态字段标为 Blocked，并对 FixedDimensionCheck / ImageQualityCheck / CopyConfigurabilityCheck 说明 §9.2 枚举缺口（照实填 Blocked 并登记进 BlockingGaps，绝不改填 NotApplicable 或 Passed）。",
+        "输出的 ChangeSetIdMatched 取 No（该字段封闭枚举只有 Yes / No，不用 Blocked）。",
+        "输出的记录字段（QAProfilesRun / BreakpointsCovered / FingerprintVerifiedAt / Evidence）不填状态枚举。"
+      ]
+    },
+    {
+      "id": 2,
+      "route": "theme-check-baseline",
+      "prompt": "帮我跑一下 theme check，确认这次改动能不能发。CLI 是 3.92.0，仓库在 ~/workspace/shopify-plaud-yidian。",
+      "expected_output": "以 baseline 增量判定，而不是全仓绝对 pass；说明全仓本来就有大量存量 offense（MatchingTranslations 为主）。",
+      "files": [],
+      "assertions": [
+        "输出明确说明不能用全仓零 error 作为通过条件，理由是存量 offense 数量巨大。",
+        "输出提到改动前（git stash 或 HEAD / worktree）跑一次 baseline、改动后跑一次，比对新增 offense。",
+        "输出包含命令 shopify theme check --path 与 --output json。",
+        "输出说明本地 lint 不需要登录 Shopify 店铺。",
+        "输出说明新增 offense 为 0 才判 ThemeCheck: Passed。",
+        "输出提到 JSON 里 severity 是字符串 error / warning。"
+      ]
+    },
+    {
+      "id": 3,
+      "route": "theme-check-scope-limit",
+      "prompt": "theme check 跑完了，新增的 offense 都在我没改的文件上（layout/theme.liquid 报了 MissingAsset）。ModifiedFiles 里没有它，是不是可以忽略？",
+      "expected_output": "拒绝忽略：删 asset 导致引用方新增 offense 正是外溢回归，判 Failed 或要求确认 baseline 是否干净。",
+      "files": [],
+      "assertions": [
+        "输出拒绝以「不在 ModifiedFiles 范围内」为由忽略该 offense。",
+        "输出指出这类 offense 是本次改动的外溢（例如删除 asset 或 locale key 导致引用方报错）。",
+        "输出给出结论：确认由本次改动引起则 ThemeCheck: Failed；确认 baseline 不干净则 Blocked 并重取 baseline。",
+        "输出不给出 ReadyForDelivery: Yes。"
+      ]
+    },
+    {
+      "id": 4,
+      "route": "theme-check-new-file",
+      "prompt": "这次是新建的 sections/sa-shop-banner.liquid，改动前根本没有这个文件，所以它在 baseline 里没有记录。那它报出来的 offense 是不是不算新增？",
+      "expected_output": "新增文件在 baseline 中计数为 0，其全部 offense 都算新增，一条都不豁免。",
+      "files": [],
+      "assertions": [
+        "输出明确说明新增文件的 baseline 计数为 0。",
+        "输出结论是该文件的全部 offense 都算新增，不豁免。",
+        "输出拒绝为新增文件设白名单或跳过判定。"
+      ]
+    },
+    {
+      "id": 5,
+      "route": "qa-global-evidence",
+      "prompt": "我已经检查过了：断点都看了，德语文案没问题，A11y 也没问题，图片清晰度也 OK。可以给我出验收结论了吗？",
+      "expected_output": "无命令原文与可复核证据，各项降级为 Blocked，ReadyForDelivery: No。",
+      "files": [],
+      "assertions": [
+        "输出说明「我看过了」「已检查」不构成证据。",
+        "输出要求给出命令原文或文件:行号 / 页面×断点 等可复核证据。",
+        "输出把缺证据的检查项标为 Blocked 而不是 Passed。",
+        "输出 ReadyForDelivery: No。",
+        "输出提到 BreakpointsCovered 需要 PC / 1599 / 1279 / 767 / 375 五档。"
+      ]
+    },
+    {
+      "id": 6,
+      "route": "no-checkbox-values",
+      "prompt": "给我一份这次改动的上线前验收清单，勾选形式就行。",
+      "expected_output": "拒绝勾选框，改为每项 Passed/Failed/Blocked/NotApplicable + 证据。",
+      "files": [],
+      "assertions": [
+        "输出说明不使用勾选框。",
+        "输出每项取值限定为 Passed / Failed / Blocked / NotApplicable。",
+        "输出说明 Blocked 必须附原因，NotApplicable 必须说明为何不适用。",
+        "输出说明任一项非 Passed 或 NotApplicable 时 ReadyForDelivery 必须为 No。"
+      ]
+    },
+    {
+      "id": 7,
+      "route": "qa-a-sibling-bugs",
+      "prompt": "plaud-theme-dev 修了一个「点击触发多次」的 bug，ChangeSetId: CS-20260806-A05，只改了 assets/components.js 一处 addEventListener。跑 QA-A。",
+      "expected_output": "QA-A 要求同族 bug 扫描（一个 bug 常伴 3-5 个同族）+ 依赖树回归 + JS 生命周期清理，均带 grep 证据。",
+      "files": [],
+      "assertions": [
+        "输出提到一个 bug 常伴 3-5 个同族 bug，必须做同族扫描。",
+        "输出给出寻找同族的具体方法（按根因关键词 grep、按同一基类/API 的其它使用者、按症状-根因映射表、按同文件相邻实现）。",
+        "输出检查 addEventListener / timer / observer / subscription 是否在 disconnectedCallback 中清理。",
+        "输出检查 null 守卫、TDZ 安全、生产代码无 console.log。",
+        "输出要求依赖树回归并给出 grep 命令。"
+      ]
+    },
+    {
+      "id": 8,
+      "route": "qa-b-empty-and-full",
+      "prompt": "新做的 sa-shop-banner section 已经完成，ChangeSetId: CS-20260806-B02。跑 QA-B 验收。",
+      "expected_output": "QA-B 覆盖命名、vendor §1–§12、素材来源、schema 完整性、空配置与满配置双测、多语言。",
+      "files": [],
+      "assertions": [
+        "输出检查 sa-* 文件名、SA: schema name、BEM 根类名。",
+        "输出检查内容图片/视频/icon 未写死到 assets，运营素材走 schema 或数据源。",
+        "输出要求空配置与满配置两种都测，只测一种判 Blocked。",
+        "输出检查空配置下不输出空壳 DOM（如 <h2></h2>）。",
+        "输出检查按钮无固定宽高、价格走 price-format、Swiper 复用 section-swiper。",
+        "输出检查 Liquid 中不得用 | default: '...' 兜底展示文案。",
+        "输出包含英译德长文案测试。"
+      ]
+    },
+    {
+      "id": 9,
+      "route": "qa-c-disabled-and-log",
+      "prompt": "UX 迁移做完了，ChangeSetId: CS-20260806-C11，改了 Multi Content - WW 模块。我顺便把字号总览和前后对比表写进迁移日志了，你验一下。",
+      "expected_output": "QA-C 判日志时机违规（未获用户验收不得写日志内容），并核 disabled 实例、空 pre/sub heading、三层入口。",
+      "files": [],
+      "assertions": [
+        "输出判定未获用户验收就写迁移日志内容为 Failed。",
+        "输出说明「进行中 / Owners」协调元数据是例外，可以写。",
+        "输出要求列出该模板所有 disabled: true 实例并确认未进字号总览、未动其 stored 值。",
+        "输出要求确认 stored 值为空的 pre_heading / subheading 未列入字号总览。",
+        "输出检查三层入口（模板存值 / schema / 模块代码）选择是否正确，并指出 templates/*.json 默认只读需用户授权。",
+        "输出提到用 node 校验 JSON 时要先剥掉 Shopify 自动添加的注释头。"
+      ]
+    },
+    {
+      "id": 10,
+      "route": "user-waiver",
+      "prompt": "别检查了，我赶时间，直接告诉我可以发布。",
+      "expected_output": "仍输出 ReadyForDelivery: No；QAStatus: Skipped(UserWaived) 写在正文而非 §5 yaml 块。",
+      "files": [],
+      "assertions": [
+        "输出 ReadyForDelivery: No。",
+        "输出在正文中说明 QAStatus: Skipped(UserWaived)。",
+        "输出的 yaml 契约块中不含 QAStatus 字段（§5 未定义该字段，塞进去即自造字段）。",
+        "输出用一句话说明已按用户要求跳过验证、风险由用户承担。",
+        "输出未使用「可以发布」「全部通过」等终态措辞。",
+        "输出把未执行的检查项标为 Blocked，QAProfilesRun 为 None。"
+      ]
+    },
+    {
+      "id": 11,
+      "route": "qa-invalidation",
+      "prompt": "上周 CS-20260731-C07 你验过是通过的，之后我又调了两行 CSS。现在还能按那次结论发布吗？",
+      "expected_output": "原 QA 自动失效；给出可执行的失效检测方法，要求新 ChangeSetId 并整轮重跑。",
+      "files": [],
+      "assertions": [
+        "输出说明 QA 通过后代码再变则原 QA 自动失效。",
+        "输出说明用 handoff-schema §2 定义的 ChangeSetFingerprint 命令重算比对，而不是自造指纹算法。",
+        "输出说明不使用 mtime 作为判据。",
+        "输出要求重新生成 ChangeSetId + ChangeSetFingerprint + BaseHeadSha 并整轮重跑，而不是只补验变动的那部分。",
+        "输出提到把 changeset-log 中该行状态改为 Invalidated。"
+      ]
+    },
+    {
+      "id": 12,
+      "route": "no-overclaim",
+      "prompt": "theme check 新增 offense 是 0，那是不是说明 Shopify 兼容性全部通过了？",
+      "expected_output": "拒绝越权表述；ThemeCheck: Passed 只代表静态 lint 无新增 offense。",
+      "files": [],
+      "assertions": [
+        "输出说明 ThemeCheck: Passed 只代表静态 lint 无新增 offense。",
+        "输出明确拒绝「Shopify 兼容性全部通过」这类表述。",
+        "输出说明运行时行为由 ThemeRuntimePreview、视觉由 RegressionMatrix、admin schema 保存由 AdminSchemaSave 分别承担。",
+        "输出提到 schema 的 step / max / range 限制只有在 admin 后台保存时才会被校验。"
+      ]
+    },
+    {
+      "id": 13,
+      "route": "theme-check-blocked",
+      "prompt": "这台机器上没装 Shopify CLI，theme check 跑不了，其它检查我都做了，能不能就算过？",
+      "expected_output": "ThemeCheck: Blocked，绝不可 Passed；ReadyForDelivery: No。",
+      "files": [],
+      "assertions": [
+        "输出判 ThemeCheck: Blocked 并附原因。",
+        "输出明确说明 Blocked 不得折算为 Passed。",
+        "输出 ReadyForDelivery: No。",
+        "输出列出其它合法的 Blocked 情形（仓库非 theme root、build 产物缺失、.theme-check.yml 依赖缺失等）。"
+      ]
+    },
+    {
+      "id": 14,
+      "route": "output-contract",
+      "prompt": "验收结论按矩阵格式给我。",
+      "expected_output": "回复最后是 handoff-schema §5 定义的 19 个字段的 yaml 块（含 FingerprintVerifiedAt），字段名与顺序一字不差。",
+      "files": [],
+      "assertions": [
+        "输出的最后是一个 yaml 代码块。",
+        "yaml 块包含 ChangeSetId、ChangeSetIdMatched、FingerprintVerifiedAt、QAProfilesRun、ThemeCheck、ThemeCheckEvidence 字段。",
+        "yaml 块包含 ThemeRuntimePreview、AdminSchemaSave、RegressionMatrix、BreakpointsCovered 字段。",
+        "yaml 块包含 LocalizationCheck、A11yCheck、FixedDimensionCheck、ImageQualityCheck、CopyConfigurabilityCheck 字段。",
+        "yaml 块包含 ProfileSpecificResults、Evidence、BlockingGaps、ReadyForDelivery 字段。",
+        "FingerprintVerifiedAt 如实写出 Step1（验证前）与 Step2（验证后）两次重算的值，不是「已核验」。",
+        "yaml 块未出现 handoff-schema §5 之外自造的字段名（例如 QAStatus、Invalidated）。",
+        "即便在用户豁免场景，yaml 块也只含 §5 的 19 个字段，QAStatus 不出现在块内。"
+      ]
+    },
+    {
+      "id": 15,
+      "route": "changeset-log",
+      "prompt": "这次 QA 通过了，需要记到哪里吗？",
+      "expected_output": "追加到项目侧 memory/changeset-log.md，含 ChangeSetId、结果、时间、指纹、失效状态。",
+      "files": [],
+      "assertions": [
+        "输出说明写入项目侧 memory/changeset-log.md。",
+        "输出说明该文件是项目运行时状态、不随包分发。",
+        "输出的记录含 ChangeSetId、QAProfilesRun、ReadyForDelivery、时间、ChangeSetFingerprint、Status。",
+        "输出说明失败与被豁免的 QA 也要记录，且只追加不删除历史行。",
+        "输出说明文件不存在时应停下问用户，不凭空重建。",
+        "输出说明必须先算完收尾指纹再写 log。"
+      ]
+    },
+    {
+      "id": 16,
+      "route": "not-a-verify-task",
+      "prompt": "帮我把这个仓库整体体检一遍，看看有什么问题。",
+      "expected_output": "零改动 / 无 ChangeSet 的审计不归 QA：说明归属并转给 plaud-theme-dev，不输出 §5 块、不给 ReadyForDelivery。",
+      "files": [],
+      "assertions": [
+        "输出说明本 skill 的触发前提是已有 ChangeSetId 或用户明确要最终交付判定。",
+        "输出把该请求转给 plaud-theme-dev 的零改动 / 只读通道（由它出 ReadOnlyProof）。",
+        "输出不产出 §5 的 yaml 契约块，也不给 ReadyForDelivery。",
+        "输出说明 handoff-schema §2 规定零改动任务免 QA（NextRequiredSkill: None）。",
+        "输出说明 §5 的字段里没有 ModifiedFiles / ReadOnlyProof，QA 结构上无法为零改动出完整契约。"
+      ]
+    },
+    {
+      "id": 17,
+      "route": "theme-check-offset-cancellation",
+      "prompt": "theme check 前后都是 3334 errors，数量一模一样，新增 offense 算出来是 0。我在 sections/hero.liquid 里修掉了一条 ImgWidthAndHeight，又在同文件另一处新写了一个没带 width 的 img。这样算通过吗？",
+      "expected_output": "计数差集会被抵消；逐 occurrence 匹配（行号投影）才能抓住，判 Failed。",
+      "files": [],
+      "assertions": [
+        "输出识别出这是「修旧引新、数量不变」的抵消情形，纯计数差集会漏报。",
+        "输出说明判定用逐 occurrence 匹配：把 baseline offense 的行号经 diff hunk 投影到 after，行号对得上才算同一条。",
+        "输出说明落在被删/被改区间的 baseline offense 投影为 null，不再参与抵消。",
+        "输出判 ThemeCheck: Failed 而不是 Passed。",
+        "输出说明缺少 hunk 输入时应判 Blocked，不得按新增 0 通过。"
+      ]
+    },
+    {
+      "id": 18,
+      "route": "theme-check-severity-upgrade",
+      "prompt": "同一条 ValidSchemaName 之前是 warning，改完之后变成 error 了，但 offense 总条数没变。算新增吗？",
+      "expected_output": "severity 是指纹的一部分，升级会被识别为新指纹，判 Failed。",
+      "files": [],
+      "assertions": [
+        "输出说明 offense 指纹必须包含 severity。",
+        "输出结论是 warning 升级为 error 算新增，判 Failed。",
+        "输出说明新增 offense 不分 severity，warning 新增同样判 Failed。"
+      ]
+    },
+    {
+      "id": 19,
+      "route": "theme-check-config-suppression",
+      "prompt": "这次改动里我顺手在 .theme-check.yml 加了一条 exclude，把新写的 sections/sa-x.liquid 排除掉了。跑完新增 offense 是 0，可以判通过吗？",
+      "expected_output": "配置被改动即门可被静默关闭；默认 Blocked，要继续必须两次强制用同一份配置。",
+      "files": [],
+      "assertions": [
+        "输出识别出改 .theme-check.yml 会让 after 那次的 offense 被合法隐藏，使门失效。",
+        "输出判 ThemeCheck: Blocked，而不是 Passed。",
+        "输出要求 before / after 两次强制使用同一份（HEAD 版本的）配置。",
+        "输出还要求扫描代码中新增的 theme-check-disable 类 suppression 指令。"
+      ]
+    },
+    {
+      "id": 20,
+      "route": "theme-check-rename",
+      "prompt": "我把 sections/old-hero.liquid 重命名成了 sections/sa-hero.liquid，内容基本没动。跑完差集里冒出来一堆新增 offense，都是这个文件原来就有的。怎么判？",
+      "expected_output": "rename 需归一化：用 -M --find-renames 把新路径映射回旧路径再比对。",
+      "files": [],
+      "assertions": [
+        "输出说明要用 git diff --name-status -M --find-renames HEAD 识别 rename。",
+        "输出说明比对时把 after 的新路径映射回 baseline 的旧路径，避免存量 offense 假新增。",
+        "输出没有建议直接忽略这些 offense，而是给出归一化方法。"
+      ]
+    },
+    {
+      "id": 21,
+      "route": "delete-needs-more-than-lint",
+      "prompt": "我删掉了 snippets/legacy-badge.liquid，theme check 新增 offense 是 0，可以判 ThemeCheck: Passed 并交付吗？",
+      "expected_output": "删除类改动不允许纯静态放行：需旧路径/basename 全仓引用扫描 + 运行时预览兜底。",
+      "files": [],
+      "assertions": [
+        "输出说明 Theme Check 看不见动态 render、section group、模板 JSON type、JS 拼接路径等引用形式。",
+        "输出要求对被删文件的旧路径与 basename 做全仓 grep（含 templates/*.json 与 config/）。",
+        "输出要求由 ThemeRuntimePreview 兜底确认；预览拿不到则 Blocked，因而 ReadyForDelivery: No。",
+        "输出不允许仅凭 lint 新增为 0 就判可交付。"
+      ]
+    },
+    {
+      "id": 22,
+      "route": "unknown-json-shape",
+      "prompt": "theme check 的 JSON 输出格式好像跟脚本预期的不一样，脚本跑出来 beforeTotal 和 afterTotal 都是 0，新增也是 0。那就是没问题咯？",
+      "expected_output": "解析 fail-closed：结构不识别一律进 blockers → Blocked，不得按空结果通过。",
+      "files": [],
+      "assertions": [
+        "输出识别出这是解析失败而不是「没有 offense」。",
+        "输出说明脚本对未知顶层结构、缺 offenses 数组、offense 字段不全都应记入 blockers。",
+        "输出判 ThemeCheck: Blocked，不是 Passed。"
+      ]
+    },
+    {
+      "id": 23,
+      "route": "fingerprint-staging-noise",
+      "prompt": "上游交过来的 ChangeSetFingerprint 我这边重算对不上，但我记得代码没动过，只是 git add 了一下。可以当作匹配继续验吗？",
+      "expected_output": "指纹对不上即 ChangeSetIdMatched: No，停机要求重新生成，不得自行放行。",
+      "files": [],
+      "assertions": [
+        "输出说明指纹不匹配即 ChangeSetIdMatched: No，必须停机。",
+        "输出拒绝以「我记得代码没动」为由放行。",
+        "输出要求上游重新生成 ChangeSetId + ChangeSetFingerprint + BaseHeadSha。",
+        "输出说明 QA 期间不应在仓库里留临时文件，它们会进指纹导致失配。"
+      ]
+    },
+    {
+      "id": 24,
+      "route": "fingerprint-self-invalidation",
+      "prompt": "你把 QA 结果写进 memory/changeset-log.md 之后，再算一次指纹发现变了，是不是这次 QA 又失效了？",
+      "expected_output": "指纹须排除 changeset-log，且先算指纹再写 log。",
+      "files": [],
+      "assertions": [
+        "输出识别出这是 QA 自己写日志导致的自失效，不是真实代码变动。",
+        "输出说明 handoff-schema §2 的指纹命令用 --untracked-files=all，会把 changeset-log 的改动算进去。",
+        "输出说明正确顺序是先算完 Step2 指纹再写 changeset-log。",
+        "输出说明 QA 的临时文件（tc-diff.js / tc-before.json 等）必须放 scratchpad，不能留在仓库里。"
+      ]
+    },
+    {
+      "id": 25,
+      "route": "redline-coverage-cross-path",
+      "prompt": "这次是 Path B 新建 sa-* section，带了一个 custom element 的 JS，还顺手改了 shopify-common 里的源文件。按 QA-B 跑就行了吧？",
+      "expected_output": "JS 生命周期（红线 6）与 build 产物（红线 7）是与路径无关的附加触发式检查，Path B 也要跑。",
+      "files": [],
+      "assertions": [
+        "输出说明 JS 生命周期清理 / null 守卫 / TDZ 检查与路径无关，Path B 也必须跑。",
+        "输出说明改了 shopify-common 源必须 npm run build，且不得手改 build 产物。",
+        "输出说明颜色走 token（不写死 hex）同样是与路径无关的附加检查。",
+        "输出把这三项结果写进 ProfileSpecificResults，而不是新增 yaml 字段。"
+      ]
+    },
+    {
+      "id": 26,
+      "route": "image-quality-container-widened",
+      "prompt": "这次只改了 CSS，把卡片 grid 从 3 列改成 2 列，图片的 image_url 一行都没动。ImageQualityCheck 判 NotApplicable 对吧？",
+      "expected_output": "容器变宽会让原图欠采样；必须回头重算该容器内所有图片，不能判 NotApplicable。",
+      "files": [],
+      "assertions": [
+        "输出指出 grid 列数变化会让图片显示容器变宽，原有 width 取值可能欠采样。",
+        "输出要求找出该容器里渲染的所有图片并逐个重算，即使 image_url 未变。",
+        "输出拒绝在这种情况下判 NotApplicable。"
+      ]
+    },
+    {
+      "id": 27,
+      "route": "qa-c-disabled-inner-setting",
+      "prompt": "我没有动任何实例的 disabled 标志，只是把一个 disabled 实例里的 heading 文案顺手改了一下。grep 一下 \"disabled\": true 看不出问题，能过吗？",
+      "expected_output": "必须解析 JSON 按实例 ID 深比较；改 disabled 实例内部 stored 值即 Failed。",
+      "files": [],
+      "assertions": [
+        "输出说明 grep 做不到这件事，要用 node 解析 HEAD 与工作树两版 JSON 并按实例 ID 深比较。",
+        "输出判 Failed：不得改动 disabled 实例的 stored 值，含仅改内部 setting 的情形。",
+        "输出说明 grep -B 1 的写法依赖 JSON 字段顺序，不可靠。"
+      ]
+    },
+    {
+      "id": 28,
+      "route": "grep-zero-hit-not-pass",
+      "prompt": "我按你给的 grep 跑了一遍，一条都没命中，那就是合规了，判 Passed 吧？",
+      "expected_output": "零命中不等于通过：正则写错会静默零命中，需先自证命令有效。",
+      "files": [],
+      "assertions": [
+        "输出说明零命中可能是正则写错导致的静默失败。",
+        "输出要求先在已知违规样本上验证命令能命中，再判 Passed。",
+        "输出提到 grep -E 里 alternation 要写 | 而不是 \\|，后者匹配的是字面竖线。"
+      ]
+    },
+    {
+      "id": 29,
+      "route": "theme-check-deleted-lines-spillover",
+      "prompt": "我在 sections/a.liquid 里删了几行，结果 layout/theme.liquid 冒出来一条 MissingAsset；巧的是 sections/a.liquid 里原来那条一模一样的 MissingAsset 正好消失了。前后总数一样，能判通过吗？",
+      "expected_output": "删行导致的外溢 + 同指纹抵消：消失的那条投影为 null 不参与抵消，新冒出的那条无 occurrence 可匹配，判 Failed。",
+      "files": [],
+      "assertions": [
+        "输出识别出这是删行导致的外溢 offense 与同指纹抵消叠加，计数差集会漏报。",
+        "输出说明落在被删区间的 baseline offense 投影为 null，作废不参与抵消。",
+        "输出说明 layout/theme.liquid 的新 offense 匹配不到任何 baseline occurrence，因此算新增。",
+        "输出判 ThemeCheck: Failed，且指出这属于 addedOutsideModifiedFiles。"
+      ]
+    },
+    {
+      "id": 30,
+      "route": "fingerprint-hidden-flags",
+      "prompt": "这个仓库里有几个文件被 git update-index --assume-unchanged 标记过，还有一个 submodule。指纹算出来没变，QA 可以判通过吗？",
+      "expected_output": "两种情况 §2 指纹都看不见；必须过两条补充门，不满足即 ReadyForDelivery: No。",
+      "files": [],
+      "assertions": [
+        "输出说明 assume-unchanged / skip-worktree 的文件改动对 git 完全隐形，§2 的指纹看不见。",
+        "输出说明 submodule gitlink 指向的内部变化不进指纹。",
+        "输出给出两条补充门命令（git ls-files -v 检出小写状态字母或 S；git ls-files -s 检出 160000 gitlink）。",
+        "输出结论是命中即判 ReadyForDelivery: No 并写进 BlockingGaps，不得当作没问题继续。"
+      ]
+    },
+    {
+      "id": 31,
+      "route": "notapplicable-abuse",
+      "prompt": "我这边没法开预览环境，也进不了 Shopify admin 后台。那 ThemeRuntimePreview 和 AdminSchemaSave 就标 NotApplicable，其它都 Passed，这样 ReadyForDelivery 可以给 Yes 吧？",
+      "expected_output": "拿不到环境是 Blocked 不是 NotApplicable；ReadyForDelivery: No。",
+      "files": [],
+      "assertions": [
+        "输出明确区分：拿不到环境 / 跑不了工具属于 Blocked，不是 NotApplicable。",
+        "输出引用 handoff-schema §1.3：NotApplicable 是合法终态但必须给适用性证据，没有证据的按 Blocked 处理。",
+        "输出说明 Blocked 是「该验但验不了」，NotApplicable 是「根本不需要验」。",
+        "输出 ReadyForDelivery: No。"
+      ]
+    },
+    {
+      "id": 32,
+      "route": "no-changeset-no-contract-block",
+      "prompt": "没有 ChangeSetId，我只想让你审计一下这个主题的 A11y，不改任何代码。",
+      "expected_output": "零改动 / 无 ChangeSet 的审计不归 QA：说明归属并转给 plaud-theme-dev，不输出 §5 块、不给 ReadyForDelivery。",
+      "files": [],
+      "assertions": [
+        "输出说明本 skill 的触发前提是已有 ChangeSetId 或用户明确要最终交付判定。",
+        "输出把该请求转给 plaud-theme-dev 的零改动 / 只读通道（由它出 ReadOnlyProof）。",
+        "输出不产出 §5 的 yaml 契约块，也不给 ReadyForDelivery。",
+        "输出说明 handoff-schema §2 规定零改动任务免 QA（NextRequiredSkill: None）。",
+        "输出说明 §5 的字段里没有 ModifiedFiles / ReadOnlyProof，QA 结构上无法为零改动出完整契约。"
+      ]
+    },
+    {
+      "id": 33,
+      "route": "fingerprint-verified-at",
+      "prompt": "所有检查都过了，给我最终的验收结论。",
+      "expected_output": "FingerprintVerifiedAt 必须如实记两次重算的时点与值。",
+      "files": [],
+      "assertions": [
+        "yaml 块包含 FingerprintVerifiedAt 字段。",
+        "FingerprintVerifiedAt 记录 Step1（验证前）与 Step2（验证后）两次重算的值。",
+        "输出说明两次不一致则本轮 QA 作废、ReadyForDelivery 为 No。",
+        "输出只写「已核验」而无具体值时视为证据为空。"
+      ]
+    },
+    {
+      "id": 34,
+      "route": "no-qa-global-in-required-profile",
+      "prompt": "上游工件里 RequiredQAProfile 写的是 QA-A, QA-Global。按这个跑吧。",
+      "expected_output": "QA-Global 由 QA 按 §5 恒执行，不需要上游声明；照跑但指出工件写法有误。",
+      "files": [],
+      "assertions": [
+        "输出说明 QA-Global 与路径无关、恒执行，不需要上游在 RequiredQAProfile 里声明。",
+        "输出仍然执行 QA-Global 的全部检查。",
+        "输出指出上游工件的 RequiredQAProfile 写法与 handoff-schema §3/§4 不符。"
+      ]
+    },
+    {
+      "id": 35,
+      "route": "fingerprint-pre-gate-tamper",
+      "prompt": "上游 CS-20260806-A03 的 ModifiedFiles 是 sections/delta-accordion.liquid 和 assets/delta-accordion.css，我看了工作树也正好是这两个文件，一个不多一个不少。不过交接完之后我又在 delta-accordion.css 里调了两行。文件集合没变，直接开验吧。",
+      "expected_output": "文件集合一致不等于内容一致：Step 1 必须在任何检查之前用 §2 的命令重算 ChangeSetFingerprint 与 BaseHeadSha 并与工件比对，此处指纹必然不符 → ChangeSetIdMatched: No + 停机；不得由 QA 自己现算一个新指纹继续。",
+      "files": [],
+      "assertions": [
+        "输出指出只绑 ModifiedFiles 文件名集合不足以判定匹配，交付后偷改同一批文件会让文件集合保持一致。",
+        "输出说明 Step 1 必须在执行任何检查之前（早于 theme check、早于 baseline、早于回归）完成指纹比对。",
+        "输出说明用 handoff-schema §2 的命令原样重算 ChangeSetFingerprint，并同时比对 BaseHeadSha。",
+        "输出判定 ChangeSetIdMatched: No 并停机，ReadyForDelivery: No。",
+        "输出拒绝由 QA 自己重新生成一个指纹当作基线继续验证，要求实现 skill 重新生成 ChangeSetId + BaseHeadSha + ChangeSetFingerprint。"
+      ]
+    },
+    {
+      "id": 36,
+      "route": "theme-check-whole-repo-twice",
+      "prompt": "为了省时间，我 theme check 只扫了 ModifiedFiles 里那两个文件，前后各一次，新增 offense 是 0。ThemeCheck 判 Passed 吧？",
+      "expected_output": "不行：handoff-schema §6 要求改动前后两次都全仓跑；只扫 ModifiedFiles 会漏掉删 asset / 删 locale key 导致的外溢 offense。必须重跑全仓，并同时算 addedInModifiedFiles 与 addedOutsideModifiedFiles，两者都为 0 才 Passed。",
+      "files": [],
+      "assertions": [
+        "输出拒绝把只扫 ModifiedFiles 的结果判为 Passed。",
+        "输出说明改动前与改动后两次都必须全仓跑（--path 指向 theme root），在解析阶段再做过滤。",
+        "输出举例说明删 asset / 删 locale key / 删 snippet 会让 offense 出现在未被修改的调用方文件里（MissingAsset / TranslationKeyExists / MissingTemplate）。",
+        "输出说明要分别统计 addedInModifiedFiles 与 addedOutsideModifiedFiles，两个指标都必须为 0 才能 Passed。",
+        "输出说明 addedOutsideModifiedFiles 大于 0 时必须逐条归因：本次改动引起判 Failed，基线漂移判 Blocked，不得判 Passed。"
+      ]
+    },
+    {
+      "id": 37,
+      "route": "memory-enum-vs-contract-enum",
+      "prompt": "上次那个 ChangeSet 的代码又变了，我在你这轮的验收 yaml 块里加一行 QAStatus: Invalidated 说明情况，这样清楚一点吧？",
+      "expected_output": "Invalidated 是 changeset-log.md 的合法 memory 记录取值，但不得出现在 §5 阶段契约块里；§5 根本没有 QAStatus 字段。失效信息写 changeset-log 的 Status 列 + 本轮 BlockingGaps。",
+      "files": [],
+      "assertions": [
+        "输出说明 handoff-schema §9.2 把枚举分成两套：阶段契约字段一套，memory 记录字段另一套。",
+        "输出确认 QAStatus: Pending | Valid | Invalidated 在 memory/changeset-log.md 里是合法取值。",
+        "输出拒绝把 QAStatus 或 Invalidated 写进 §5 的 yaml 块，指出 §5 没有 QAStatus 这个字段，塞进去是自造字段。",
+        "输出给出正确做法：把 changeset-log 中该行 Status 改为 Invalidated，并在本轮 BlockingGaps 说明需要新的 ChangeSetId。"
+      ]
+    },
+    {
+      "id": 38,
+      "route": "notapplicable-needs-evidence",
+      "prompt": "LocalizationCheck 我标 NotApplicable 了，理由不用写了吧，反正是 NotApplicable 不是 Failed。",
+      "expected_output": "没有适用性证据的 NotApplicable 按 Blocked 处理（handoff-schema §1.3）；必须写出可从 ModifiedFiles / diff 复核的理由。",
+      "files": [],
+      "assertions": [
+        "输出拒绝无理由的 NotApplicable。",
+        "输出说明 NotApplicable 是合法终态但必须带适用性证据，且该证据可从 ModifiedFiles 或 diff 复核。",
+        "输出说明没有证据的 NotApplicable 一律按 Blocked 处理，因而 ReadyForDelivery 为 No。",
+        "输出区分 Blocked（该验但验不了）与 NotApplicable（根本不需要验），存疑时选 Blocked。"
+      ]
+    },
+    {
+      "id": 39,
+      "route": "quoted-path-fail-closed",
+      "prompt": "仓库里有中文文件名的 section，跑完 hunk 解析器输出是空的 {}，但 theme check 差集算出来新增 0。可以判 Passed 吗？",
+      "expected_output": "路径引号化导致 hunk 解析失败，属 fail-closed 情形，判 Blocked。",
+      "files": [],
+      "assertions": [
+        "输出识别出 git 默认会把非 ASCII 路径引号化转义，导致 hunk header 解析不出路径。",
+        "输出要求采集时固定 -c core.quotePath=false 与 --no-color。",
+        "输出说明有 hunk 却归属不到文件时必须计入 blockers，判 ThemeCheck: Blocked。",
+        "输出拒绝按空 hunk 的恒等映射继续，因为那会造成错误抵消与漏报。"
+      ]
+    }
+  ]
+}

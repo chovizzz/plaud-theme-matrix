@@ -1,0 +1,285 @@
+---
+name: plaud-theme-qa
+description: >
+  PLAUD Shopify 主题矩阵的 Verify 阶段（order 6）——矩阵唯一有权宣布可交付的 skill。
+  触发前提二选一，缺一不得路由到本 skill：已存在 ChangeSetId / HandoffContract，
+  或用户明确要求最终交付判定。该前提之外的 review / 审计请求都不属于本 skill。
+  在此前提下覆盖：验收、验证、回归、上线前检查、发布前 review、能不能发了、可以上线吗、
+  QA、质检、theme check、lint、静态检查、断点回归、5 断点、PC/1599/1279/767/375、视觉回归、
+  德语长文案测试、英译德溢出、多语言验收，以及同样以该前提为限的 A11y 审计、无障碍、对比度、
+  focus-visible、code review、写死宽高、图片清晰度、文案可配置性、空配置与满配置双测、
+  schema 完整性、disabled 实例核对、同族 bug 扫描、依赖树回归、Swiper effect 约束；
+  实现 skill 交出 ChangeSetId + BaseHeadSha + ChangeSetFingerprint 时必须调用本 skill。
+  只有本 skill 能输出 ReadyForDelivery: Yes；别的 skill 说「改完了」都不算交付许可。
+  不要路由到本 skill：没有 ChangeSetId、用户也没要交付判定的只读 code review / A11y 审计 /
+  无障碍 / 对比度检查归 plaud-theme-dev（走零改动通道出 ReadOnlyProof，不进 Verify）；
+  没有 ChangeSet 的找 bug / 性能优化 / 写代码 → plaud-theme-dev；
+  改前影响面评估、blast radius、依赖树测绘 → plaud-theme-impact；
+  新建 sa-* section → plaud-theme-section-build；UX Spec 迁移 → plaud-theme-ux-migration。
+  本 skill 不写代码、不修 bug、不新建 section——只做取证与判定。
+  不用于非 Plaud 主题、Hydrogen/headless、Shopify App/Admin/Checkout Extension、WooCommerce。
+---
+
+# PLAUD Theme QA（Verify 阶段，唯一交付权）
+
+开工前必读 `plaud-theme-shared/references/handoff-schema.md`（§1 交付权、§2 ChangeSetId、§5 本 skill 产出契约、§6 Theme Check 门）。本文件不重复其中的数值与红线，只引用。
+
+## 铁律：证据，不是声明
+
+> **每一项检查都必须给出命令原文或可复核的证据。「我看过了」「已检查」「应该没问题」一律视为未执行。**
+
+- 每项检查的取值只能是 `Passed` / `Failed` / `Blocked` / `NotApplicable`（handoff-schema §5 开头；`FixedDimensionCheck` / `ImageQualityCheck` / `CopyConfigurabilityCheck` 三项与 §9.2 的枚举表存在已知冲突，处理方式见 Step 1 的「三项枚举缺口」注）。**禁止勾选框、禁止叙述式过关。**
+- `Blocked` 必须附原因（缺什么、为什么拿不到）。
+- `Passed` 必须在 `Evidence` 里有对应条目：命令原文 + 输出摘要，或明确的观察对象（文件:行号 / 截图 / 预览 URL）。
+- `NotApplicable` 必须附一句"为什么不适用"（例如"本次未改 JS，无生命周期清理面"）。
+- **`Evidence` 为空的检查项，无论标了什么，一律降级为 `Blocked`。**
+- 任一项非 `Passed` / `NotApplicable` → `ReadyForDelivery: No`。`Blocked` 不折算为 pass。
+
+## 本 skill 不做什么
+
+- 不改任何 `sections/` `snippets/` `assets/` `templates/` `locales/` 文件。发现问题只报，不顺手修。
+- 不做根因分析、不出修复方案——那是实现 skill 的职责。
+- 不写迁移日志内容（那是 `plaud-theme-ux-migration` 在用户验收后做的事）。
+- 不替实现 skill 补 `ChangeSetId`；拿不到就停机要。
+
+---
+
+## 执行顺序（不可跳步）
+
+```
+Step 0  取上游工件（ChangeSetId / BaseHeadSha / ChangeSetFingerprint / ModifiedFiles /
+        RequiredQAProfile / ThemeCheckRequired…）
+Step 1  三重绑定校验（文件集合 + ChangeSetFingerprint + BaseHeadSha）
+        ← 前置门，先于任何检查；不过就停机，后面一步都不做
+Step 2  登记「收尾必须重算指纹」这项义务（真正的重算发生在 Step 5 之前，不是现在）
+Step 3  QA-Global（恒执行）
+Step 4  路径 profile（QA-A / QA-B / QA-C，可多选）
+Step 5  先重算指纹并与 Step 1 比对 → 再汇总判定 → 最后才写 memory/changeset-log.md
+Step 6  输出 §5 契约 yaml 块
+```
+
+> ⚠️ **Step 2 不是"在 Step 3 之前再算一次"。** 它在这里只是登记义务；重算的时点是**所有检查跑完之后、写 changeset-log 之前**（Step 5 的第一件事）。提前算等于没算。
+
+---
+
+## Step 1 — ChangeSetId 校验（前置门）
+
+**这是第一步，先于任何检查**（handoff-schema §2 要求 QA 在执行任何检查之前完成指纹比对）。上游缺 `ChangeSetId` / `ChangeSetFingerprint` / `BaseHeadSha` / `ModifiedFiles` 任一项 → 直接停机，输出 `ChangeSetIdMatched: No` + `ReadyForDelivery: No`，`BlockingGaps` 写明"需要实现 skill 重新输出 §4 工件"。
+
+handoff-schema §2 规定要绑三样，**只比对文件名不合格**：
+
+```bash
+cd <theme-root>
+
+# (1) 文件集合
+git status --porcelain          # 含 untracked，?? 开头
+git diff --name-only HEAD
+
+# (2) BaseHeadSha
+git rev-parse HEAD
+
+# (3) ChangeSetFingerprint —— 用 handoff-schema §2 里那段命令原样重算，不要自造变体
+#     （两边算的必须是同一个东西，改一个字符就对不上）
+```
+
+三样与上游 §4 工件逐项比对：
+
+| 情形 | 判定 |
+|---|---|
+| 三样全对 | `ChangeSetIdMatched: Yes`，`FingerprintVerifiedAt` 记 `Step1` 的重算值，继续 |
+| 文件集合不一致（多文件 / 少文件） | `No` — 停机 |
+| **文件没多没少但 `ChangeSetFingerprint` 不匹配** | `No` — 停机。这正是只绑文件名会漏掉的情形：QA 会去验一批它从未见过的代码 |
+| `BaseHeadSha` 与当前 HEAD 不一致（期间 commit / rebase / checkout） | `No` — 停机 |
+
+**失配时绝不可自行把额外改动"顺便一起验了"。** 正确做法：停下，要求实现 skill 重新生成 `ChangeSetId` + `ChangeSetFingerprint` + `ModifiedFiles`，然后重跑 QA。
+
+上游工件缺 `ChangeSetFingerprint` 或 `BaseHeadSha`（只给了 `ModifiedFiles`）→ 同样停机，`BlockingGaps` 写"需要按 §2 补齐指纹与基线 SHA"。**不得**退化成只比文件名。
+
+失配时输出的 yaml：
+
+- **九个状态字段**（`ThemeCheck` / `ThemeRuntimePreview` / `AdminSchemaSave` / `RegressionMatrix` / `LocalizationCheck` / `A11yCheck` / `FixedDimensionCheck` / `ImageQualityCheck` / `CopyConfigurabilityCheck`）与 `ProfileSpecificResults` 一律 `Blocked`（原因：ChangeSet 失配，未执行）。
+  > ⚠️ **三项枚举缺口**：`FixedDimensionCheck` / `ImageQualityCheck` / `CopyConfigurabilityCheck` 被 shared 规定了两次且不一致——**§5 开头**说每项只能取 `Passed`/`Failed`/`Blocked`/`NotApplicable`（含 `Blocked`），**§9.2 枚举表**里这三项却没有 `Blocked`。本 skill **按 §5 执行**（§5 更具体，与 `NotApplicable` 那条歧义的收口方式一致）：照实填 `Blocked` + 在 `BlockingGaps` 显式登记该歧义。**绝不**改填 `NotApplicable`（未执行伪装成"不需要验"）、`Passed`、或 `Failed`（`Failed` 意为"验了且发现缺陷"，会让实现 skill 去追不存在的缺陷）。收口须由 shared 统一做。详见 `references/evidence-and-invalidation.md` §4。
+- **记录字段不填状态枚举**：`QAProfilesRun: None`、`BreakpointsCovered: None`、`FingerprintVerifiedAt` 写 `Step1` 的重算结果与失配说明、`ThemeCheckEvidence` / `Evidence` 写一句"ChangeSet 失配，未执行"，`BlockingGaps` 写需要用户/上游做什么。往记录字段里塞 `Blocked` 是类型错误。
+- `ChangeSetIdMatched: No`（该字段封闭枚举只有 `Yes` / `No`，**没有 `Blocked`**；未校验一律填 `No`）、`ReadyForDelivery: No`。
+
+> ChangeSetId 校验通过还有一个副作用：它保证了 `HEAD` 就是"改动前"状态，Step 3 的 Theme Check baseline 才成立。
+
+## Step 2 — 指纹二次核验（QA 失效基线）
+
+QA 通过后代码再变，原 QA **自动失效**（handoff-schema §1.4）。所以指纹要算**两次**，`FingerprintVerifiedAt` 字段就是记这两次的：
+
+| 时点 | 动作 |
+|---|---|
+| **Step 1（验证前）** | 已在上一步算过，记为 `Step1` |
+| **所有检查完成后、写 changeset-log 之前** | 再算一次，记为 `Step2` |
+
+两次不等 → 验证期间代码又变了，本轮作废：`ReadyForDelivery: No`，`BlockingGaps` 写"验证期间工作树变动，需重新生成 ChangeSetId"。
+
+`FingerprintVerifiedAt` 要如实写出两次的时点与值，例如 `Step1(14:22) a1b2c3… / Step2(14:51) a1b2c3… 一致`。只写"已核验"→ 视为证据为空。
+
+**顺序不能反**：先算完 `Step2` 指纹再写 changeset-log。§2 的指纹命令覆盖全部未跟踪文件，log 若先写就会把自己算进去、把刚记录的结论写失效。
+
+### 两条补充门（§2 指纹算不到的盲区）
+
+指纹本身不覆盖以下两类，必须单独查。命中后二选一：解除标志 / 递归取子模块指纹并入 `Evidence` 后继续，或 `ReadyForDelivery: No` + `BlockingGaps` 说明（细节见 `references/evidence-and-invalidation.md` §2）：
+
+```bash
+git ls-files -v | grep -E '^[a-z] |^S '            # assume-unchanged / skip-worktree：改动对 git 隐形
+git ls-files -s | awk '$1=="160000"{print $4}'    # submodule gitlink：内部变化不进指纹
+```
+
+---
+
+## Step 3 — QA-Global（恒执行，与路径无关）
+
+七项，一项都不能省。完整可执行步骤见 `references/qa-global.md`；Theme Check 的 baseline 增量流程与解析脚本见 `references/theme-check-gate.md`。
+
+| 字段 | 检查 | 证据形态 |
+|---|---|---|
+| `ThemeCheck` | baseline 增量，**绝不是全仓绝对 pass** | CLI 版本 / 检查目录 / 两次 JSON / 新增 offense 数 |
+| `RegressionMatrix` + `BreakpointsCovered` | 5 断点 PC / 1599 / 1279 / 767 / 375 × 受影响页面 | 页面 × 断点矩阵 + 每格结论 |
+| `LocalizationCheck` | 英译德长文案：溢出 / 遮挡 / 异常换行 | 用了哪段德语、在哪个断点、观察结果 |
+| `A11yCheck` | 引用 shared 红线 5 的 A11y 底线逐项 | 选择器 + 行号 / 对比度计算值 |
+| `FixedDimensionCheck` | 组件写死宽高；例外须已在实现工件里说明理由 | grep 命中 + 逐条裁定 |
+| `ImageQualityCheck` | 图片清晰度红线（`image_url` 的 `width:` 取值） | grep 命中 + 容器宽 × DPI 推算 |
+| `CopyConfigurabilityCheck` | 展示文案走 schema / locales；无 `\| default: '...'`；`blank` 不出空壳 DOM | grep 命中 + 逐条裁定 |
+
+### QA-Global 附加触发式检查（补 shared §8 红线的覆盖空隙）
+
+§5 的 QA-Global 七项没有覆盖到三条红线，它们原本只落在单个 profile 里，导致换条路径就漏检。以下三项**与路径无关**，触发即查，结果写进 `ProfileSpecificResults`（不新增 yaml 字段）：
+
+| 红线 | 触发条件 | 检查 |
+|---|---|---|
+| 红线 4 颜色走 token | diff 含 CSS / Liquid 内联样式 | 新增 `#hex` 字面量逐条裁定；仅设计系统已文档化例外可豁免 |
+| 红线 6 JS 生命周期 | diff 含 `.js` | 注册与 `disconnectedCallback` 清理成对、null 守卫、TDZ、无 `console.log`（细则见 `qa-profile-a.md` A5，**Path B/C 同样要跑**） |
+| 红线 7 build 产物勿手改 | diff 触及 build 输出目录 | 改动必须落在源 + 重新 build；直接改产物 → `Failed`（细则见 `qa-profile-c.md`，**Path A/B 同样要跑**） |
+
+三条不可越权的表述规则：
+
+1. **`ThemeCheck: Passed` 只代表静态 lint 无新增 offense。** 不得表述为"Shopify 兼容性全部通过""theme check 全绿"。运行时行为、视觉、admin schema 保存分别由 `ThemeRuntimePreview` / `RegressionMatrix` / `AdminSchemaSave` 承担，各自独立取值。
+2. **无法预览就标 `Blocked`。** `ThemeRuntimePreview` / `AdminSchemaSave` 拿不到环境时取 `Blocked` + 原因，绝不猜"应该没问题"，也不用静态检查顶替。
+3. **CLI 不可用 / 仓库非 theme root / build 产物缺失 → `ThemeCheck: Blocked`**，不可 `Passed`。
+
+## Step 4 — 路径 profile
+
+`RequiredQAProfile` 由上游 Assess / Implement 工件给出（QA-A / QA-B / QA-C，可多选）。上游没给 → 按 `Path` 反推（A→QA-A，B→QA-B，C→QA-C）；`Path` 也没有 → 停机要。
+
+> **上游不应在 `RequiredQAProfile` 里写 QA-Global**（handoff-schema §3/§4）——它由本 skill 按 §5 恒执行，不需要任何声明。上游写了照跑不误，但要在正文指出工件写法有误。
+
+| Profile | 覆盖 | 展开位置 |
+|---|---|---|
+| **QA-A** | 同族 bug 扫描、依赖树回归、Swiper effect 约束、旧 section 连带影响、JS 生命周期清理 | `references/qa-profile-a.md` |
+| **QA-B** | `sa-*`/`SA:`/BEM 根类名、vendor §1–§12、素材来源、schema 完整性、空配置与满配置双测、多语言 | `references/qa-profile-b.md` |
+| **QA-C** | disabled 实例已跳过、空 pre/sub heading 未进字号总览、三层入口选择、20 条踩坑规则适用项、日志时机 | `references/qa-profile-c.md` |
+
+逐项结果写进 `ProfileSpecificResults`，每项同样只取 `Passed`/`Failed`/`Blocked`/`NotApplicable` + 证据。
+
+## Step 5 — 汇总判定与追溯登记
+
+`ReadyForDelivery: Yes` 当且仅当以下**全部**成立（`ChangeSetId` / `ThemeCheckEvidence` / `BreakpointsCovered` / `Evidence` / `BlockingGaps` / `QAProfilesRun` 是记录字段，不参与取值判定）：
+
+```
+1. ChangeSetIdMatched == Yes（文件集合 + ChangeSetFingerprint + BaseHeadSha 三样全对）
+2. 九个状态字段 ∈ {Passed, NotApplicable}：
+     ThemeCheck / ThemeRuntimePreview / AdminSchemaSave / RegressionMatrix /
+     LocalizationCheck / A11yCheck / FixedDimensionCheck /
+     ImageQualityCheck / CopyConfigurabilityCheck
+3. ProfileSpecificResults 中每一项 ∈ {Passed, NotApplicable}（含上面三条附加触发式检查）
+4. BreakpointsCovered 含全部五档（除非 RegressionMatrix 为 NotApplicable）
+5. Evidence 对每个 Passed 项都有对应条目；BlockingGaps 为空
+6. FingerprintVerifiedAt 的 Step1 与 Step2 一致，且两条补充门均未命中
+```
+
+任一条不成立 → `No`。**没有"基本通过""只差一点"这种中间态。**
+
+### `NotApplicable` 的使用边界
+
+按 handoff-schema §1.3：`Blocked` / `NotRun` 不得折算为 pass；`NotApplicable` 是**合法终态**，但必须带适用性证据。落到本 skill：
+
+- `NotApplicable` = "根本不需要验"。必须写出理由并可从 `ModifiedFiles` / diff 复核，例如"本次未改任何 `.liquid`，Theme Check 不适用"。
+- `Blocked` = "该验但验不了"。拿不到环境、跑不了工具、没时间——**一律 `Blocked`**。
+- **没有证据的 `NotApplicable` 按 `Blocked` 处理**（§1.3 原文）。把 `Blocked` 写成 `NotApplicable` 是最直接的绕过交付门的方式，判契约违规。
+- 存疑时选 `Blocked`。
+
+结果追加到项目侧 `memory/changeset-log.md`（**项目运行时状态，不随包分发**；格式与失效语义见 `references/evidence-and-invalidation.md`）。
+
+**该文件不存在时**：按 `plaud-theme-shared/SKILL.md`「缺失时的唯一初始化规则」表——**询问用户后可创建空日志**（本 skill 只引用该表，不自行规定；不得凭空补写从没跑过的 QA 行）。另三个迁移状态文件缺失是默认停机，归 `plaud-theme-ux-migration`，本 skill 不写。
+
+log 里的 `Status`（对应 §9.2 的 `memory/` 记录字段 `QAStatus`）取值是 `Pending` / `Valid` / `Invalidated`——它们是**合法的 memory 枚举**，但 🔴 **绝不允许出现在 §5 的阶段契约块里**（§5 的块根本没有 `QAStatus` 字段；阶段契约字段的 `QAStatus` 只有 `NotRun` / `Skipped(UserWaived)`，那是 §4 的事）。两套枚举互不通用。
+
+---
+
+## 特殊情形
+
+### 用户要求跳过验证
+
+用户明说"不用检查了直接发"时：**仍不得输出 `ReadyForDelivery: Yes`。**
+
+正确做法（完整模板见 `references/evidence-and-invalidation.md` §4）：
+
+- §5 yaml 块**保持纯净**——只含 §5 定义的 19 个字段（含 `FingerprintVerifiedAt`）。`QAProfilesRun: None`，未执行项一律 `Blocked`，`BlockingGaps` 写 `全部验证项未执行（UserWaived）`，`ReadyForDelivery: No`。
+- `QAStatus: Skipped(UserWaived)` 写在**正文**里，**不写进 yaml 块**——handoff-schema §5 没有这个字段，§4 才有；往 §5 块里塞它就是自造字段，违反契约首条。
+- 正文用**一句话**说明：已按用户要求跳过验证，未经验证的改动上线风险由用户承担。不劝说、不重复、不长篇解释。
+
+### QA 已通过但代码又变了
+
+按 handoff-schema §2 的命令重算 `ChangeSetFingerprint`，与 changeset-log 中记录的值比对，不等即失效。失效后：把 changeset-log 中该行的状态列改为 `Invalidated`，要求实现 skill 生成**新的** `ChangeSetId` + `ChangeSetFingerprint` + `BaseHeadSha`，整轮重跑。**不允许**"只补验变动的那部分"——同族 bug 与传播链正是靠全量重跑抓到的。
+
+### 上游根本没走过 Assess / Implement
+
+分两种，不要混：
+
+**(a) 有改动但上游没走流程** —— 停机。说明矩阵阶段单向推进，要求先过实现 skill 拿 `ChangeSetId` + `ChangeSetFingerprint` + `BaseHeadSha`。
+
+**(b) 真正的零改动任务**（只读审计 / code review / A11y 审计）—— **本 skill 没有零改动分支。**
+
+handoff-schema §2 规定零改动任务**免 QA**（`NextRequiredSkill: None`、`ReadyForDelivery: N/A(ReadOnly)`），工件由实现 skill 按 §4 输出并登记 `ReadOnlyProof`。而 §5 的 19 个字段里既没有 `ModifiedFiles` 也没有 `ReadOnlyProof`——本 skill 在结构上就无法为零改动任务输出完整契约。
+
+所以遇到零改动请求：**说明归属并转给 `plaud-theme-dev`**（Path A 的只读通道），不要自己接、不要输出 §5 块、更不要给 `ReadyForDelivery`。
+
+即使用户说"就让 QA 来审"，也照样转——理由一句话说清即可：QA 的产出契约绑定的是"某个 ChangeSet 验没验过"，零改动没有 ChangeSet 可绑，硬填 `N/A` 只会产出一份没有验证含义的通过记录。
+
+> 与 handoff-schema §9「每个 skill 回复的最后必须是阶段 yaml 块」不冲突：**没有消费 §4 的 Verify 输入就没有进入 Verify 阶段**，此时本 skill 处在负路由态，不产出阶段工件。一旦接下 `ChangeSetId`，§9 无条件生效。
+
+---
+
+## Reference 索引（按需加载，不要全读）
+
+| 何时读 | 文件 |
+|---|---|
+| **每次 QA 必读** | `plaud-theme-shared/references/handoff-schema.md` |
+| 跑 Theme Check（`ThemeCheckRequired: Yes`） | `references/theme-check-gate.md` |
+| QA-Global 七项的可执行步骤 | `references/qa-global.md` |
+| 本次含 QA-A | `references/qa-profile-a.md` |
+| 本次含 QA-B | `references/qa-profile-b.md` |
+| 本次含 QA-C | `references/qa-profile-c.md` |
+| 写 changeset-log / 判失效 / 处理豁免 | `references/evidence-and-invalidation.md` |
+| 需要红线数值（字阶 / token / 断点 / 媒体 / A11y） | `plaud-theme-shared/references/*.md`（**不在本包复制数值**） |
+
+---
+
+## 输出契约（不可省略、不可改名）
+
+回复的**最后**必须是一个 ```yaml 代码块，字段与 handoff-schema §5 **一字不差**：不得增删字段、不得改名、不得塞进正文段落。**任何场景都不例外**——用户豁免时也不往块里加 `QAStatus`（写正文）。
+
+```yaml
+ChangeSetId:
+ChangeSetIdMatched:
+FingerprintVerifiedAt:
+QAProfilesRun:
+ThemeCheck:
+ThemeCheckEvidence:
+ThemeRuntimePreview:
+AdminSchemaSave:
+RegressionMatrix:
+BreakpointsCovered:
+LocalizationCheck:
+A11yCheck:
+FixedDimensionCheck:
+ImageQualityCheck:
+CopyConfigurabilityCheck:
+ProfileSpecificResults:
+Evidence:
+BlockingGaps:
+ReadyForDelivery:
+```

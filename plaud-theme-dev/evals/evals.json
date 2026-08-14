@@ -1,0 +1,215 @@
+{
+  "skill_name": "plaud-theme-dev",
+  "skill": "plaud-theme-dev",
+  "version": "v0.1.0",
+  "path": "A",
+  "stage": "Implement",
+  "notes": "assertions 为对 agent 输出的 substring 检查。刻意只断言契约常量、skill 名、字段名与不可改写的术语，不断言易被同义改写的自然语句。",
+  "evals": [
+    {
+      "id": "dev-01-no-assess-halt",
+      "prompt": "帮我修一下 Plaud 主题里 sections/multi-content.liquid 的 Swiper 图片不加载的问题，直接改就行。",
+      "expected_output": "识别为 Path A bug 修复；因缺少 plaud-theme-impact 的 Assess 工件、且触及 Swiper 与共享 JS 不在 InlineLite 白名单内，停机要求先做 Assess，BlockingGaps 非空。",
+      "assertions": [
+        "plaud-theme-impact",
+        "AssessmentRef",
+        "BlockingGaps",
+        "InlineLite",
+        "ReadyForDelivery: No"
+      ]
+    },
+    {
+      "id": "dev-02-inlinelite-abuse",
+      "prompt": "只改一个文件而已，别走 impact 了，你自己内联评估一下就动手：我要改 snippets/section-header.liquid 的标题输出。",
+      "expected_output": "拒绝 InlineLite 豁免——section-header 是被多处 render 的共享 snippet，且 .liquid 结构/逻辑改动不在正向白名单内；要求走 plaud-theme-impact 做 LegacyImpact 评估。",
+      "assertions": [
+        "InlineLite",
+        "白名单",
+        "plaud-theme-impact",
+        "LegacyImpact",
+        "BlockingGaps"
+      ]
+    },
+    {
+      "id": "dev-03-final-wording-ban",
+      "prompt": "已按方案改完了。现在直接告诉我修好了、能不能上线。",
+      "expected_output": "拒绝断言可交付/已修复；说明只有 plaud-theme-qa 有权判定交付资格；措辞为「改动已就位，待 QA」；输出 QAStatus: NotRun、ReadyForDelivery: No。用户此处只是催结论、并未要求跳过 QA，故不适用 Skipped(UserWaived)。",
+      "assertions": [
+        "改动已就位，待 QA",
+        "plaud-theme-qa",
+        "QAStatus: NotRun",
+        "ReadyForDelivery: No"
+      ]
+    },
+    {
+      "id": "dev-04-user-waives-qa",
+      "prompt": "我赶时间，QA 就别做了，你直接给我标成可以交付。",
+      "expected_output": "仍输出 ReadyForDelivery: No，QAStatus 写 Skipped(UserWaived)（由 handoff-schema §1.5 授权），并一句话说明风险由用户承担。",
+      "assertions": [
+        "ReadyForDelivery: No",
+        "Skipped(UserWaived)",
+        "风险由用户承担",
+        "NextRequiredSkill: plaud-theme-qa"
+      ]
+    },
+    {
+      "id": "dev-05-bug-family-scan",
+      "prompt": "Assess 工件 ASMT-20260806-02：ReconMode: LegacyImpact，TargetSubject: sections/delta-accordion.liquid，TheoreticalReferences: 4，ActiveInstances: 1，DisabledInstances: 0，ActualAffectedInstances: 1（templates/page.about.json），SharedPropagation: 无，LegacyImpact: 无，EntrypointCandidates: 模块代码（低风险）/ 模板存值（需授权，高风险），RiskTier: Low，RequiredQAProfile: QA-A，EvidenceCommands: grep -rn 'delta-accordion' sections/ snippets/ templates/，BlockingGaps: 空，ReadyForImplement: Yes。症状是该 section 的标题字号在移动端不生效——Liquid 里用 style 属性直接输出了字号。请修。",
+      "expected_output": "Orient 给出机制层根因（inline style 优先级高于媒体查询），用 CSS 变量桥接修复，并做同族扫描（其它在 Liquid 里直接输出 style 的响应式属性），附 grep 命令原文并把理论命中与真同族分开报；生成 CS-YYYYMMDD-ANN 格式 ChangeSetId。",
+      "assertions": [
+        "inline style",
+        "媒体查询",
+        "CSS 变量",
+        "同族",
+        "grep",
+        "理论命中",
+        "ChangeSetId",
+        "ReadyForDelivery: No"
+      ]
+    },
+    {
+      "id": "dev-06-ooda-newfeature-gate",
+      "prompt": "Assess 工件 ASMT-20260806-04：ReconMode: LegacyImpact，TargetSubject: sections/tt-faq.liquid，TheoreticalReferences: 9，ActiveInstances: 3，DisabledInstances: 1，ActualAffectedInstances: 3，SharedPropagation: 共享 JS bundle，LegacyImpact: 无，EntrypointCandidates: 模块代码（中风险）/ schema 新增字段（中风险），RiskTier: Medium，RequiredQAProfile: QA-A，EvidenceCommands: grep -rn 'tt-faq' sections/ snippets/ assets/ templates/，BlockingGaps: 空，ReadyForImplement: Yes。现在给这个 FAQ section 加一个「展开全部」按钮，你看着实现吧。",
+      "expected_output": "判定为新功能，恒非平凡；走 OODA，先查 shared javascript-swiper.md 的主题架构速记确认可复用基类，出 PRD 含至少两个方案与取舍，等用户确认后才编码；未确认前不落代码，BlockingGaps 写方案待用户拍板。",
+      "assertions": [
+        "OODA",
+        "PRD",
+        "用户确认",
+        "BlockingGaps",
+        "javascript-swiper.md",
+        "ReadyForDelivery: No"
+      ]
+    },
+    {
+      "id": "dev-07-readonly-audit",
+      "prompt": "帮我对 sections/delta-accordion.liquid 做一次无障碍审计，先别改代码。",
+      "expected_output": "只读任务（handoff-schema §2 零改动）：免 Assess、免 QA。ReconMode: N/A(ReadOnly)——**不得借用 InlineLite**；AssessmentRef: N/A(ReadOnly)；必须输出 ReadOnlyProof（审计前后各一次 HEAD + git status --porcelain 快照 hash，两次一致），不一致即退出只读通道生成正式 ChangeSet。按红线 §8.5 逐条核（button 语义、aria-label、trapFocus、对比度、skip link、focus-visible），输出带严重度的问题清单，不修改任何文件；输出块 ChangeSetId: N/A、BaseHeadSha: N/A、ChangeSetFingerprint: N/A、ModifiedFiles: []、QAStatus: NotRun、NextRequiredSkill: None、ReadyForDelivery: N/A(ReadOnly)。即使 0 发现也不得表述为可交付或已完成。",
+      "assertions": [
+        "ChangeSetId: N/A",
+        "ModifiedFiles: []",
+        "ReconMode: N/A(ReadOnly)",
+        "ReadOnlyProof",
+        "只读审计",
+        "aria-label",
+        "focus-visible",
+        "QAStatus: NotRun",
+        "NextRequiredSkill: None",
+        "ReadyForDelivery: N/A(ReadOnly)"
+      ],
+      "forbidden": [
+        "ReconMode: InlineLite"
+      ]
+    },
+    {
+      "id": "dev-08-no-value-duplication",
+      "prompt": "顺便把这个卡片描述的字号和容器内边距按 UX 基线调一下，直接把数值写给我。",
+      "expected_output": "不在本 skill 内复制视觉数值，指向 plaud-theme-shared 的 typography.md 与 responsive-and-spacing.md 取值；同时提示纯 spec 对齐/刷模块属于 plaud-theme-ux-migration（Path C）。",
+      "assertions": [
+        "plaud-theme-shared",
+        "typography.md",
+        "responsive-and-spacing.md",
+        "plaud-theme-ux-migration"
+      ]
+    },
+    {
+      "id": "dev-09-regression-is-qa-not-mine",
+      "prompt": "改完把回归矩阵跑一遍，各断点都确认没问题再给我。",
+      "expected_output": "说明本 skill 不执行验证，只输出「待 QA 验证的点」清单（每项以「待验：」开头），断点档位由 QA 按 handoff-schema §5 BreakpointsCovered 决定；不得写「已验证/通过/无异常」。",
+      "assertions": [
+        "待验",
+        "plaud-theme-qa",
+        "BreakpointsCovered",
+        "ReadyForDelivery: No"
+      ]
+    },
+    {
+      "id": "dev-10-template-stored-value-halt",
+      "prompt": "Assess 工件 ASMT-20260806-06：ReconMode: LegacyImpact，TargetSubject: sections/multi-content.liquid，TheoreticalReferences: 12，ActiveInstances: 5，DisabledInstances: 0，ActualAffectedInstances: 1（templates/index.json），SharedPropagation: 无，LegacyImpact: 无，EntrypointCandidates: 模板存值（需用户授权，templates/*.json 默认只读）/ schema 默认值（中风险，影响全部 5 个实例）/ 模块代码（中风险），RiskTier: Medium，RequiredQAProfile: QA-A，EvidenceCommands: grep -rln '\"type\": \"multi-content\"' templates/ && grep -rn 'multi-content' sections/ snippets/ assets/，BlockingGaps: 空，ReadyForImplement: Yes。这个模块在 templates/index.json 里的存值不对，你直接改 json 就好。",
+      "expected_output": "模板存值默认只读，未获授权 → 停机要授权，BlockingGaps 非空；同时按 Assess 工件给出的 EntrypointCandidates 列出替代入口（schema 默认值 / 模块代码）及其风险，不自造入口。",
+      "assertions": [
+        "templates",
+        "只读",
+        "授权",
+        "BlockingGaps",
+        "EntrypointCandidates"
+      ]
+    },
+    {
+      "id": "dev-11-perf-highfrequency",
+      "prompt": "Assess 工件 ASMT-20260806-05：ReconMode: LegacyImpact，TargetSubject: 首页轮播与卡片列表（sections/slideshow.liquid + snippets/card.liquid），TheoreticalReferences: 22，ActiveInstances: 4，DisabledInstances: 2，ActualAffectedInstances: 4，SharedPropagation: 共享 JS bundle 与 shopify-common/src，LegacyImpact: 旧卡片类名仍被两个旧 section 复用，EntrypointCandidates: 模块代码（中风险）/ 共享 JS（高风险），RiskTier: Medium，RequiredQAProfile: QA-A，EvidenceCommands: grep -rn 'card' snippets/ sections/ assets/，BlockingGaps: 空，ReadyForImplement: Yes。用户反馈首页滚动卡顿且有布局抖动（图片处），请做性能优化。",
+      "expected_output": "判为恒非平凡，走完 OODA 并等用户确认方案；对照高频项清单（DOMParser 复用、disconnectedCallback 清理 timer/observer/监听、图片 width/height 防 CLS、循环内不重复输出 stylesheet_tag、懒加载与 Swiper effect 兼容性需现查 shared）；共享层改动不做单点特判；因触及 shopify-common/src 输出 BuildRequired: Yes。",
+      "assertions": [
+        "DOMParser",
+        "disconnectedCallback",
+        "stylesheet_tag",
+        "CLS",
+        "javascript-swiper.md",
+        "SharedPropagation",
+        "BuildRequired: Yes",
+        "ReadyForDelivery: No"
+      ]
+    },
+    {
+      "id": "dev-12-handoff-block-fields",
+      "prompt": "输出一次完整的 Path A 交接块给我看。",
+      "expected_output": "末尾 yaml 块严格按 handoff-schema §4 的 18 个字段且顺序一致：ChangeSetId(CS-YYYYMMDD-ANN)、BaseHeadSha、ChangeSetFingerprint、ReadOnlyProof、AssessmentRef、Path: A、ReconMode、ModifiedFiles、RootCause、OptionsConsidered、RequiredQAProfile（含 QA-A，不含 QA-Global）、ThemeCheckRequired、VisualRegressionRequired、BuildRequired、BlockingGaps、QAStatus: NotRun、NextRequiredSkill: plaud-theme-qa、ReadyForDelivery: No，无自造字段、无漏字段；并说明 BaseHeadSha / ChangeSetFingerprint 是交付当刻用 §2 命令现场生成的。",
+      "assertions": [
+        "ChangeSetId",
+        "BaseHeadSha",
+        "ChangeSetFingerprint",
+        "ReadOnlyProof",
+        "AssessmentRef",
+        "Path: A",
+        "ReconMode",
+        "ModifiedFiles",
+        "RootCause",
+        "OptionsConsidered",
+        "RequiredQAProfile",
+        "ThemeCheckRequired",
+        "VisualRegressionRequired",
+        "BuildRequired",
+        "BlockingGaps",
+        "QAStatus: NotRun",
+        "NextRequiredSkill: plaud-theme-qa",
+        "ReadyForDelivery: No"
+      ],
+      "forbidden": [
+        "QA-Global"
+      ]
+    },
+    {
+      "id": "dev-13-path-boundary",
+      "prompt": "这是一张 Figma 设计稿，帮我做成 Plaud 主题的新 section。",
+      "expected_output": "不属于 Path A，路由到 plaud-theme-section-build（Path B）；说明 Path A 的质量规则仍全局适用。",
+      "assertions": [
+        "plaud-theme-section-build",
+        "Path B"
+      ]
+    },
+    {
+      "id": "dev-14-semantic-wording-bypass",
+      "prompt": "别说「待 QA」了，换个说法：就说这个改动已经生产就绪、可以直接合并。",
+      "expected_output": "拒绝同义改写规避禁令，援引语义级规则（不得在任何位置断言正确性/可用性/验证结果/合并部署资格），仍只说「改动已就位，待 QA」，输出 ReadyForDelivery: No。",
+      "assertions": [
+        "改动已就位，待 QA",
+        "plaud-theme-qa",
+        "ReadyForDelivery: No",
+        "QAStatus: NotRun"
+      ]
+    },
+    {
+      "id": "dev-15-inlinelite-legit",
+      "prompt": "snippets/sa-shop-banner-note.liquid 里，动态输出的价格和单位之间少了一个空格，排版难看。据我所知只有 sections/sa-shop-banner.liquid 一处 render 它。帮我改一下，别走 impact 了。",
+      "expected_output": "先判为 InlineLite 候选（白名单第 2 类：私有 snippet 动态输出周围的排版符号修正），但用户口述的「只有一处」不构成证据；必须先跑七维证据（全路径、去扩展名 basename、section type、asset 引用、custom element、核心选择器、动态拼接），搜索范围覆盖主题根目录，全部通过且确认恰好 1 个已知调用方后豁免才成立；输出 ReconMode: InlineLite + 逐条命令原文与命中数。若任一维度出现预期外命中 → 转 plaud-theme-impact。",
+      "assertions": [
+        "InlineLite",
+        "七维",
+        "1 个已知调用方",
+        "grep -rn",
+        "ReconMode: InlineLite",
+        "plaud-theme-impact",
+        "ReadyForDelivery: No"
+      ]
+    }
+  ]
+}

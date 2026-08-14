@@ -1,0 +1,431 @@
+{
+  "skill_name": "plaud-theme-impact",
+  "skill": "plaud-theme-impact",
+  "version": "v0.1.0",
+  "description": "plaud-theme-impact（Assess 阶段）的行为 eval：ReconMode 判定、理论 vs 实际影响分离、disabled 实例单列、依赖树覆盖、共享传播链、RiskTier/QA profile、入口候选、停机点、职责边界。\n\n断言体系（harness 需支持三者；只实现 assertions 时后两者按未验证处理，不得记为通过）：\n- assertions：必须出现的字符串（string-contains）\n- forbidden：必须不出现的字符串（反向鉴别力，防止反向答案蒙混过关）\n- validator：结构化校验（目前仅 impact-14 使用 yaml-block-exact-keys）\n\n两类 eval：\n- rule 类（无需仓库）：只考模式判定、边界、职责归属、字段契约，不要求真实数字；\n- fixture 类（需挂载 Plaud theme 仓库）：要求实际跑 grep/node 并给出实例清单。无 fixture 时正确行为是 BlockingGaps 非空 + ReadyForImplement: No，不得编造数字。",
+  "evals": [
+    {
+      "id": "impact-01-legacy-shared-snippet",
+      "kind": "fixture",
+      "prompt": "Plaud 主题里我要改 snippets/product-item.liquid 的图片区内距，改之前先评估一下影响面。（仓库已挂载）",
+      "expected_output": "识别为 LegacyImpact，枚举全部 render 调用点并列出各调用点的传参差异，分开报 TheoreticalReferences 与 ActualAffectedInstances（后者带清单），RiskTier 为 High（共享 snippet），不下根因结论、不建议改法，结尾输出 §3 yaml 块。",
+      "assertions": [
+        "ReconMode:",
+        "LegacyImpact",
+        "TheoreticalReferences:",
+        "ActualAffectedInstances:",
+        "SharedPropagation:",
+        "调用点",
+        "RiskTier:",
+        "High",
+        "ReadyForImplement:"
+      ],
+      "forbidden": [
+        "RootCause",
+        "建议改成",
+        "ReadyForDelivery"
+      ]
+    },
+    {
+      "id": "impact-02-theoretical-vs-actual",
+      "kind": "rule",
+      "prompt": "这个共享 section 我想接入配色方案，grep 出来 17 个模板用了它，是不是全站都会变？",
+      "expected_output": "明确区分理论 blast radius 与实际受影响实例，给出三问收敛法（是否走到被改分支 / 是否挂了对应颜色类 / 前后计算值是否不同），指出写死 hex 与内联 style 的元素不受影响、默认方案态可能零变化、空 color_scheme 的继承落点需查清；ActualAffectedInstances 必须带清单。",
+      "assertions": [
+        "理论",
+        "实际",
+        "TheoreticalReferences",
+        "ActualAffectedInstances",
+        "清单",
+        "hex",
+        "color_scheme",
+        "逐项"
+      ]
+    },
+    {
+      "id": "impact-03-disabled-instances",
+      "kind": "fixture",
+      "prompt": "帮我算一下 delta-accordion 这个模块在多少个模板里用了，有多少实例受影响。（仓库已挂载）",
+      "expected_output": "跑理论引用统计，再枚举 disabled 实例；DisabledInstances 单列不并入 ActiveInstances，说明 disabled 实例不进影响面、不动 stored 值；命令原文进 EvidenceCommands。",
+      "assertions": [
+        "node -e",
+        "DisabledInstances:",
+        "ActiveInstances:",
+        "不并入",
+        "EvidenceCommands"
+      ],
+      "forbidden": [
+        "合并进 ActiveInstances"
+      ]
+    },
+    {
+      "id": "impact-04-integration-surface-new-section",
+      "kind": "rule",
+      "prompt": "按 Figma 稿新建一个 sa-shop-banner section，只新增文件、不动任何已有文件，先做 Assess。",
+      "expected_output": "识别为 IntegrationSurface；TheoreticalReferences 如实写存量调用方为 0，不虚构模板使用量；检查可复用 snippet（section-header / section-swiper / price-format）、token 与 BEM 根类名冲突、素材是否误入 assets、schema/locales/数据源完整性、bundle 加载方式、是否会被接入模板或 section group。",
+      "assertions": [
+        "IntegrationSurface",
+        "section-header",
+        "section-swiper",
+        "price-format",
+        "BEM",
+        "assets",
+        "schema",
+        "bundle",
+        "0"
+      ],
+      "forbidden": [
+        "模板使用量",
+        "QA-Global"
+      ]
+    },
+    {
+      "id": "impact-05-mode-upgrade-shared-snippet",
+      "kind": "rule",
+      "prompt": "我在做新建 sa-feature-grid，为了让它用上共享区头，计划给 snippets/section-header.liquid 加一个参数分支。这次评估算 IntegrationSurface 还是 LegacyImpact？",
+      "expected_output": "明确判为 LegacyImpact，因为计划写入集包含存量共享文件；对该存量文件走完整 LegacyImpact 流程，新建部分的复用面检查照做；RequiredQAProfile 为 QA-A, QA-B（不把 QA-Global 写进字段）。",
+      "assertions": [
+        "LegacyImpact",
+        "升级",
+        "计划",
+        "共享",
+        "RequiredQAProfile",
+        "QA-A",
+        "QA-B"
+      ],
+      "forbidden": [
+        "IntegrationSurface",
+        "QA-Global"
+      ]
+    },
+    {
+      "id": "impact-05b-mode-upgrade-existing-template",
+      "kind": "rule",
+      "prompt": "新建的 sa-promo-strip section 做完后要加进已有的 templates/page.about.json，这算 IntegrationSurface 吗？",
+      "expected_output": "判为 LegacyImpact——写入了存量模板（运行时入口，不需要「被其它文件引用」）；同时保留 Path B 的复用面/命名冲突/schema/bundle 检查；指出编辑 templates/*.json 需用户明确批准。",
+      "assertions": [
+        "LegacyImpact",
+        "templates/",
+        "存量",
+        "批准",
+        "QA-A",
+        "QA-B"
+      ],
+      "forbidden": [
+        "IntegrationSurface",
+        "QA-Global"
+      ]
+    },
+    {
+      "id": "impact-05c-locale-additive-key",
+      "kind": "rule",
+      "prompt": "新 section 需要在 locales/en.default.json 里加一个新 key，其它已有 key 一个都不动。这会让模式变成 LegacyImpact 吗？",
+      "expected_output": "不会——纯新增 key 且无存量消费方属于 additive，保持 IntegrationSurface；但改已有 key 的值、改名或删除则为 LegacyImpact 并需 dangling 核查；部分语言缺失作为事实列出交 QA-B 验证，Assess 不判 pass/fail。",
+      "assertions": [
+        "IntegrationSurface",
+        "additive",
+        "改名",
+        "删除",
+        "LegacyImpact",
+        "QA-B"
+      ],
+      "forbidden": [
+        "新增 key 也要升级为 LegacyImpact"
+      ]
+    },
+    {
+      "id": "impact-06-inline-lite-strictness",
+      "kind": "rule",
+      "prompt": "我就改一个 section 的一行 CSS，这个应该能走 InlineLite 直接开干吧？",
+      "expected_output": "不得仅凭「单文件」判 InlineLite：先逐条核查八项豁免条件，其中'该文件无其它引用方'必须有 grep 证明；该 section 若有模板实例即存在引用方。强调拿不准就不是 InlineLite，未核查完不给结论。",
+      "assertions": [
+        "InlineLite",
+        "八",
+        "拿不准",
+        "引用方",
+        "grep",
+        "证明"
+      ],
+      "forbidden": [
+        "可以走 InlineLite",
+        "满足 InlineLite",
+        "符合 InlineLite"
+      ]
+    },
+    {
+      "id": "impact-07-token-to-class-refactor",
+      "kind": "fixture",
+      "prompt": "我打算把 .at-tag 的字号从组件 CSS 移到 HTML utility 类上，评估一下影响。（仓库已挂载）",
+      "expected_output": "要求先全仓找出该 class 的所有 markup 实例，逐一核查是否已挂等价 utility，全覆盖前不得剥 CSS 声明；指出未迁移实例会静默丢样式；产出实例清单 + 每个实例的核查结果；RiskTier High。",
+      "assertions": [
+        "全实例",
+        "静默",
+        "utility",
+        "清单",
+        "RiskTier",
+        "High"
+      ]
+    },
+    {
+      "id": "impact-08-dangling-references",
+      "kind": "rule",
+      "prompt": "我要删掉这个 section 里没人用的 schema 字段 legacy_padding 和 CSS 变量 --at-old-gap，影响面大吗？",
+      "expected_output": "要求全仓 grep 残留引用：var(--xxx)、section.settings/block.settings/settings.xxx、data-*/dataset.*；命中即列为 dangling 风险，RiskTier 不低于 Medium。",
+      "assertions": [
+        "var(--",
+        "settings.",
+        "dataset.",
+        "data-",
+        "dangling",
+        "Medium"
+      ]
+    },
+    {
+      "id": "impact-09-build-artifact-vs-source",
+      "kind": "rule",
+      "prompt": "本次计划修改 assets/sectionsTT.min.css 里的一个类。请在实现前评估这个文件的来源、传播链和加载入口。",
+      "expected_output": "识别该文件属于 build 产物，列出对应源目录（shopify-common/src/**）、build 链、以及实际加载入口以 layout/theme.liquid 为准（同名文件可能多份）；把'触及 build 源需 build'作为事实写进 SharedPropagation，不代填 BuildRequired、不下'线上没生效的根因'结论。",
+      "assertions": [
+        "build 产物",
+        "shopify-common/src",
+        "layout/theme.liquid",
+        "SharedPropagation",
+        "加载"
+      ],
+      "forbidden": [
+        "BuildRequired:",
+        "RootCause",
+        "根因是"
+      ]
+    },
+    {
+      "id": "impact-10-dependency-tree-layers",
+      "kind": "rule",
+      "prompt": "改这个 section 前帮我把依赖树建全，别漏。",
+      "expected_output": "覆盖七层：section 及 block type、render 的 snippets、schema 选项、snippet 上游调用方、循环内资源输出、JS custom element 继承链、CSS 作用域与断点覆盖；每层给出实际查法命令，而不是只说要建依赖树。",
+      "assertions": [
+        "block type",
+        "render",
+        "schema",
+        "调用方",
+        "stylesheet_tag",
+        "customElements",
+        "extends",
+        "@media",
+        "断点"
+      ]
+    },
+    {
+      "id": "impact-11-entrypoint-candidates-no-decision",
+      "kind": "rule",
+      "prompt": "这个 spec 偏差直接改 templates/page.about.json 里的存值最省事吧，你帮我定一下改哪层。",
+      "expected_output": "列出模板存值 / schema / 模块代码三个候选及各自会改哪类文件、影响范围、风险、前置；指出 templates/*.json 默认只读、若选此入口需用户明确批准；不代替用户做选层决定，不写'建议选 X'。",
+      "assertions": [
+        "EntrypointCandidates",
+        "模板存值",
+        "schema",
+        "模块代码",
+        "只读",
+        "批准",
+        "影响范围"
+      ],
+      "forbidden": [
+        "建议选",
+        "推荐改",
+        "最稳",
+        "应该选",
+        "直接锁定",
+        "根本性修复"
+      ]
+    },
+    {
+      "id": "impact-11b-template-candidate-not-auto-blocking",
+      "kind": "rule",
+      "prompt": "你把模板存值列成候选之一了，那这次是不是必须等我授权才能进 Implement？我其实打算改模块代码。",
+      "expected_output": "说明模板存值仅作为候选之一时不单独阻塞：只有用户已指定该入口、其它入口被排除、Assess 所需 stored 值读不到、或上游要求评估实际模板修改而未授权时，才进 BlockingGaps；本例可按其它条件判定 ReadyForImplement。",
+      "assertions": [
+        "候选",
+        "BlockingGaps",
+        "ReadyForImplement",
+        "授权",
+        "唯一可行"
+      ],
+      "forbidden": [
+        "必须等授权才能进 Implement"
+      ]
+    },
+    {
+      "id": "impact-12-stop-dont-guess",
+      "kind": "rule",
+      "prompt": "评估一下 ww-multi-content 改动的影响面（我这边没法给你 templates 目录）。",
+      "expected_output": "停机：无法区分理论与实际影响；BlockingGaps 非空并写明需要用户提供什么；ReadyForImplement: No；RiskTier 不因证据不足而降档（保持 High）。",
+      "assertions": [
+        "BlockingGaps",
+        "ReadyForImplement",
+        "No",
+        "需要",
+        "RiskTier",
+        "High"
+      ],
+      "forbidden": [
+        "估计影响不大",
+        "应该没问题",
+        "ReadyForImplement: Yes"
+      ]
+    },
+    {
+      "id": "impact-12b-no-plan-write-set",
+      "kind": "rule",
+      "prompt": "帮我评估一下这次改动的影响面。（没说要改什么文件，工作树是干净的）",
+      "expected_output": "不得因 git diff 为空就判 IntegrationSurface；要求上游列出计划写入集（预计新增文件 + 预计修改的存量文件），BlockingGaps 非空，ReadyForImplement: No。",
+      "assertions": [
+        "计划",
+        "存量",
+        "BlockingGaps",
+        "ReadyForImplement",
+        "No"
+      ],
+      "forbidden": [
+        "IntegrationSurface",
+        "ReadyForImplement: Yes"
+      ]
+    },
+    {
+      "id": "impact-13-scope-boundary-no-rootcause",
+      "kind": "rule",
+      "prompt": "移动端这个下拉不显示，你评估完影响面顺便告诉我根因，再直接改了吧。",
+      "expected_output": "只产出影响面事实；明确说明根因（RootCause）与方案选型属于实现 skill（plaud-theme-dev），本 skill 不下根因、不选方案、不改代码；把 AssessmentRef 交给下游。",
+      "assertions": [
+        "RootCause",
+        "plaud-theme-dev",
+        "AssessmentRef",
+        "不下",
+        "不选方案"
+      ],
+      "forbidden": [
+        "根因是",
+        "RootCause:",
+        "建议改成",
+        "我来改"
+      ]
+    },
+    {
+      "id": "impact-14-handoff-block-fidelity",
+      "kind": "rule",
+      "prompt": "把 Assess 结果按矩阵契约输出给我。",
+      "expected_output": "回复最后是一个 yaml 代码块，15 个字段与 handoff-schema §3 完全一致且顺序一致，不含 RootCause / OptionsConsidered / ChangeSetId / ModifiedFiles / ReadyForDelivery / QAStatus，yaml 块之后无正文。",
+      "assertions": [
+        "AssessmentRef:",
+        "ReconMode:",
+        "TargetSubject:",
+        "TheoreticalReferences:",
+        "ActiveInstances:",
+        "DisabledInstances:",
+        "ActualAffectedInstances:",
+        "SharedPropagation:",
+        "LegacyImpact:",
+        "EntrypointCandidates:",
+        "RiskTier:",
+        "RequiredQAProfile:",
+        "EvidenceCommands:",
+        "BlockingGaps:",
+        "ReadyForImplement:"
+      ],
+      "validator": {
+        "type": "yaml-block-exact-keys",
+        "note": "string-contains 无法验证「完全一致」。需 harness 实现结构化校验：取回复最后一个 fenced yaml block → 解析 → Object.keys() 与 expectedKeys 严格相等且顺序相等 → 检查 yaml fence 之后无非空内容 → 检查 forbiddenKeys 均不存在。若 harness 未实现 validator，本条按「未验证」记，不得因 assertions 全中就判通过。",
+        "expectedKeys": [
+          "AssessmentRef",
+          "ReconMode",
+          "TargetSubject",
+          "TheoreticalReferences",
+          "ActiveInstances",
+          "DisabledInstances",
+          "ActualAffectedInstances",
+          "SharedPropagation",
+          "LegacyImpact",
+          "EntrypointCandidates",
+          "RiskTier",
+          "RequiredQAProfile",
+          "EvidenceCommands",
+          "BlockingGaps",
+          "ReadyForImplement"
+        ],
+        "forbiddenKeys": [
+          "RootCause",
+          "OptionsConsidered",
+          "ChangeSetId",
+          "ModifiedFiles",
+          "Path",
+          "ThemeCheckRequired",
+          "VisualRegressionRequired",
+          "BuildRequired",
+          "QAStatus",
+          "NextRequiredSkill",
+          "ReadyForDelivery"
+        ]
+      },
+      "forbidden": [
+        "RootCause",
+        "OptionsConsidered",
+        "ChangeSetId",
+        "ReadyForDelivery",
+        "QAStatus",
+        "BuildRequired"
+      ]
+    },
+    {
+      "id": "impact-15-no-delivery-authority",
+      "kind": "rule",
+      "prompt": "影响面看着很小，那这次是不是就不用过 QA 了，评估完直接算通过？",
+      "expected_output": "拒绝：交付权唯一属于 plaud-theme-qa，本 skill 不判定通过、不输出交付终态；照常给 RequiredQAProfile（QA-A/B/C），并说明 QA-Global 由 QA 恒执行。",
+      "assertions": [
+        "plaud-theme-qa",
+        "RequiredQAProfile",
+        "不得跳过",
+        "交付权"
+      ],
+      "forbidden": [
+        "ReadyForDelivery: Yes",
+        "可以不过 QA",
+        "算通过",
+        "全部通过",
+        "交付完成"
+      ]
+    },
+    {
+      "id": "impact-16-memory-missing",
+      "kind": "rule",
+      "prompt": "按 memory/模块清单.md 里的实例数给我算影响面。（项目里目前没有这个文件）",
+      "expected_output": "停机问用户，不凭空重建 memory 文件，说明重建会与真实迁移进度脱节导致重复迁移或漏迁；BlockingGaps 非空，ReadyForImplement: No。",
+      "assertions": [
+        "memory/",
+        "不得凭空重建",
+        "BlockingGaps",
+        "ReadyForImplement",
+        "No"
+      ],
+      "forbidden": [
+        "我先帮你重建",
+        "按经验补一份"
+      ]
+    },
+    {
+      "id": "impact-17-risk-tier-low-requires-all",
+      "kind": "rule",
+      "prompt": "这次只改一个文件——assets/theme.css，那 RiskTier 是 Low 吧？",
+      "expected_output": "不是 Low：全局 CSS 命中 High；说明判定顺序是先 High 再 Medium 最后 Low，Low 行要求全部条件满足而非任一命中。",
+      "assertions": [
+        "High",
+        "Low",
+        "全部",
+        "全局 CSS",
+        "RiskTier"
+      ],
+      "forbidden": [
+        "RiskTier: Low",
+        "是 Low"
+      ]
+    }
+  ]
+}
