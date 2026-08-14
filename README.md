@@ -35,52 +35,128 @@ Plaud 品牌 Shopify Online Store 主题开发的 **10 个 skill 矩阵**。它�
 
 ## 安装
 
-> **先退役旧 skill，否则装不进去。** 见下一节 —— 这是硬前置，不是建议。
-
-从本包根目录运行。不带参数即安装到全部四个客户端（`cursor,claude,codex,agents`）：
+**一条命令，装最新发布版**（四个客户端全装：`cursor` / `claude` / `codex` / `agents`）：
 
 ```bash
-chmod +x install-macos-linux.sh
-./install-macos-linux.sh
+# macOS / Linux / WSL / Git Bash
+curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh | sh
 ```
 
 ```powershell
-.\install-windows.ps1
+# Windows PowerShell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.ps1)))
 ```
 
-**先看一眼要发生什么**（不改动任何安装目标、备份位置或 skill，会如实显示是否会中止）：
+> 🔴 **Windows 这行不能简写成 `irm ... | iex`** —— `iex` 传不了参数，`-Ref` / `-Check` 一律进不去。
+> 要传参数就必须用上面的 scriptblock 形式。
+
+仓库是**公开**的，所以这两条命令都不需要任何鉴权 —— 不用 token、不用登录、不用 SSH key。
+
+**钉一个版本**（复现某次交付时用这个，别用「最新」）：
 
 ```bash
-./install-macos-linux.sh --dry-run
+curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh | sh -s -- --ref v0.2.3
 ```
 
-**只在某个客户端的 skills 目录还不存在时**才需要创建：
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.ps1))) -Ref v0.2.3
+```
+
+**自检**（装了什么版本、树是否逐文件一致、有没有陈旧残留）：
 
 ```bash
-./install-macos-linux.sh --create-missing cursor,claude,codex,agents
+curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh | sh -s -- --check
 ```
 
-安装器扫描根级目录里含 `SKILL.md` 的子目录，各自装到 `~/.<client>/skills/<skill-name>/`。
-替换是**整目录替换**，不是合并：目标 skill 目录先被删掉再解包，所以 skill *内部*不会残留旧文件。
-安装脚本自身与包根目录不会被装进 skills 目录。
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.ps1))) -Check
+```
+
+**回滚到旧 tag** —— 就是把 `--ref` 指回去再装一次，然后自检：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh | sh -s -- --ref v0.2.2
+curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh | sh -s -- --check
+```
+
+回滚**不会**自动删掉新版才有的 skill —— 安装器绝不删除它没在装的东西。`--check` 会把它们逐个
+列成 `STALE SKILL`，按提示手动 `rm -rf` 掉。**这一步不能省**：新版删掉的 skill 留在客户端会继续被
+路由，等于同一份 `memory/` 被两套 spec 处理。
+
+### 参数
+
+sh 与 PowerShell 两边**同名同义**：
+
+| sh | PowerShell | 含义 |
+|---|---|---|
+| `--ref v0.2.3` | `-Ref v0.2.3` | 装哪个发布 tag。缺省 = 最新 tag；**解析不出来就报错，绝不静默装 `main`** |
+| `--check` | `-Check` | 自检，不安装 |
+| `--dry-run` | `-DryRun` | 只报告要做什么，不碰任何安装目标 |
+| `--clients cursor,claude` | `-Clients cursor,claude` | 只装子集（**不推荐**，见下） |
+| `--create-missing all` | `-CreateMissing all` | 客户端 skills 目录不存在时创建它 |
+| `--repo <url>` | `-Repo <url>` | 换仓库（fork / 私有镜像） |
+
+`--retire-legacy` / `--keep-legacy` / `--yes` 见下一节「从单 skill 迁移」。
+
+**不要用 `--clients` 缩小范围。** 不带参数已经默认四个客户端；只装子集正是 reddit 矩阵在
+2026-07-29 撞到的客户端漂移（两个客户端落后两个版本，同一份 `memory/` 被两套规范处理）。
+
+### 装到哪里、怎么替换
+
+安装器取该 tag 的**归档包**（`codeload.github.com` 的 tar.gz / zip，**不需要本机有 git**），
+扫描根级目录里含 `SKILL.md` 的子目录，各自装到 `~/.<client>/skills/<skill-name>/`。
+
+替换是**整目录替换**，不是合并，而且走的是**事务式**流程：
+
+1. 先解包到该 skills 目录内部的 `.plaud-staging-*`（同一块盘，**此时线上目录一个字节没动**）
+2. 逐文件核对暂存树与包一致（路径 + 类型 + 内容）
+3. 打上 `.plaud-install-inprogress` 标记，再逐个 `rm -rf` 旧目录 + 移入新目录
+4. **安装后再逐文件比对一次**：目标多出来的文件即上个版本的陈旧残留，直接判失败
+5. 写 `.plaud-installed-ref`（tag、commit sha、安装时间、本次安装的 skill 清单、来源）
+6. 清掉 in-progress 标记
+
+所以：**第 2 步之前失败，客户端完全没被碰过**；失败在第 3 步之后，`.plaud-install-inprogress`
+会留在原地，`--check` 会把这个客户端报成「INTERRUPTED INSTALL」，而不是报「一致」。
+
+安装脚本自身不会被装进 skills 目录。
+
+### `--check` 到底验什么
+
+`.plaud-installed-ref` 只是一个**声明**，永远不当证据用 —— 手改它骗不过 `--check`，因为树每次都会
+按 ref 重新逐文件比对。具体四项：
+
+1. 该客户端**声明**装的 tag / commit / 时间 / 来源
+2. 与该 ref 的树**逐文件比对**：路径、类型、以及**内容字节**（等价于过去手工跑的 `0/10` tree diff）
+3. **陈旧 skill**：仓库该 ref 里已经没有、客户端却还留着且仍会被路由的 skill
+4. **中断的安装**：残留的 `.plaud-install-inprogress`
+
+只比文件名是不够的 —— 实测 v0.2.2 与 v0.2.3 的**文件名清单完全相同**，只有内容不同；
+只比清单的话会把一个装错版本的客户端报成「一致」。
+
+### WSL / Git Bash 与 PowerShell 不要互相污染
+
+同一台 Windows 机器上两边装的是**两个不同的 HOME**：sh 版落到 `$HOME/.cursor/skills`
+（WSL 里是 Linux 家目录），PowerShell 版落到 `$env:USERPROFILE\.cursor\skills`。
+两边各自独立，各自 `--check`。挑一边用，别来回换。
 
 ### 退出码
 
 | 码 | 含义 |
 |---:|---|
 | 0 | 成功 |
-| 1 | 参数 / 配置错误 |
+| 1 | 参数错误，或安装失败（包括部分失败：会打印 `FAILED: X of Y clients installed`） |
 | 2 | **中止：检测到旧 skill 且未退役**——没装任何东西，也没删任何东西 |
 | 3 | 用 `--keep-legacy` 装了，双规范并存，**UNSUPPORTED** |
+| 4 | `--check` 发现问题 |
 
-三个要知道的限制：
+### 三个要知道的限制
 
-- **只添加和覆盖，从不删除**（`--retire-legacy` 是唯一例外）。一个从新版本里删掉的 skill 会留在每个客户端目录里继续被路由到。
-- **客户端 skills 目录不存在时会被静默跳过**，除非 `--create-missing` 点名它。本安装器会在结尾明确列出被跳过的客户端 —— 这是「我以为装好了」的主要来源。
-- **它不比较版本**。安装结束后会打印四客户端的声明版本核对，但声明只是声明，真正的证据是目录 diff（命令由脚本打印）。
-
-**不要用 `--clients` 缩小范围。** 不带参数已经默认四个客户端；只装子集正是 reddit 矩阵在
-2026-07-29 撞到的客户端漂移（两个客户端落后两个版本，同一份 `memory/` 被两套规范处理）。
+- **只添加和覆盖，从不删除**（`--retire-legacy` 是唯一例外）。一个从新版本里删掉的 skill 会留在
+  每个客户端目录里继续被路由到 —— 所以装完**必须**跑一次 `--check`，它会把这些列成 `STALE SKILL`。
+- **客户端 skills 目录不存在时会被跳过**，除非 `--create-missing` 点名它（或 `all`）。安装器会在结尾
+  明确列出被跳过的客户端 —— 这是「我以为装好了」的主要来源。
+- **`--ref` 缺省依赖 GitHub API**。离线、被限流、或仓库还没有 tag 时，安装器**报错退出**，
+  不会退回去装 `main`（未评审的 `main` 不是一个发布）。这时显式给 `--ref v0.2.3`。
 
 ## 从单 skill `plaud-shopify-theme` 迁移
 
@@ -103,15 +179,15 @@ chmod +x install-macos-linux.sh
 | `--keep-legacy` | 明知故犯地并存安装，打印醒目 UNSUPPORTED 警告 | 3 |
 
 ```bash
-./install-macos-linux.sh --dry-run                  # 先看会不会被拦下
-./install-macos-linux.sh --retire-legacy --yes      # 退役后安装（推荐）
-./install-macos-linux.sh --keep-legacy              # 双规范并存（不推荐）
+curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh | sh -s -- --dry-run                  # 先看会不会被拦下
+curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh | sh -s -- --retire-legacy --yes      # 退役后安装（推荐）
+curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh | sh -s -- --keep-legacy              # 双规范并存（不推荐）
 ```
 
 ```powershell
-.\install-windows.ps1 -DryRun
-.\install-windows.ps1 -RetireLegacy -Yes
-.\install-windows.ps1 -KeepLegacy
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.ps1))) -DryRun
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.ps1))) -RetireLegacy -Yes
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.ps1))) -KeepLegacy
 ```
 
 退役流程是**先归档、校验、再删除**，不做不可逆操作：
@@ -328,7 +404,7 @@ ChangeSet 内容绑定（`ChangeSetId` + `BaseHeadSha` + `ChangeSetFingerprint`�
 | 随口说"改完了跑下检查"**可能不进 QA** | `plaud-theme-qa` 的触发被刻意收窄为「已有 `ChangeSetId`」**或**「明确要最终交付判定**且该任务确有改动**」，避免跟 `dev` 抢没有 ChangeSet 的只读 review。🔴 零改动只读任务即使用户点名要交付判定也归 `dev`——QA 的 §5 工件没有 `ReadOnlyProof`，接了只能原样转回（v0.2.2 第八轮）。说清 ChangeSet（"这个 ChangeSet 改完了…"）或直接点名 skill 即可命中 |
 | 指纹命令对 git 版本敏感 | 必须用 §2 原文（`--no-renames --binary` + `set -o pipefail`）。**`--find-renames=false` 在 git 2.52+ 是非法参数**，且错误走 stderr、管道继续，会算出一个只反映文件集合、不反映内容的常量——指纹退化成摆设。拿到 `FINGERPRINT_FAILED` 必须停机 |
 | Path B / Path C 未做行为评测 | 6 个评测场景全在 Path A。B/C 的契约与 evals 齐备，但没有真实任务验证过 |
-| `install-windows.ps1` 未实跑 | 仅静态审查。首次在 Windows 上用前先跑 `-DryRun -RetireLegacy` |
+| `install.ps1` 从未在 Windows 上跑过 | **仅静态审查**（本机无 PowerShell，连语法解析都没跑过），是 `install.sh` 的静态移植。`install.sh` 则在 macOS 上实跑验证过：装最新 / 钉 `--ref v0.2.2` / `--check` / `--dry-run`、造陈旧残留、注入失败的 `tar`/`git`/`curl`/`mktemp`、`chmod 500` 使删除失败、symlink 目标、截断的管道，bash 3.2 / dash / zsh 三家。首次在 Windows 上用前先跑 `-DryRun`，再跑 `-Check` |
 | 三个新 skill 未做行为评测 | `qa-intake` / `feedback-triage` / `release-ops` 的契约与 evals（各 12 条）齐备，但**没有真实任务验证过**。v0.1.0 的教训是：四轮 Codex 评审 + 205 条 eval + 全套静态校验都没抓到的指纹 bug，只有真跑才发现 |
 | UX Spec 有两处待设计方裁决 | ① A11y 项（Advisory：`#717171` 压暖白底 4.26 / 压卡片底 4.49、`#8F53ED` 压暖白底 3.96、角标 Hot 3.17；**Failed**：角标 Pre Order 1.30）；② 品牌渐变 §2.8 说「渐变仅用于 Announcement Bar」，字面上会读成 AI 渐变也不许用——本版判定为**未覆盖而非废止**，原样保留 AI 渐变并标记待确认 |
 | **不支持多 ChangeSet 同批发版** | 指纹绑整个工作树，第二块落盘时第一块的 QA 即失效；而"合并后跑集成 QA"在这个模型下也跑不通（合并提交后工作树是干净的）。需要发多块时**逐块串行**。彻底解法（指纹改绑不可变 commit / tree 对象）留 v0.3.0 |

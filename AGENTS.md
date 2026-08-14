@@ -36,28 +36,27 @@ Windows PowerShell equivalents live under `$HOME\.cursor\skills`, `$HOME\.claude
 ## macOS / Linux Install
 
 ```bash
-chmod +x install-macos-linux.sh
-./install-macos-linux.sh
+curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh | sh
 ```
 
 Preview without touching install targets, backups, or any skill:
 
 ```bash
-./install-macos-linux.sh --dry-run
+curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh | sh -s -- --dry-run
 ```
 
 Only when a client's skills dir does not exist yet:
 
 ```bash
-./install-macos-linux.sh --create-missing cursor,claude,codex,agents
+curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh | sh -s -- --create-missing all
 ```
 
 ## Windows PowerShell Install
 
 ```powershell
-.\install-windows.ps1
-.\install-windows.ps1 -DryRun
-.\install-windows.ps1 -CreateMissing cursor,claude,codex,agents
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.ps1)))
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.ps1))) -DryRun
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.ps1))) -CreateMissing all
 ```
 
 ## Legacy Retirement — a PRECONDITION, not an option
@@ -78,15 +77,15 @@ The installer therefore **fails closed**: if any target still has the old skill,
 | `--keep-legacy` | installs alongside the old skill, loud UNSUPPORTED warning | 3 |
 
 ```bash
-./install-macos-linux.sh --dry-run                 # shows the abort truthfully
-./install-macos-linux.sh --retire-legacy --yes     # recommended
-./install-macos-linux.sh --keep-legacy             # dual-spec, unsupported
+curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh | sh -s -- --dry-run                 # shows the abort truthfully
+curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh | sh -s -- --retire-legacy --yes     # recommended
+curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh | sh -s -- --keep-legacy             # dual-spec, unsupported
 ```
 
 ```powershell
-.\install-windows.ps1 -DryRun
-.\install-windows.ps1 -RetireLegacy -Yes
-.\install-windows.ps1 -KeepLegacy
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.ps1))) -DryRun
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.ps1))) -RetireLegacy -Yes
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.ps1))) -KeepLegacy
 ```
 
 Retirement behaviour:
@@ -252,8 +251,8 @@ missed migrations.
 
 ## Troubleshooting
 
-- No install target found → rerun with `--create-missing cursor,claude,codex,agents`
-  or `-CreateMissing cursor,claude,codex,agents`.
+- No install target found → rerun with `--create-missing all`
+  or `-CreateMissing all`.
 - The IDE still routes to the old `plaud-shopify-theme` → it was not retired; rerun
   with `--retire-legacy`, or check for a workspace-level copy shadowing the global one.
 - The IDE still uses an old matrix version → run the `0/10` tree diff above; a declared
