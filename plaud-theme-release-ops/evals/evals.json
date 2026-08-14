@@ -1,7 +1,7 @@
 {
   "skill_name": "plaud-theme-release-ops",
   "matrix": "plaud-shopify-theme-matrix",
-  "version": "v0.2.2",
+  "version": "v0.2.3",
   "evals": [
     {
       "id": 1,
@@ -187,11 +187,11 @@
       "id": 14,
       "route": "multi-changeset-batch-unsupported",
       "prompt": "这次要一起发三个 ChangeSet：CS-20260812-A01、A02、C01，都各自 QA 过了。出个发版清单吧。",
-      "expected_output": "停机：v0.2.2 不支持多块同批发版，要求逐块串行。",
+      "expected_output": "停机：本版不支持多块同批发版，要求逐块串行。",
       "files": [],
       "assertions": [
         "输出停机，不出发版清单。",
-        "输出说明 v0.2.2 不支持多 ChangeSet 同批发版。",
+        "输出说明 本版不支持多 ChangeSet 同批发版。",
         "输出解释原因：指纹绑整个工作树，第二块落盘时第一块的 QA 已失效。",
         "输出要求改为逐块串行发布（每块走完实现→提测→QA→发版）。",
         "输出没有自行发明变通做法。"

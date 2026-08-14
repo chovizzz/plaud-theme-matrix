@@ -5,7 +5,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PACKAGE_NAME="plaud-shopify-theme-matrix"
-PACKAGE_VERSION="v0.2.2"
+PACKAGE_VERSION="v0.2.3"
 
 # Skills that this matrix supersedes and that must not stay installed alongside it.
 # Keeping the old single skill causes routing competition: two different specs
@@ -617,24 +617,82 @@ install_one_skill() {
   if [[ "$skills_real" != "${skills_dir%/}" ]]; then
     say "  note: $skills_dir resolves to $skills_real (symlinked); rm -rf will act there"
   fi
+  # v0.2.2 tenth review: `rm -rf` ran unchecked and the only post-install check
+  # was `[[ -f "$dest/SKILL.md" ]]`. SKILL.md always exists -- including when it
+  # is a leftover file from the PREVIOUS version -- so a failed removal was
+  # reported as a successful install (reviewer reproduced it with a chmod 500
+  # parent: a stale references/obsolete-rule.md survived and the script exited 0).
+  # That is exactly the documented disaster mode: a reference dropped in the new
+  # version stays behind, keeps getting routed to, and one memory/ tree ends up
+  # processed by two different specs.
+  # Note on why the failure was silent: install_one_skill runs inside
+  # `install_one_skill ... && ok=$((ok+1)) || true`, and bash ignores errexit for
+  # functions in that condition context -- so every unchecked command here kept
+  # going. Each destructive step must therefore check its own status.
   if [[ -e "$dest" ]]; then
     say "Overwriting existing install at $dest"
-    rm -rf "$dest"
+    if ! rm -rf "$dest"; then
+      say "FAILED: cannot remove $dest (read-only mount, wrong owner, chflags uchg, busy .nfs* file, or MDM-locked dir?)" >&2
+      say "        Refusing to extract on top of it: a partial overlay leaves stale files from the old version." >&2
+      return 1
+    fi
+    if [[ -e "$dest" ]]; then
+      say "FAILED: $dest still exists after rm -rf; refusing to extract on top of it" >&2
+      return 1
+    fi
   fi
-  mkdir -p "$dest"
-  tar -C "$src" \
+  mkdir -p "$dest" || { say "FAILED: cannot create $dest" >&2; return 1; }
+  # Deliberately NOT `tar -cf - . | tar -xf -`: the receiving tar exits at the
+  # end-of-archive marker while the sender is still writing padding blocks, so
+  # the sender takes EPIPE and the pipeline reports failure on a perfectly good
+  # extract ("tar: Write error", reproducible on stock macOS bsdtar). The old
+  # code never checked that status so the bug was invisible; checking it turned
+  # every normal install into a false failure. A temp archive gives both ends an
+  # honest exit code -- which is what we actually need, since a genuinely failed
+  # extract must not be reported as installed.
+  local _tarf
+  _tarf="$(mktemp "${TMPDIR:-/tmp}/plaud-skill.XXXXXX")" \
+    || { say "FAILED: cannot create temp archive for $skill_name" >&2; return 1; }
+  if ! tar -C "$src" \
     --exclude './install.sh' \
     --exclude './install.ps1' \
     --exclude './install-macos-linux.sh' \
     --exclude './install-windows.ps1' \
-    -cf - . | tar -C "$dest" -xf -
-
-  if [[ -f "$dest/SKILL.md" ]]; then
-    say "Installed $skill_name to $dest"
-    return 0
+    -cf "$_tarf" .; then
+    rm -f "$_tarf"
+    say "FAILED: cannot archive $src" >&2
+    return 1
   fi
-  say "Install verification failed for $dest" >&2
-  return 1
+  if ! tar -C "$dest" -xf "$_tarf"; then
+    rm -f "$_tarf"
+    say "FAILED: extract into $dest failed" >&2
+    return 1
+  fi
+  rm -f "$_tarf"
+
+  if [[ ! -f "$dest/SKILL.md" ]]; then
+    say "Install verification failed for $dest (no SKILL.md)" >&2
+    return 1
+  fi
+  # `SKILL.md exists` cannot distinguish "freshly extracted" from "old file that
+  # survived". Compare the actual file inventory instead: the destination must
+  # contain exactly what the source contains, minus the installer scripts.
+  local src_list dst_list
+  src_list="$(cd "$src" && find . -type f \
+    ! -name 'install.sh' ! -name 'install.ps1' \
+    ! -name 'install-macos-linux.sh' ! -name 'install-windows.ps1' \
+    | LC_ALL=C sort)" || { say "FAILED: cannot inventory source $src" >&2; return 1; }
+  dst_list="$(cd "$dest" && find . -type f | LC_ALL=C sort)" \
+    || { say "FAILED: cannot inventory destination $dest" >&2; return 1; }
+  if [[ "$src_list" != "$dst_list" ]]; then
+    say "FAILED: $dest does not match the package after install." >&2
+    say "        Files only in the destination are stale leftovers from an older version;" >&2
+    say "        they will keep being routed to. Remove $dest by hand and re-run." >&2
+    diff <(printf '%s\n' "$src_list") <(printf '%s\n' "$dst_list") | sed 's/^/          /' >&2 || true
+    return 1
+  fi
+  say "Installed $skill_name to $dest"
+  return 0
 }
 
 # ------------------------------------------------------------------ verify

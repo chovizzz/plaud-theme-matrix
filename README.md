@@ -1,4 +1,4 @@
-# PLAUD Shopify Theme Matrix v0.2.2
+# PLAUD Shopify Theme Matrix v0.2.3
 
 Plaud 品牌 Shopify Online Store 主题开发的 **10 个 skill 矩阵**。它取代原来的单 skill
 `plaud-shopify-theme` —— 同一份规范被拆成契约层、编排层、Assess / Implement / Verify 三阶段，
@@ -221,13 +221,22 @@ TestSetTrace: <稳定文档ID>@<不可变revision>; Added=[TC-…]; Updated=[…
 # 本轮无增删：
 TestSetTrace: <稳定文档ID>@<不可变revision>; None(<reason>)
 PreviousAcceptedTestSetTrace: <上一轮已通过准入的同一行原文> | None(FirstSubmission) | Unavailable(<原因>)
+# 换了一份新测试文档时必填（否则 ID 一变链就断）：
+TestSetMigrationRef: From=<旧ID>@<旧rev>; To=<新ID>@<新rev>; Reason=<PlatformMigration|OwnerHandover|Deprecated>;
+                     ReasonRef=<locator>; CaseDisposition=Mapped(<locator>)|BulkRetired(<locator>)
+                     # <locator> = Local(<相对材料根的路径>) | Manifest(<materials.tsv 条目名>)
+                     #   —— CaseDisposition 的清单**只能 Local**（要核条数/重复 ID，云端只能核 revision/digest）
+                     #   清单头部 OldCaseCount=<N>，数据行条数必须与之相等
+                     # 或 N/A(SameDocument) / N/A(NoPreviousTrace)
 ```
 
 > ⚠️ v0.2.1 曾写成合并的 `Added/Updated/Removed=[…]` 一个列表，v0.2.2 改为**三段分列**（表达不了某个 ID 属于哪类），并加了 `PreviousAcceptedTestSetTrace`。**完整语法与判定唯一见 `plaud-theme-qa-intake/references/package-checklist.md` §3。**
 
 `@<revision>` 不可省 —— 只给链接的话，同一 URL 既可被覆盖内容也可每次指向临时文档，「增量维护 vs 每次现编」完全不可查。delta 段由测试报告里每条用例自带的 `Added/Updated/Unchanged` 标记推出，**不需要另写清单**。`release-ops` 的回归用例归档必须指向同一个稳定文档 ID。
 
-> ⚠️ **v0.2.2 又补了两处**：加 `PreviousAcceptedTestSetTrace`（否则每轮新建文档冒充稳定 ID 仍能通过），delta 改三段分列且 `Removed` 必须显式列（它推不出来）。见上面 v0.2.2 第 3、4 条。
+> ⚠️ **v0.2.2 又补了三处**：加 `PreviousAcceptedTestSetTrace`（否则每轮新建文档冒充稳定 ID 仍能通过），delta 改三段分列且 `Removed` 必须显式列（它推不出来），以及**换文档时的结构化 `TestSetMigrationRef`**——自由文本理由里「我们换到 Linear 了」和「上一轮那份找不到了、我重新整理了一份」长得一模一样，结构化之后 `From` 必须逐字等于历史记录里的那一行，且旧用例去向要给一份进了 `PackageFingerprint` 的本地清单（`Local(...)`，头部 `OldCaseCount`）。见上面 v0.2.2 第 3、4 条与 `package-checklist.md` §3.1。
+>
+> 🔴 **能力边界**：矩阵核的是**自洽性 + 内容绑定**（清单在材料里、条数与声明一致、事后不可替换），**不核真实性**——`TC-1042` 是否真的在旧文档里，矩阵查不到也不查。一拆多 / 多合一的迁移形状本版**不支持**，须停机。
 
 ---
 

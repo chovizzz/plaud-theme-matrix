@@ -28,7 +28,7 @@
 任何 skill 引用本层后，在自己的正文里回报一次：
 
 ```yaml
-ContractVersion: v0.2.2
+ContractVersion: v0.2.3
 PathResolved:            # A | B | C | Cross(B+C) | Cross(A+C)
 StageResolved:           # Assess | Implement | Verify | N/A(NonStage)
                          #   ↑ 后者用于 §0.1 的四个非阶段 skill：orchestrator /
@@ -48,7 +48,7 @@ BlockingGaps:
 ```yaml
 ProducerSkill: plaud-theme-shared
 ConsumerSkill:           # 引用本层的 skill
-ContractVersion: v0.2.2
+ContractVersion: v0.2.3
 BlockingGaps:
 ReadyForNextSkill:       # Yes | No
 ```
@@ -149,3 +149,4 @@ spec 一升级，多副本必然漂移，随后两个 skill 会用两套值处�
 | 本层 reference 更新了数值 | 消费者**不需要改自己的文件**——这正是"只引用不复制"的收益 |
 | 新增一个 reference | 同步更新 `SKILL.md` 的 Reference 索引表 + `version-manifest.md` §3 |
 | 红线增删 | **规范正文只改 `handoff-schema.md` §8**。`SKILL.md` 的「全路径红线」段是随包分发的索引式摘要（本版不可改），编号须与 §8 保持对齐；两者表述冲突以 `handoff-schema.md` 为准。本层 reference 只调细则，不复制正文 |
+| **`ApprovedException` 封闭清单增删** | 唯一写入点是 `handoff-schema.md` §8.1 那张表，唯一 owner 是矩阵包 maintainer，且**必须切新版本快照**（`ContractVersion` bump + `version-manifest.md` §1.1 + CHANGELOG + 四端重装核对）。运行时任何 skill 都不得扩充；双周会纪要只决定**下一版怎么写**，不改变**当前包怎么判**，不一致即按 §7 停机。规则正文见 `handoff-schema.md` §8.1「封闭清单的变更权限」，本表不复制 |

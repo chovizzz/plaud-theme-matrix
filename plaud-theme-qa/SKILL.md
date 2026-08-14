@@ -74,7 +74,7 @@ Step 6  输出 §5 契约 yaml 块
 
 取 `plaud-theme-qa-intake` 的 `ArtifactKind: QAIntake` 工件（handoff-schema §9.1.2）。
 
-**三项都要查，缺一即 `Blocked`：**
+**四项都要查，缺一即 `Blocked`：**
 
 ```bash
 # (1) 提测包绑的是不是本次这个 ChangeSet —— 防重放
@@ -82,28 +82,54 @@ Step 6  输出 §5 契约 yaml 块
 #     intake.ChangeSetFingerprint == implement.ChangeSetFingerprint   # 逐字比对
 
 # (2) 材料在 intake 之后有没有被换过 —— 防替换
-#     进 intake.PackageRootRef 指的位置，用 §9.1.2 的 plaud_package_fingerprint 重算，
-#     与 intake.PackageFingerprint 精确比对
+#     cd 到 intake.PackageRootRef，export PLAUD_PACKAGE_ROOT="$(pwd -P)"，
+#     用 §9.1.2 的 plaud_package_fingerprint 重算，与 intake.PackageFingerprint 精确比对
+#     🔴 必须在材料**根目录**跑并设 PLAUD_PACKAGE_ROOT（v0.2.2 第十轮补）：该函数此前没有
+#        根守卫，在子目录跑会静默算出子集指纹且 rc=0。危险的不是失配 —— 是 intake 与本 skill
+#        用同一个错误的 PackageRootRef 时**两边算出同一个值、Accepted 照发**，而自测报告 /
+#        配置说明 / 截图全部不在绑定链里。拿到 NOT_PACKAGE_ROOT / NO_PACKAGE_ROOT 一律 Blocked
 #     🔴 云端材料还要**重新查远端当前 revision / digest**，与 manifest 记录值比对——
 #        只比本地 manifest 的话，manifest 没更新而云文档内容变了照样通过
 #     拿到 PACKAGE_FINGERPRINT_FAILED / 空值 / 取不到远端 revision → Blocked，不得放行
 
 # (3) SubmissionPackageStatus
+
+# (4) 测试集三行的绑定自洽 —— 逐字比对，不需要访问任何外部系统
+#     比的是 ID@revision 前缀段（日志列存的是完整原文，取第一个 ; 之前那段）。
+#     (4a) 填了完整迁移声明时：
+#          intake.TestSetMigrationRef.From == intake.PreviousAcceptedTestSetTrace 的 ID@revision
+#          intake.TestSetMigrationRef.To   == intake.TestSetTrace 的 ID@revision
+#          且**当 memory/changeset-log.md 里存在非 N/A 的 TestSetTrace 行时**（= intake 走的是取数路径①），
+#          From 还要等于其中最近一条的同一前缀段。日志确无该行（路径②/③）时不得再拿日志卡它。
+#     (4b) 填 N/A(SameDocument) 时：本轮 TestSetTrace 与 PreviousAcceptedTestSetTrace 的稳定文档 ID
+#          **必须真的相同**——不同却填 SameDocument 是自相矛盾，不是可跳过项。
+#     (4c) 填 N/A(NoPreviousTrace) 时：PreviousAcceptedTestSetTrace 必须确为 None(FirstSubmission)
+#          或 Unavailable(...)——有具体上一轮 trace 却填 NoPreviousTrace 同样是自相矛盾。
+#     (4d) 迁移清单的自洽性复核（在重算 PackageFingerprint 时顺带做，不额外取数）：
+#          ReasonRef / CaseDisposition 的 locator 未悬空、清单条数 == OldCaseCount、
+#          旧用例 ID 无重复、Mapped 的 Dropped 行理由非空、BulkRetired 的 RetireReason 非空。
+#          🔴 CaseDisposition 的清单只能是 Local(...)：它在材料目录里、内容已进 PackageFingerprint，
+#             读它不需要额外取数。Manifest(...)（云端）不得用于清单——远端复核只取 revision/digest，
+#             拿不到内容，条数/重复 ID 根本没法核。判据唯一见 package-checklist.md §3.1
+#     (4e) N/A 与 Previous 的**双向**约束：
+#          Previous 为 None(FirstSubmission) / Unavailable(...) → TestSetMigrationRef **必须**是
+#          N/A(NoPreviousTrace)（此时也不得再提交完整迁移声明——没有 From 可比，声明无从核验）；
+#          Previous 是具体一行 → 不得填 N/A(NoPreviousTrace)。两个方向都要核，只核单向可以被绕过。
 ```
 
 | 情形 | `QAAdmissionStatus` / `QAAdmissionReason` | 后续 |
 |---|---|---|
-| 三项全对且 `SubmissionPackageStatus: Complete` | `Accepted` / `Normal` | 继续 Step 1 |
+| **四项全对**且 `SubmissionPackageStatus: Complete` | `Accepted` / `Normal` | 继续 Step 1 |
 | intake 绑的 `ChangeSetId` / `ChangeSetFingerprint` 与 Implement 工件对不上 | `Blocked` / **`BindingMismatch`** | 停机 —— **这是一份别的任务的提测包**，不得复用 |
 | `PackageFingerprint` 或云端 revision 重算不一致 | `Blocked` / **`BindingMismatch`** | 停机 —— 材料在准入之后被改过 |
+| `TestSetMigrationRef` **字段齐全但绑定对不上**（(4a) 的 `From` / `To` 比对失败，或 (4b)/(4c)/(4e) 的 `N/A` 与实际 trace 自相矛盾——含「Previous 明明是具体一行却填 `N/A(NoPreviousTrace)`」与「Previous 是 `Unavailable` 却仍提交完整迁移声明」两个方向） | `Blocked` / **`BindingMismatch`** | 停机 —— 声明迁自 A、历史记录却是 B |
+| `TestSetMigrationRef` **缺失 / 语法坏 / `Reason` 越界 / locator 悬空或跑出材料根 / 清单用了 `Manifest(...)` / 清单条数与 `OldCaseCount` 对不上 / 旧 ID 重复 / `Dropped` 理由或 `RetireReason` 为空**（ID 变了却没有合法迁移声明） | `Blocked` / **`PackageIncomplete`** | 停机 —— 这是 intake 该判 `Incomplete` 的项，本应到不了这里；退回 `plaud-theme-qa-intake` 重出 |
+| `PreviousAcceptedTestSetTrace` 为 `Unavailable(...)` / `None(FirstSubmission)` **且** `TestSetMigrationRef: N/A(NoPreviousTrace)`（两者必须同时成立，见 (4e)；只满足其一是自相矛盾，走上一行的 `BindingMismatch`），其余项都对 | **不阻断**（照常 `Accepted`） | 在 `Advisories` 记「测试集跨轮次连续性本轮无法核验」+ 属于 `package-checklist.md` §3 取数路径③ 的哪一种；**不进 `BlockingGaps`** |
 | `SubmissionPackageStatus: Incomplete` | `Blocked` / `PackageIncomplete` | 停机，零执行 |
 | 压根没有提测包工件 | `Blocked` / `MissingArtifact` | 停机，零执行 |
 | 用户主动弃提测材料 | `Blocked` / `UserWaivedMaterials` | **照跑技术检查项**，`Evidence` 记弃流程的出处 |
 
 > 🔴 **表里没有零改动只读任务这一行，这是刻意的**（v0.2.2 第七轮废止该分支，第八轮清掉残留表头与旧行）：§5 的 26 字段里既没有 `ModifiedFiles` 也没有 `ReadOnlyProof`，本 skill 结构上就无法为零改动任务输出完整契约。收到这类请求 → 转 `plaud-theme-dev` 的零改动通道，**不输出 §5 工件、不发 `Accepted`**（详见下方「(b) 真正的零改动任务」）。
-| `Incomplete` | **`Blocked`** | 停机，**零验证项执行** |
-| 压根没有提测包工件 | **`Blocked`** | 停机，要求先过 `plaud-theme-qa-intake` |
-
 **`Blocked` 之后跑不跑检查，取决于是哪种 Blocked：**
 
 | Blocked 的原因 | 跑不跑检查 | 为什么 |
@@ -293,6 +319,8 @@ git ls-files -s | awk '$1=="160000"{print $4}'    # submodule gitlink：内部�
 
 结果追加到项目侧 `memory/changeset-log.md`（**项目运行时状态，不随包分发**；格式与失效语义见 `references/evidence-and-invalidation.md`）。
 
+> 🔴 **迁移轮次照抄本轮那一行（新文档 ID）**：`TestSetMigrationRef` 不进日志列，只可在 `Note` 列写 `Migrated(<旧ID> -> <新ID>)` 作**人读备注**——`Note` 列**不被下游消费**，下一轮 `PreviousAcceptedTestSetTrace` **优先**从 `TestSetTrace` 列取最近一条非 `N/A` 的行（那一行已经是新 ID，链不断）；日志不可得时才走 `package-checklist.md` §3 取数路径②的成对工件。要机器审计迁移本身，查该轮的 `QAIntake` 工件。
+>
 > 🔴 **v0.2.2 起该表多一列 `TestSetTrace`**：**只要本轮 `QAAdmissionStatus: Accepted`**（提测包过了准入），就把 `QAIntake` 工件里的那一行**原样抄进去**（不重编、不规整、不补全），**与 `ReadyForDelivery` 是 `Yes` 还是 `No` 无关**；`QAAdmissionStatus: Blocked` 才写 `N/A(NotAccepted)`，该轮确无测试集写 `N/A(NoTestSet)`。
 > **锚点是「准入通过」不是「交付通过」**：QA 失败的返工轮同样要留下测试集版本，否则跨轮次连续性会在返工那一轮断链——而返工正是最容易换文档的时候。完整规则见 `references/evidence-and-invalidation.md`。
 

@@ -22,9 +22,9 @@
 | `plaud-theme-ux-migration` | C | 同上 |
 | `plaud-theme-impact`（间接） | A/B/C | §3 的 `AssessmentRef` `ActualAffectedInstances` `SharedPropagation` `EvidenceCommands` `RequiredQAProfile` —— QA 复算而非照抄 |
 | `plaud-theme-orchestrator` | 全流程 | 调度本 skill，并接收 §5 结果做阶段门 |
-| **`plaud-theme-qa-intake`** | A/B/C | §9.1.2 的 `SubmissionId` `SubmissionPackageStatus` `PreviewManifest` `TargetSites` `ThemeIds` **`ChangeSetId`** **`ChangeSetFingerprint`**（Step 0 与 Implement 工件逐字比对，防重放：对不上就是别的任务的提测包）**`PackageRootRef`** **`PackageFingerprint`**（据此复算材料指纹，防准入后替换）**`BlockingGaps`**（Incomplete 时原样带出）**`PreviousAcceptedTestSetTrace`**（跨轮测试集连续性，取不到时记 `Advisories` 不判 Incomplete）—— 据此判 `QAAdmissionStatus`（Step 0，早于指纹校验）。v0.2.2 第九轮补齐：漏掉的这六个正是本 skill 下一行承诺要做的防重放、防替换重算与跨轮连续性的依据 |
+| **`plaud-theme-qa-intake`** | A/B/C | §9.1.2 的 `SubmissionId` `SubmissionPackageStatus` `PreviewManifest` `TargetSites` `ThemeIds` **`ChangeSetId`** **`ChangeSetFingerprint`**（Step 0 与 Implement 工件逐字比对，防重放：对不上就是别的任务的提测包）**`PackageRootRef`** **`PackageFingerprint`**（据此复算材料指纹，防准入后替换）**`BlockingGaps`**（Incomplete 时原样带出）**`TestSetTrace`**（本轮那一行，Step 5 原样抄进 `changeset-log.md`，也是核 `TestSetMigrationRef.To` 的对照物）**`PreviousAcceptedTestSetTrace`**（跨轮测试集连续性，取不到时记 `Advisories` 不判 Incomplete）**`TestSetMigrationRef`**（换测试文档时的结构化迁移声明；Step 0 逐字核 `From` = `PreviousAcceptedTestSetTrace` 的 `ID@revision` **前缀段**、`To` = 本轮 `TestSetTrace` 的前缀段；**仅当** `changeset-log.md` 里确有非 `N/A` 的 `TestSetTrace` 行时（= intake 走的是取数路径①）才额外要求 `From` 等于其中最近一条的同一前缀段——日志不可得而 intake 走了路径②的成对工件时不得再拿日志卡它；对不上 → `BindingMismatch`，缺失/语法坏/`Reason` 越界 → `PackageIncomplete`）—— 据此判 `QAAdmissionStatus`（Step 0，早于指纹校验）。v0.2.2 第九轮补齐：漏掉的这六个正是本 skill 下一行承诺要做的防重放、防替换重算与跨轮连续性的依据 |
 
-**准入门（Step 0，最早）**：三查——intake 的 `ChangeSetId` / `ChangeSetFingerprint` 与 Implement 工件逐字比对（防重放）、重算 `PackageFingerprint`（防准入后替换）、`SubmissionPackageStatus`。
+**准入门（Step 0，最早）**：四查——intake 的 `ChangeSetId` / `ChangeSetFingerprint` 与 Implement 工件逐字比对（防重放）、重算 `PackageFingerprint`（防准入后替换）、`SubmissionPackageStatus`、**测试集三行的绑定自洽**（`TestSetTrace` / `PreviousAcceptedTestSetTrace` / `TestSetMigrationRef`，含 `N/A` 的双向约束与迁移清单自洽复核）。
 
 `Blocked` 之后**跑不跑检查取决于原因**：
 

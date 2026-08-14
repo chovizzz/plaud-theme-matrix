@@ -104,6 +104,15 @@ sb_worktree_set() (
   [ "$(cd "$_top" && pwd -P)" = "$(pwd -P)" ] || {
     printf 'NOT_REPO_ROOT: must run at repo root. cwd=%s toplevel=%s\n' "$(pwd -P)" "$_top" >&2
     return 1; }
+  # 🔴 换行路径必须 fail closed（v0.2.2 第十轮实测补）：下面把 NUL 转成换行后逐行输出，
+  #    路径里本身带 \n 的会被拆成**两行**，`ModifiedFiles` 集合当场损坏而 rc 仍是 0。
+  #    §2 的 plaud_fingerprint 为这个场景专门加了 NEWLINE_IN_PATH，本函数一直没有配套 ——
+  #    同一个仓库、同一个文件，一个门停机、另一个门给出一份坏数据还说自己成功。
+  _nl=$(git ls-files --others --exclude-standard -z -- . ':(exclude)memory/' \
+    | tr -d '\0' | tr -cd '\n' | wc -c | tr -d ' ')                             || return 1
+  [ "$_nl" = "0" ] || {
+    printf 'NEWLINE_IN_PATH: 路径含换行，ModifiedFiles 集合无法可靠表达，先重命名\n' >&2
+    return 1; }
   git diff --name-status HEAD -- . ':(exclude)memory/'                         || return 1
   git ls-files --others --exclude-standard -z -- . ':(exclude)memory/' \
     | tr '\0' '\n' | sed '/^$/d' | sed 's/^/?\t/'                            || return 1
@@ -127,6 +136,41 @@ if [ -n "$BASE" ] && sb_worktree_set > "$BASE.raw" && LC_ALL=C sort "$BASE.raw" 
 
 # ② 收尾时：同一个函数再采一次，这是主判据
 if [ -n "$BASE" ] && sb_worktree_set > "$BASE.after.raw" && LC_ALL=C sort "$BASE.after.raw" > "$BASE.after"; then :; else echo "AFTER_FAILED"; fi
+
+# ②b 🔴 baseline 已脏的文件，本轮再改一次 → ④ 的 comm 会把 M 与 M 抵消，**delta 为空**
+#     （v0.2.2 第十轮实测补）。原来只有下面那段散文写着"baseline 已脏且与本任务路径重叠 → 停机"，
+#     命令层完全看不出来：按命令走、跳过散文的 agent 会交出一个 ModifiedFiles 为空的 ChangeSet。
+#     判据不能只看 name-status（前后都是 M），要看**内容**：对 baseline 里已脏的路径存一份内容 hash，
+#     收尾时重算，变了就是本轮动过它。
+if [ -n "$BASE" ]; then
+  # 🔴 v0.2.3：正则原来只有 [MDRCTU]，第十轮演练打出三个漏：
+  #    (a) **未跟踪行 `?` 没进来** —— 而 Path B 的产出恰恰全是未跟踪文件，等于主场景没覆盖；
+  #    (b) **改名行取错列**：name-status 的 R/C 是 `R<score>\told\tnew`，$2 是 old path；
+  #    (c) **只改 mode 的改动**：hash-object 只看内容，与指纹「覆盖未跟踪文件权限位」互相矛盾。
+  #    现在：R/C 取 $3，其余取 $2，未跟踪行一并纳入，并把 mode 与内容一起记。
+  awk -F'\t' '$1 ~ /^[RC]/ { print $3; next } $1 ~ /^[MDTU?]/ { print $2 }' "$BASE" \
+    | LC_ALL=C sort -u > "$BASE.dirty"
+  # 开工前：记录这些路径的内容 + 权限位
+  if stat -c '%a' . >/dev/null 2>&1; then _SM="stat -c '%a'"; else _SM="stat -f '%Lp'"; fi
+  while IFS= read -r f; do
+    [ -n "$f" ] && [ -f "$f" ] \
+      && printf '%s %s %s\n' "$(git hash-object -- "$f")" "$(eval "$_SM \"\$f\"")" "$f"
+  done < "$BASE.dirty" | LC_ALL=C sort > "$BASE.dirtyhash"
+fi
+
+# ②c 收尾时对同一批路径重算，差集即"本轮又动过的存量文件"
+if [ -n "$BASE" ] && [ -s "$BASE.dirty" ]; then
+  while IFS= read -r f; do
+    [ -n "$f" ] && [ -f "$f" ] \
+      && printf '%s %s %s\n' "$(git hash-object -- "$f")" "$(eval "$_SM \"\$f\"")" "$f"
+  done < "$BASE.dirty" | LC_ALL=C sort > "$BASE.dirtyhash.after"
+  if ! LC_ALL=C diff -q "$BASE.dirtyhash" "$BASE.dirtyhash.after" >/dev/null; then
+    echo "BASELINE_DIRTY_OVERLAP: 下列文件开工前就是脏的、本轮又被改动 —— ④ 的 delta 看不见它们，停机隔离后重来："
+    # 🔴 v0.2.3：原来只打 `/^>/`，**被删除的文件只出现在 `<` 侧、于是一个文件名都不列**
+    LC_ALL=C diff "$BASE.dirtyhash" "$BASE.dirtyhash.after" \
+      | awk '/^[<>]/ { print "    " $1 " " $4 }' | LC_ALL=C sort -u
+  fi
+fi
 
 # ③ 只看存量文件的写入：排除相对 HEAD 全新的文件（A）与未跟踪新文件
 git diff --name-status --diff-filter=MDRCTU HEAD -- . ':(exclude)memory/'
@@ -376,6 +420,11 @@ BuildRequired:           # Yes | No（是否动了 shopify-common/src 需 npm ru
 ApprovedExceptions:      # 逐项声明的 🟠 ApprovedException；无则填 []
                          #   Clause 只能取 shared §8.1 封闭清单内的条款；Scope 必须逐对象/配对绑定
                          #   ApprovalRef 为空、或 ApprovedBy 是自己 → QA 判 Failed（见 shared §8.1）
+                         #   🔴 双周会「已同意但清单尚未更新」的条款**不得**写进来（Clause 越界 = 谎报，
+                         #      QA 判 ApprovedExceptionsChecked: Failed）。正确处理：本字段保持 [] 或不列该项，
+                         #      条款按其当前档位照常判，BlockingGaps 记
+                         #      PendingClauseListAmendment: <条款号> / <决议ref> / <YYYY-MM-DD> / <目标版本 | Unknown(未排期)>
+                         #      清单扩容只能由 maintainer 在新版本快照里做（见 shared §8.1「封闭清单的变更权限」）
 BlockingGaps:            # 实现中发现但无权处理的（素材来源、模板接入授权、spec 取值二选一…）
 QAStatus: NotRun         # 恒为 NotRun
 NextRequiredSkill: plaud-theme-qa-intake

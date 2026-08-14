@@ -8,15 +8,27 @@
 
 | 项 | 值 |
 |---|---|
-| 矩阵包版本 | **v0.2.2** |
-| 包名 | `plaud-shopify-theme-matrix-v0.2.2` |
-| 契约版本（`ContractVersion`） | **v0.2.2** |
+| 矩阵包版本 | **v0.2.3** |
+| 包名 | `plaud-shopify-theme-matrix-v0.2.3` |
+| 契约版本（`ContractVersion`） | **v0.2.3** |
 | 对应 UX Spec 版本 | **v1.3 · 2026-08-11 设计 Token 基线**（源文档 `Plaud-UX-v1.3`「设计 Token 与组件规范文档」，8 页 PDF）。它取代了 v0.1.0 依据的 `PLAUD_UX_规范基准_v1.3.md`（含 2026-07 补充修订 4 条）——版本号同为 v1.3，但内容是重新整理过的一版，差异见 CHANGELOG |
 | 对应交付标准 | **《DTC 开发交付标准 v1.0》**（2026-08-06，运营与产研共同维护，双周会可审议修订） |
 | 前身 | v0.1.0（7 skill）；再前身是单 skill 包 `plaud-shopify-theme-skill` |
 | skill 数 | **10** |
 
 **`ContractVersion` 与包版本同步递增。** 任一 skill 输出的 `ContractVersion` 与本文件不符 → 视为版本漂移，停机并要求重装。
+
+### 1.1 哪些改动**必须**伴随一次版本发布（v0.2.2 补）
+
+本包按**全量快照**分发，各端靠 `install-macos-linux.sh` 装成四份独立副本；**会议纪要、飞书文档、Linear issue 都不随包分发**，agent 运行时能读到的只有包内文本。因此下列改动**只改包外文档不算数**，必须切新版本快照并重装：
+
+| 改动 | 为什么必须发版 |
+|---|---|
+| `handoff-schema.md` §8.1 的 **`ApprovedException` 封闭适用清单**（增删条款） | 规则正文与变更权限唯一见 `handoff-schema.md` §8.1「封闭清单的变更权限」（本表**不复制清单内容、不复制 owner 规则**）。不发版 = 四端仍按旧清单判，而人以为已经放开 |
+| §8 / §8.1 红线的增删与档位调整 | 同上；另见 `plaud-theme-shared/matrix-contract.md` 的「红线增删」行 |
+| 任何封闭枚举（§9.2）的取值增删 | agent 的结构核直接按包内枚举判，包外新增取值一律会被判非法 |
+
+> 🔴 **本文件不是安装状态账本。** 这里只声明"该发版"，**不记录"四端已装好"**——那要靠 README「发布新版本」一节的**版本 + 内容双重核对**当场跑出来。安装器对**不存在的客户端目录会静默跳过**，所以"脚本跑完没报错"不等于四端都装上了；把"已校验"写进任何一份 Markdown 都不构成证据。
 
 ---
 
@@ -68,7 +80,7 @@
 > `typography.md` §4 整节重写（**撤回 H5 = 22px 与「复用 h5 全局规则」**，新增 §4.1 仓库 h5 现状 / §4.2 语义类 vs 数字遗留类）；`colors-and-schemes.md` §3 outline 边框改为**先判两条样式链是否统一再决定复用或新增变量**；`repo-drift.md` 新增 §3.6 / §3.7。
 
 > **v0.2.2 修订**（v0.2.1 的门禁收口，详见 CHANGELOG）：
-> `handoff-schema.md` §8.1 加 **`ApprovedException` 封闭适用清单**（清单内目前只有 A11y 3.0–4.5 一项，§8.1 十一条无一在内）；§4 加 `ApprovedExceptions`、§5 加 `ApprovedExceptionsChecked` / `ApprovedExceptionsEvidence`（§4=20 / §5=26 字段）；§2 与 §9.1.2 两段指纹命令**修掉两个静默失败点**（`{ … } | shasum` 的子 shell 吞错、未跟踪目录静默跳过）并**排除 `memory/`**；`package-checklist.md` §3 加 `PreviousAcceptedTestSetTrace` 与三级取数路径；`changeset-log.md` 加 `TestSetTrace` 列；§9.1.4 加 `TestSetTraceAfterArchive` 并移除跑不通的 `IntegrationQARef`。
+> `handoff-schema.md` §8.1 加 **`ApprovedException` 封闭适用清单**（发布当时的成员快照：只有 A11y 3.0–4.5 一项，§8.1 十一条无一在内 —— 🔴 **这是发布说明里的历史快照，不是运行时事实源**，判定一律现读 `handoff-schema.md` §8.1 那张表）；§4 加 `ApprovedExceptions`、§5 加 `ApprovedExceptionsChecked` / `ApprovedExceptionsEvidence`（§4=20 / §5=26 字段）；§2 与 §9.1.2 两段指纹命令**修掉两个静默失败点**（`{ … } | shasum` 的子 shell 吞错、未跟踪目录静默跳过）并**排除 `memory/`**；`package-checklist.md` §3 加 `PreviousAcceptedTestSetTrace` 与三级取数路径；`changeset-log.md` 加 `TestSetTrace` 列；§9.1.4 加 `TestSetTraceAfterArchive` 并移除跑不通的 `IntegrationQARef`。
 > **同时更正 v0.2.1 的一处措辞**：§4.1 原写「三套并行的 h5 实现」，实测 `--h0-size…--h6-size` 全仓无消费点，是死声明；现表述为「一套生效规则 + 一处死变量声明 + 一套与标签正交的语义体系」。
 
 > `repo-drift.md` 是**后加的第 9 个 reference**，已在 `plaud-theme-shared/SKILL.md` 的 Reference 索引表里（标为「要落地任何 spec 数值、或依赖某个 token / 工具类之前（必读）」）。

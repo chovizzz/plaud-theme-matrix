@@ -22,7 +22,7 @@
 |---|---|
 | `plaud-theme-dev` / `plaud-theme-section-build` / `plaud-theme-ux-migration` | §4 的 `ChangeSetId` `ChangeSetFingerprint` `ModifiedFiles` `AssessmentRef` `Path` `ReconMode` **`OriginTriageRef`**（三者的 `NextRequiredSkill` 均指向本 skill）。🔴 `OriginTriageRef` 是判首轮 / 返工的**唯一事实源**（`N/A` = 首轮 → `ReworkDeltaStatus: NotApplicable`；带 `TriageId` + `ItemId` = 返工 → 必须收到「本轮修改点」，否则 `Incomplete`；**整字段缺失 ≠ `N/A`**，缺失即停机要求重出）。v0.2.2 第九轮补：此前本清单漏了它，agent 没有事实源就只能默认填 `NotApplicable`，返工 delta 整份漏收 |
 | `plaud-theme-impact`（间接） | §3 的 `AssessmentRef` `ActualAffectedInstances` `ActiveInstances` `DisabledInstances` —— **只引用，不重算** |
-| 用户 / 运营 | 站点清单及其出处（`ScopeSourceRef`）、预览链接、配置与测试文档、断点截图 |
+| 用户 / 运营 | 站点清单及其出处（`ScopeSourceRef`）、预览链接、配置与测试文档、断点截图；`memory/changeset-log.md` 不可得时，`PreviousAcceptedTestSetTrace` 的**取数路径②**要的那**一对**工件（上一轮 `QAIntake` + **同 `SubmissionId` 且同 `ChangeSetId`** 的 QA §5 工件，后者须 `QAAdmissionStatus: Accepted` —— `QAIntake` 自己没有这个字段，单给一份证明不了「已通过准入」）|
 
 `ChangeSetId` 与 `ChangeSetFingerprint` **原样透传，不重算不改写**——重算是 QA 的 Step 1 职责，本 skill 既不是 producer 也不是 verifier。
 
@@ -30,7 +30,7 @@
 
 | 下游 | 内容 |
 |---|---|
-| `plaud-theme-qa` | 全部 §9.1.2 字段。QA 的 Step 0 据 `SubmissionPackageStatus` 判 `QAAdmissionStatus: Accepted / Blocked` |
+| `plaud-theme-qa` | 全部 §9.1.2 字段。QA 的 Step 0 据 `SubmissionPackageStatus` 判 `QAAdmissionStatus: Accepted / Blocked`；并**重核** `TestSetTrace` / `PreviousAcceptedTestSetTrace` / **`TestSetMigrationRef`** 三者的绑定自洽（`From`/`To` 逐字比对），对不上 → `Blocked` / `BindingMismatch` |
 | 实现 skill（`Incomplete` 时） | `BlockingGaps` —— 缺哪份材料的哪个字段 |
 | `plaud-theme-release-ops`（间接） | `TargetSites` / `ExcludedSites` / `ThemeIds` 作为发版前二次确认的第一次记录 |
 

@@ -88,7 +88,11 @@
 # BaseHeadSha
 git rev-parse HEAD
 
-# ChangeSetFingerprint —— 覆盖内容、权限、删除态、未跟踪文件
+# ChangeSetFingerprint —— 覆盖内容、删除态、未跟踪文件，以及**未跟踪文件的完整权限位**
+# 🔴 tracked 文件的权限只覆盖 executable 位（v0.2.2 第十轮实测更正：原文写"覆盖权限"，
+#    而 git 对已跟踪文件只记 100644/100755 这一个 bit —— 0644→0600 指纹纹丝不动）。
+#    对 Shopify push 无害（推的是内容），但这句声明本身原来是错的，而 CORE_FILEMODE_FALSE
+#    那道门恰恰是以"覆盖权限"的名义 fail closed 的。
 # 必须在仓库根目录执行。producer 与 verifier 必须用一字不差的同一段命令。
 plaud_fingerprint() (
   set -o pipefail
@@ -170,10 +174,20 @@ plaud_fingerprint() (
   git ls-files -z -- '*.gitattributes' > "$_atmp/z1" || {
     printf 'GITATTR_ENUM_FAILED: git ls-files（tracked）失败，无法判定 clean filter\n' >&2
     rm -rf "$_atmp"; return 1; }
+  # 🔴 v0.2.2 第十轮实测修：这里原来带 `--exclude-standard`，而它**按定义排除 ignored 文件** ——
+  #    可一个 `.gitattributes` 是否被 ignore，与它在 git 里生不生效**完全无关**（`.git/info/exclude`
+  #    是合法的本地配置，git 照样让该文件生效）。于是把 `.gitattributes` 加进 exclude 再挂 clean
+  #    filter，这道门两条枚举命令都返回空 → 放行，三次完全不同的工作树内容算出同一个指纹。
+  #    Shopify push 推的是工作树字节：QA 重算一致就放行，而上线的 CSS 与 QA 认证过的不是同一份。
+  #    （同函数的 IGNORED_PUBLISHABLE_FILE 门兜不住 —— 它只扫八个可发布目录，仓库根的
+  #    `.gitattributes` 不在其中。）所以这一路**必须连 ignored 一起枚举**。
   git ls-files --others --exclude-standard -z -- '*.gitattributes' > "$_atmp/z2" || {
     printf 'GITATTR_ENUM_FAILED: git ls-files（untracked）失败，无法判定 clean filter\n' >&2
     rm -rf "$_atmp"; return 1; }
-  cat "$_atmp/z1" "$_atmp/z2" > "$_atmp/z"                                          || { rm -rf "$_atmp"; return 1; }
+  git ls-files --others --ignored --exclude-standard -z -- '*.gitattributes' > "$_atmp/z3" || {
+    printf 'GITATTR_ENUM_FAILED: git ls-files（ignored）失败，无法判定 clean filter\n' >&2
+    rm -rf "$_atmp"; return 1; }
+  cat "$_atmp/z1" "$_atmp/z2" "$_atmp/z3" > "$_atmp/z"                              || { rm -rf "$_atmp"; return 1; }
   # 路径含换行 → fail closed（NUL 个数与行数不等即有换行）
   _n_nul=$(tr -cd '\0' < "$_atmp/z" | wc -c | tr -d ' ')                            || { rm -rf "$_atmp"; return 1; }
   _n_lin=$(tr '\0' '\n' < "$_atmp/z" | sed '/^$/d' | wc -l | tr -d ' ')             || { rm -rf "$_atmp"; return 1; }
@@ -189,7 +203,11 @@ plaud_fingerprint() (
   while IFS= read -r ga; do
     [ -n "$ga" ] || continue
     [ -f "$ga" ] || continue
-    if grep -q 'filter=' -- "$ga"; then _ga_hit="$_ga_hit$ga
+    # 🔴 v0.2.3：不能只查 `filter=`（第十轮演练：`*.css text eol=lf` + autocrlf 全关时，
+    #    两个不同的工作树字节串算出同一指纹，且**没有任何门触发**）。凡是让「工作树字节」
+    #    与「git 语义」脱钩的属性都要拦：text / eol / working-tree-encoding / ident。
+    if grep -qE 'filter=|(^|[[:space:]])(-?text([[:space:]=]|$)|eol=|working-tree-encoding=|ident([[:space:]]|$))' -- "$ga"; then
+      _ga_hit="$_ga_hit$ga
 "; fi
   done < "$_atmp/list"
   rm -rf "$_atmp"
@@ -200,6 +218,25 @@ plaud_fingerprint() (
   #    `FALSE` 等都表示假，旧写法只比字面串，这些取值会**直接通过**这道门，而本函数
   #    只对未跟踪文件记权限，于是"指纹覆盖权限"这个声明变成假的。用 `--bool` 让 git
   #    自己归一化；未配置时 git 无输出、退出码非 0，按默认 true 处理。
+  # 🔴 core.autocrlf / eol 转换（v0.2.2 第十轮实测补，与 clean filter 同族）：开着 autocrlf 时
+  #    把工作树文件从 LF 改成 CRLF，git 归一化后语义相同 —— `git status` 空、`git diff` 空、
+  #    **指纹一字不变**，而 Shopify CLI 推的是工作树字节。实测复现（索引 LF + 工作树 CRLF）。
+  #    与 clean filter 一样按非默认配置 fail closed；要继续用就先 `git config core.autocrlf false`。
+  # 🔴 v0.2.3：只比字面量是错的（第十轮演练打出 yes/on/1/iNpUt 四种绕过）。git 的布尔值
+  #    还认 yes/on/1，且 `input` 大小写不敏感 —— **这与第八轮给 core.fileMode 修的是同一族**，
+  #    当时的修法就是交给 `git config --bool` 归一化，教训没带到这个键上。
+  #    但不能只用 --bool：`input` 不是布尔值，--bool 会直接报错，所以两条都要。
+  _crlf_raw=$(git config --get core.autocrlf 2>/dev/null) || _crlf_raw=false
+  _crlf_lc=$(printf '%s' "$_crlf_raw" | tr 'A-Z' 'a-z')
+  if [ "$_crlf_lc" = "input" ]; then
+    printf 'CORE_AUTOCRLF_ON: core.autocrlf=%s hides worktree line-ending changes\n' "$_crlf_raw" >&2
+    return 1
+  fi
+  _crlf=$(git config --bool --get core.autocrlf 2>/dev/null) || _crlf=false
+  [ -n "$_crlf" ] || _crlf=false
+  [ "$_crlf" != "true" ] || {
+    printf 'CORE_AUTOCRLF_ON: core.autocrlf=%s hides worktree line-ending changes\n' "$_crlf_raw" >&2
+    return 1; }
   _fm=$(git config --bool --get core.fileMode 2>/dev/null) || _fm=true
   [ -n "$_fm" ] || _fm=true
   [ "$_fm" != "false" ] || {
@@ -253,6 +290,44 @@ plaud_fingerprint() (
   [ -z "$_casebad" ] || {
     printf 'PATH_CASE_MISMATCH: 下列 tracked 路径在磁盘上不是字节精确同名（纯大小写/规范化改名，git 看不见）：\n%s\n' "$_casebad" >&2
     return 1; }
+  # 🔴 已跟踪 symlink 的**目标内容**不在指纹里（v0.2.2 第十轮实测补）：git 存的是链接目标
+  #    字符串，`git diff HEAD` 只覆盖这个字符串 —— 目标文件的内容换掉，指纹一字不变，而
+  #    **Shopify CLI 上传的是解引用后的内容**。本文件此前明写"已跟踪的 symlink 不受影响"，
+  #    那句话只对链接字符串成立、对推送内容不成立。
+  #    只拦真正绑不住的两类：目标解析后**落在仓库外**、或目标**不是已跟踪文件**（跟踪目标的
+  #    内容本来就进指纹，那种用法照常放行）。
+  _badlink=""
+  while IFS= read -r _l; do
+    [ -n "$_l" ] || continue
+    [ -L "$_l" ] || continue
+    _tgt=$(cd "$(dirname "$_l")" 2>/dev/null && cd "$(dirname "$(readlink "$(basename "$_l")")")" 2>/dev/null && pwd -P)/$(basename "$(readlink "$_l")")
+    case "$_tgt" in
+      # 🔴 变量与多字节字符之间必须留 ASCII 分隔（本文件 §2 早就记过这条）：
+      #    某些 bash 下 "$var（中文" 会截断输出，实测这里就出过乱码。
+      # 🔴 v0.2.3：`memory/` 是**唯一一个指纹刻意看不见的目录** —— 目标即使已跟踪，改它的
+      #    内容指纹也一字不变。第十轮演练正是从这里绕过了本门自己的前提（"已跟踪即已绑定"）。
+      "$_top"/memory/*)
+        _badlink="$_badlink$_l -> $_tgt | target under memory/, excluded from fingerprint
+" ;;
+      "$_top"/*)
+        if [ -d "$_tgt" ]; then
+          # 目标是目录时 pathspec 也能匹配 index，会被误判成 tracked；目录内容不进指纹
+          _badlink="$_badlink$_l -> $_tgt | target is a directory, content not in fingerprint
+"
+        else
+          git ls-files --error-unmatch -- "${_tgt#$_top/}" >/dev/null 2>&1 \
+            || _badlink="$_badlink$_l -> $_tgt | target not tracked, content not in fingerprint
+"
+        fi ;;
+      *) _badlink="$_badlink$_l -> $_tgt | target outside repo, content not in fingerprint
+" ;;
+    esac
+  done <<EOF
+$(git ls-files -z -- assets blocks config layout locales sections snippets templates | tr '\0' '\n')
+EOF
+  [ -z "$_badlink" ] || {
+    printf 'TRACKED_SYMLINK_UNBOUND: 下列已跟踪 symlink 的目标内容不在指纹里，而 Shopify 上传的是解引用后的内容：\n%s' "$_badlink" >&2
+    return 1; }
   others=$(git ls-files --others --exclude-standard -z -- . ':(exclude)memory/' \
     | tr '\0' '\n' | sed '/^$/d')                                                  || return 1
   n_others=$(printf '%s\n' "$others" | grep -c '[^[:space:]]')                     || n_others=0
@@ -265,7 +340,11 @@ plaud_fingerprint() (
     # 未跟踪文件 git diff 看不到，逐个 hash + 记权限
     # 🔴 必须用 printf '%s\n'（带结尾换行）：不带的话最后一行被 read 读到但返回非 0、
     #    循环体不执行，**最后一个未跟踪文件永远漏掉**。下面的行数核对就是为抓这个而加的。
-    printf '%s\n' "$others" | sort | while IFS= read -r f; do
+    # 🔴 `LC_ALL=C`（v0.2.2 第十轮实测修）：本函数另外四处都固定了，唯独这里是裸 `sort` ——
+    #    第九轮刚在 plaud_package_fingerprint 里修过一模一样的问题，这个函数没跟上。
+    #    纯 ASCII 大小写混合即可触发（`SA-hero.css.bak` + `sa-hero.css.bak`），不需要非 ASCII：
+    #    producer 与 verifier 的 locale 不同 → 指纹失配 → 合格 ChangeSet 被挡在交付门外，代码一字未改。
+    printf '%s\n' "$others" | LC_ALL=C sort | while IFS= read -r f; do
       [ -n "$f" ] || continue
       # 未跟踪"目录"（多为嵌套 git repo）无法 hash —— **必须失败退出，不能跳过**。
       # 跳过的话该目录整棵树都不在指纹里，而指纹看上去完全正常。
@@ -297,7 +376,10 @@ plaud_fingerprint() (
   [ "$got" -eq "$n_others" ] || { echo "UNTRACKED_COUNT_MISMATCH: $got != $n_others" >&2; return 1; }
   printf '%s\n' "$payload" | shasum -a 256 | cut -d' ' -f1
 )
-plaud_fingerprint || echo "FINGERPRINT_FAILED"
+# 🔴 原样抄这两行，**不要只抄第一行**（v0.2.2 第十轮实测补）：旧写法只有 `plaud_fingerprint || echo "FINGERPRINT_FAILED"`，
+#    它打印了 FINGERPRINT_FAILED 却让整段 **rc=0** —— 任何按 `$?` 分支、或跑在 `set -e` 下的调用方
+#    都会认为这道门通过了。判定既要看输出、也要看退出码。
+plaud_fingerprint || { echo "FINGERPRINT_FAILED"; exit 1; }
 ```
 
 > 🔴 **执行环境要求：`bash`（≥3.2）或 `zsh`，不是任意 `/bin/sh`。** 两段函数都用了 `set -o pipefail`，`dash`（Linux 上常见的 `/bin/sh`）不支持它、会直接以状态 2 退出。macOS 的 `/bin/sh` 实为 bash 所以看不出问题——**在 Linux 上必须显式 `bash -c`**。
@@ -349,7 +431,7 @@ QA 通过后必须**再算一次**指纹并记入 `changeset-log`；后续任何
 > grep -rn "memory/" assets blocks config layout locales sections snippets templates 2>/dev/null | grep -v '\.md'
 > ```
 
-### 🔴 v0.2.2 不支持多 ChangeSet 同批发版
+### 🔴 v0.2.3 不支持多 ChangeSet 同批发版
 
 `ChangeSetFingerprint` 绑的是**整个 HEAD + 整个工作树**，不是"这个 ChangeSet 涉及的那几个文件"。由此推出一个必然结果：
 
@@ -359,7 +441,7 @@ QA 通过后必须**再算一次**指纹并记入 `changeset-log`；后续任何
 
 **曾经考虑过、但行不通的收口**：让合并方生成一个"集成 ChangeSet"（`ModifiedFiles` = 各块并集）再跑一次 QA。它跑不通——合并提交之后工作树是**干净的**，`git status` / `git diff HEAD` 拿到的是空集，与"各块并集"必然失配；若改用未提交的合并态过 QA，之后一提交 `HEAD` 就变，QA 又自动失效。**在绑工作树的模型下，没有一个稳定对象能从"已验证"走到"实际推送"。**
 
-**v0.2.2 的处置：**
+**本版（v0.2.3）的处置：**
 
 | 场景 | 支持情况 |
 |---|---|
@@ -369,7 +451,7 @@ QA 通过后必须**再算一次**指纹并记入 `changeset-log`；后续任何
 
 > 🟢 **为什么宁可不支持也不硬撑。** 硬给一套跑不通的流程，实际效果是使用者发现走不通之后自己找绕过路径——那比明说"这版不支持"危险得多。
 >
-> **彻底解法留 v0.3.0**：把指纹从"工作树"改绑**不可变的 commit / tree 对象**（`git rev-parse HEAD^{tree}`），QA 验的是一个具体 tree oid，合并产生的新 tree 再验一次即可，"已验证对象 → 推送对象"之间就有了稳定标识。这是一次契约层改动，不适合在 v0.2.2 顺带做。
+> **彻底解法留 v0.3.0**：把指纹从"工作树"改绑**不可变的 commit / tree 对象**（`git rev-parse HEAD^{tree}`），QA 验的是一个具体 tree oid，合并产生的新 tree 再验一次即可，"已验证对象 → 推送对象"之间就有了稳定标识。这是一次契约层改动，不适合在 v0.2.x 顺带做——v0.3.0 的设计与原型见 `_wip-v0.3.0-fingerprint-design/`。
 
 ### 零改动任务（只读审计 / code review / A11y 审计）
 
@@ -475,6 +557,9 @@ ApprovedExceptions:       # 本 ChangeSet 声明的 🟠 ApprovedException，逐
                           #     ApprovalRef: 书面批准的链接；**为空即该项 Failed**；
                           #                  批准内容覆盖不到所填 Scope（批了一处、Scope 写了一片）同样 Failed
                           #     ApprovedBy:  批准人（PLAUD PM / 设计 / 技术 owner）；填 agency 自己视同为空
+                          #   🔴 双周会「已同意但清单尚未更新」的条款不得列进来（Clause 越界 = 谎报）：
+                          #      本字段保持 []，条款按其当前档位照常判，BlockingGaps 记
+                          #      PendingClauseListAmendment: …（见 §8.1「封闭清单的变更权限」）
 BlockingGaps:             # 实现中发现但无权处理的（如需模板存值编辑授权）
 QAStatus: NotRun          # 恒为 NotRun；唯一例外是用户明确弃检时填 Skipped(UserWaived)，见 §1.5
 NextRequiredSkill: plaud-theme-qa-intake   # 见 §9.1.2；零改动任务填 None
@@ -657,7 +742,7 @@ CLI 未安装、仓库不是 theme root、`shopify-common` build 产物缺失导
 
 ### 8.1 运营协作红线（源自《DTC 开发交付标准 v1.0》§三）
 
-> ⚠️ **原文的性质**：DTC §三 标题写的是「软性，尽量遵守，在开发/测试时注意这些问题」。v0.2.0 把其中 10 条一律提为 🔴 硬红线；**设计方在 v0.2.0 评审中明确反对「一刀切」**（原话：过于绝对化会导致设计/开发/测试任何环节的偏差都要全环节对齐，降低效率，应给出合理空间，并点名"复用 section"的情形）。v0.2.1 据此改为**三档**，并对 #5 / #9 / #10 改成**按范围**判定而不是整条降级。这个分级仍是矩阵侧的解释，**若与运营/agency 的双方共识冲突，以双周会的书面结论为准**。
+> ⚠️ **原文的性质**：DTC §三 标题写的是「软性，尽量遵守，在开发/测试时注意这些问题」。v0.2.0 把其中 10 条一律提为 🔴 硬红线；**设计方在 v0.2.0 评审中明确反对「一刀切」**（原话：过于绝对化会导致设计/开发/测试任何环节的偏差都要全环节对齐，降低效率，应给出合理空间，并点名"复用 section"的情形）。v0.2.1 据此改为**三档**，并对 #5 / #9 / #10 改成**按范围**判定而不是整条降级。这个分级仍是矩阵侧的解释，**若与运营/agency 的双方共识冲突，以双周会的书面结论为准**——但这句话只决定**下一版包怎么写**，不改变**当前包运行时怎么判**（v0.2.2 消歧，见下方「封闭清单的变更权限」；纪要与包内文本不一致时按 §7 停机，运行时仍按已安装包的文本）。
 
 #### 三档的定义
 
@@ -691,6 +776,46 @@ CLI 未安装、仓库不是 theme root、`shopify-common` build 产物缺失导
 >
 > 这条收口是 v0.2.2 补的：v0.2.1 只定义了 🟠 的两种类型却没给封闭清单，任何红线理论上都能尝试走批准通道。
 
+#### 🔴 封闭清单的变更权限（v0.2.2 补：此前只说"清单封闭"，没说谁能改、怎么改、改了怎么让各端知道）
+
+上一段只回答了「运行时不能扩充」，没回答「那要扩充该走什么」——歧义的后果是 agent 可能把一次双周会纪要当成清单扩容的依据，从而给任意条款开 `ApprovedException`。四条写死：
+
+| 项 | 规定 |
+|---|---|
+| **owner** | 封闭清单是**契约层文本**，唯一写入点是上面那张表（本文件 §8.1）。有权改它的只有**矩阵包 maintainer**，且只能在**切新版本快照**时改。`plaud-theme-qa` / 三个实现 skill / orchestrator / 任何 agent 在运行时**都不得**扩充、缩减或临时采信一份包外清单 |
+| **变更证据** | 两件**同时**具备才算变更完成：① 双周会的**书面结论**（纪要链接 + `YYYY-MM-DD` + 与会方，且须含 PLAUD 侧 PM / 设计 / 技术 owner——只有 agency 单方的纪要不成立）；② 该结论**已写进新版本包**的 §8.1 表。缺 ② 时清单**没有**变更 |
+| **必须伴随版本发布** | 是。本包按**全量快照**分发、各端靠 `install-macos-linux.sh` 安装，会议纪要**不随包分发**，agent 运行时读到的只有包内文本。只改纪要不发版本 = 四端各读各的旧清单，等于同一份 `memory/` 被两套规范处理。变更须走：新版本目录 → §8.1 表改写 → `ContractVersion` 与 `version-manifest.md` §1 同步 bump → `CHANGELOG.md` 记条目 → 四端安装并跑 README 的版本 + 内容双重核对 |
+| **纪要与包内文本不一致时** | 按 §7 **停机**报用户，**运行时仍按已安装包的清单判**。`ContractVersion` 漂移检查（`version-manifest.md` §1）是这条的兜底门 |
+
+🔴 **消歧「以双周会的书面结论为准」（本节开头那句）**：双周会对**分级本身**有最终解释权，但它决定的是**下一版包怎么写**，**不改变当前包运行时怎么判**。"会上同意了" 与 "清单里有了" 是两件事，agent 不得把前者当后者。
+
+**"双周会已同意、但尚未进清单"的条款怎么处理（必须有诚实的降级取值，不能没有合法落点）**：
+
+1. 该条款**不得**写进 §4 的 `ApprovedExceptions[]` —— `Clause` 越界会让 `ApprovedExceptionsChecked: Failed`（§9.2），那是**谎报**，不是"待议"。已同意但未进清单时，`ApprovedExceptions` 该是 `[]` 就填 `[]`。
+2. **该条款按其当前档位照常判定**，落点是它原本就有的那个字段，**不新造 `ClauseCheck` 之类的字段**：
+
+   | 条款所属 | 结论落在 |
+   |---|---|
+   | DTC §2.1 硬性 10 条 / §8.1 中由样式承载的条款 | `StyleHardRuleCheck`（§5） |
+   | A11y 相关 | `A11yCheck` |
+   | 文案可配置 / 硬编码（§8.1 第 5 条） | `CopyConfigurabilityCheck` |
+   | 推站清单 / 发版类（§8.1 第 3、4 条） | `plaud-theme-release-ops` 的门（§9.1.4），不在 §5 |
+   | 上述都不承载的条款 | **只能靠 `BlockingGaps` 阻断**，不得因为"没有对应字段"就当它通过 |
+3. 同时在 `BlockingGaps` 记一条**固定形态**（正文形态，不是新 YAML 字段，因此不进 §9.2 枚举表）：
+
+   ```text
+   PendingClauseListAmendment: <条款号> / <决议ref> / <YYYY-MM-DD> / <目标版本 | Unknown(未排期)>
+   ```
+
+   - `<决议ref>` 与 `<YYYY-MM-DD>` **拿不到就停机问用户**，不得留空、不得自造；**只有 `<目标版本>` 这一栏**允许填 `Unknown(未排期)`。
+   - 它**不产生**任何放行效果，也不是 `ApprovedExceptions` 的替代通道。
+4. QA 同时在 `Advisories` 记一句，措辞不得暗示当前红线已失效：
+
+   > ✅ 正确：`清单扩容提案尚未进入当前 ContractVersion；本轮仍按当前 §8.1 判定，待议结论不改变本轮的 Failed / Blocked 结果。`
+   > ❌ 错误：`本轮不适用` / `已与运营达成一致，暂不阻断` —— 当前包的红线**仍然适用**，只是会上的意见还没成为当前包的规则。
+
+> ⚠️ **`ApprovedExceptionsChecked` 在这种情形下取什么**：`ApprovedExceptions` 为 `[]` → `NotApplicable`（§5 原有口径）。**不要**因为"有一条待议条款"就把它填 `Failed` —— `Failed` 的语义是"声明了但不成立"（`ApprovalRef` 为空 / 越界 / 自批），没声明就没有可判的对象。承载阻断的是上面第 2 条那个字段 + `BlockingGaps`，不是这个字段。
+
 #### 条款分级表
 
 | # | 条款 | 级别 | 判定方式 |
@@ -713,7 +838,7 @@ DTC 把「测试集要定期更新，建立 PLAUD 专属测试规范」列为**�
 
 | 条款 | 落点 | 字段 |
 |---|---|---|
-| agency 维护测试集并**随交付更新**，不是一次性文档 | `plaud-theme-qa-intake` | **v0.2.1 起收敛为一行 `TestSetTrace`** + **v0.2.2 起附 `PreviousAcceptedTestSetTrace`**（原来是三项分别手写，设计方评审指出「重复性工作影响效率」）。🔴 **完整取值规则只在 `package-checklist.md` §3 一处**，本表不复制语法，避免第二个事实源 |
+| agency 维护测试集并**随交付更新**，不是一次性文档 | `plaud-theme-qa-intake` | **v0.2.1 起收敛为一行 `TestSetTrace`** + **v0.2.2 起附 `PreviousAcceptedTestSetTrace`** 与换文档时的 **`TestSetMigrationRef`**（原来是三项分别手写，设计方评审指出「重复性工作影响效率」）。🔴 **完整取值规则只在 `package-checklist.md` §3 一处**，本表不复制语法，避免第二个事实源 |
 | **每个线上 bug 反推一条回归用例入库** | `plaud-theme-release-ops` | `RegressionCasesAdded`（为空即本次上线治理未完成） |
 | 由 PLAUD 测试同学（Aily）**审查** agency 的测试注意文档，双方对齐后固化 | 外部流程 | 矩阵不代替这道人工审查。**不写进 `BlockingGaps`**（那是停机项，会污染语义），改记 QA 的 `Advisories`：「测试规范尚未双方固化」 |
 
@@ -818,9 +943,14 @@ ConfigurationGuideStatus: # Complete | Incomplete | NotApplicable
 SelfTestReportStatus:     # Complete | Incomplete
 TestSetTrace:             # 语法与判定**唯一**见 package-checklist.md §3（本处不复制规则）
 PreviousAcceptedTestSetTrace: # 上一轮通过准入的那一行原文 | None(FirstSubmission) | Unavailable(<原因>)
-                          #   —— 稳定文档 ID 须与本轮一致、revision 须不同；不一致即 SelfTestReportStatus: Incomplete。
+                          #   —— 稳定文档 ID 须与本轮一致、revision 须不同；不一致即 SelfTestReportStatus: Incomplete，
+                          #      **除非**附了合法的 TestSetMigrationRef（换文档的正当路径，见下一字段与 §3.1）。
                           #   **例外**：取数路径三级都拿不到时填 Unavailable(<原因>)，此时不判 Incomplete、改记 Advisories
                           #   完整取数路径与判定见 package-checklist.md §3（唯一事实源，本处不复制规则）
+TestSetMigrationRef:      # 换了一份新测试文档时的结构化迁移声明 | N/A(SameDocument) | N/A(NoPreviousTrace)
+                          #   From= 必须与本轮 PreviousAcceptedTestSetTrace 的 ID@revision 逐字一致，
+                          #   To=   必须与本轮 TestSetTrace 的 ID@revision 逐字一致（不引入新的外部事实源）。
+                          #   语法、Reason 封闭枚举、CaseDisposition 清单要求**唯一**见 package-checklist.md §3.1
 ScreenshotManifestStatus: # Complete | Incomplete
 ImpactScopeStatus:        # Complete | Incomplete
 ReworkDeltaStatus:        # Complete | Incomplete | NotApplicable（非返工轮次填 NotApplicable）
@@ -839,7 +969,7 @@ NextRequiredSkill: plaud-theme-qa
 |---|---|
 | `PreviewManifest` | 后台链接与前端链接**都实测访问过**并记录时间；后台链接必须可配置（能看到 schema 字段），不是只读预览。失效链接 = 未提测 |
 | `ConfigurationGuideStatus` | 新 section / 新配置项必交：字段说明 + 默认值 + 使用场景 + 填错怎么办，**关键部分有截图**。本次未新增任何配置项时才可填 `NotApplicable` |
-| `SelfTestReportStatus` | ① 用例写成可复核形式：前置条件（具体站点 + 主题 ID + 配置状态）→ 操作步骤（具体 URL）→ 预期结果（**具体值或现象**）→ 结论，且**有附件截图/视频**。预期结果写"显示正常""功能可用"的用例**视同未测**；② **`TestSetTrace` + `PreviousAcceptedTestSetTrace`** —— 缺 `@<不可变revision>`、delta 段留空、`Removed` 段缺失、或与上一轮的稳定文档 ID 不一致均判 `Incomplete`；**唯一例外**是取数路径三级都拿不到（填 `Unavailable(<原因>)` → 不阻断、记 `Advisories`）。**完整语法与判定唯一见 `package-checklist.md` §3**（本表不复制语法） |
+| `SelfTestReportStatus` | ① 用例写成可复核形式：前置条件（具体站点 + 主题 ID + 配置状态）→ 操作步骤（具体 URL）→ 预期结果（**具体值或现象**）→ 结论，且**有附件截图/视频**。预期结果写"显示正常""功能可用"的用例**视同未测**；② **`TestSetTrace` + `PreviousAcceptedTestSetTrace`** —— 缺 `@<不可变revision>`、delta 段留空、`Removed` 段缺失、均判 `Incomplete`；与上一轮的**稳定文档 ID 不一致**也判 `Incomplete`，**除非**附了合法的 `TestSetMigrationRef`（见下一项③）；另一处例外是没有可比对的上一轮：**日志读到了但确无非 `N/A` 行** → `None(FirstSubmission)`；**日志读不到 / 缺该列 / 历史行全是 `N/A`** → `Unavailable(<原因>)`（两者不可混用，误填会把「不可核验的历史」伪装成「首次提交」）；两者都必须配 `TestSetMigrationRef: N/A(NoPreviousTrace)` → 不阻断、记 `Advisories`。**完整语法与判定唯一见 `package-checklist.md` §3**（本表不复制语法）；③ **`TestSetMigrationRef`** —— 稳定文档 ID 与上一轮不同时**必须**给结构化迁移声明（`From` / `To` / 封闭枚举 `Reason` / `ReasonRef` / `CaseDisposition` + 一份进了 `PackageFingerprint` 的旧用例清单），**自由文本理由一律 `Incomplete`**；未换文档填 `N/A(SameDocument)`，无可比对的上一轮填 `N/A(NoPreviousTrace)`（语法与判定唯一见 `package-checklist.md` §3.1） |
 | `ScreenshotManifestStatus` | 8 张：`375 / 768 / 1024 / 1280 / 1440` + 边界 `767 / 1279 / 1599` |
 | `ImpactScopeStatus` | 本模块被几个模板使用、涉及哪些站点。**直接引用 `plaud-theme-impact` 的 `AssessmentRef`**，不自行重算；站点维度 `AssessmentRef` 不覆盖，须另填 `TargetSites` |
 | `ReworkDeltaStatus` | 返工轮次必交「本轮修改点」清单（逐条：反馈 → 改了什么 → 在哪个文件） |
@@ -852,6 +982,21 @@ NextRequiredSkill: plaud-theme-qa
 # 在提测材料目录（不在主题仓库内）执行
 plaud_package_fingerprint() (
   set -o pipefail
+  # 🔴 根目录守卫（v0.2.2 第十轮实测补）——§2 第七轮为此加了 NOT_REPO_ROOT，本函数一直没有配套。
+  #    在材料树的**子目录**里跑，`find .` 只看得见该子目录，于是**静默算出一个子集指纹并返回 0**
+  #    （metamorphic 已证：改兄弟目录里的自测报告，子目录指纹纹丝不动）。最坏情形不是失配而是
+  #    **false acceptance**：producer 与 QA 用同一个错误的 PackageRootRef 时两边算出同一个值、
+  #    `Accepted` 照发，而自测报告 / 配置说明 / 截图全部不在绑定链里 —— 这是整套门禁里唯一一个
+  #    「两边一致却什么都没绑住」的通道，比任何失配都严重。
+  #    判据：cwd 必须逐字节等于 §9.1.2 `PackageRootRef` 指向的目录（调用前 export 给本函数）。
+  [ -n "${PLAUD_PACKAGE_ROOT:-}" ] || {
+    printf 'NO_PACKAGE_ROOT: 未提供 PLAUD_PACKAGE_ROOT（应等于 §9.1.2 的 PackageRootRef），无法确认取证范围\n' >&2
+    return 1; }
+  _proot=$(cd "${PLAUD_PACKAGE_ROOT:-}" 2>/dev/null && pwd -P)                          || {
+    printf 'PACKAGE_ROOT_UNRESOLVABLE: %s 无法解析\n' "${PLAUD_PACKAGE_ROOT:-}" >&2; return 1; }
+  [ "$_proot" = "$(pwd -P)" ] || {
+    printf 'NOT_PACKAGE_ROOT: must run at the package root. cwd=%s PackageRootRef=%s\n' "$(pwd -P)" "$_proot" >&2
+    return 1; }
   # 🔴 与 §2 同族的三条约束：payload 先收变量再 hash、逐行数核对、空 URL fail closed。
   #    行数核对不能省：循环零次迭代（heredoc 建不了临时文件、find 无输出等）退出码也是 0，
   #    不核对就会退化成"只 hash 了 urls: 那一行"——材料完全没参与，指纹却完全正常。
@@ -863,7 +1008,7 @@ plaud_package_fingerprint() (
   #        PLAUD_PREVIEW_URLS=$(printf "%s\n" "$u1" "$u2" … \
   #          | sed "s/^[[:space:]]*//;s/[[:space:]]*$//" | LC_ALL=C sort -u)
   #    producer 与 verifier 必须用一字不差的同一构造；URL 集合变了就是新的提测包，重算即可。
-  [ -n "$PLAUD_PREVIEW_URLS" ] || return 1      # 预览 URL 不得为空
+  [ -n "${PLAUD_PREVIEW_URLS:-}" ] || return 1      # 预览 URL 不得为空
   # 🔴 三类必须 fail closed，不能静默排除（v0.2.2 第五轮补，均实测过会静默漏算）：
   #    (a) 路径含换行 → NUL→换行转换会把它拆成两行，两半都 hash 不到
   #    (b) symlink    → -type f 直接跳过；改 symlink 目标内容、或改指向，指纹都不变
@@ -906,7 +1051,10 @@ plaud_package_fingerprint() (
   [ "$got" -eq "$n_files" ] || { echo "FILE_COUNT_MISMATCH: $got != $n_files" >&2; return 1; }
   printf '%s\nurls:%s\n' "$body" "$PLAUD_PREVIEW_URLS" | shasum -a 256 | cut -d' ' -f1
 )
-plaud_package_fingerprint || echo "PACKAGE_FINGERPRINT_FAILED"
+# 🔴 原样抄这两行，**不要只抄第一行**（v0.2.2 第十轮实测补）：旧写法只有 `plaud_package_fingerprint || echo "PACKAGE_FINGERPRINT_FAILED"`，
+#    它打印了 PACKAGE_FINGERPRINT_FAILED 却让整段 **rc=0** —— 任何按 `$?` 分支、或跑在 `set -e` 下的调用方
+#    都会认为这道门通过了。判定既要看输出、也要看退出码。
+plaud_package_fingerprint || { echo "PACKAGE_FINGERPRINT_FAILED"; exit 1; }
 ```
 
 > 🔴 **为什么要把 `shasum` 的结果先赋给变量再判空。** 写成 `printf '%s %s\n' "$f" "$(shasum ...)"` 时，命令替换里的失败**不会**让 `printf` 失败——`printf` 拿到空串照样成功返回 0，`|| return 1` 永远不触发，指纹退化成"只反映文件名列表、不反映文件内容"。
@@ -935,7 +1083,9 @@ plaud_package_fingerprint || echo "PACKAGE_FINGERPRINT_FAILED"
 
 **QA 复算时对云端材料要重新查远端**：不能只比对本地 manifest（那样 manifest 没更新、云文档内容变了照样通过）。对每条云端材料重新取一次当前 revision / digest，与 manifest 记录值比对，不一致 → `QAAdmissionStatus: Blocked` + `QAAdmissionReason: BindingMismatch`。取不到（无权限 / 服务不可用）→ `Blocked`，不猜。
 
-> 🔴 **提测材料不得写进主题仓库。** 截图、文档一旦落进工作树，`ChangeSetFingerprint` 立刻变化，QA 的 Step 1 会判 `ChangeSetIdMatched: No` 并停机——你会因为交了材料而过不了自己的准入门。材料放仓库外的独立目录或云文档。
+> 🔴 **提测材料不得写进主题仓库。** 材料放仓库外的独立目录或云文档。
+>
+> 材料落进工作树的**常规位置**时 `ChangeSetFingerprint` 会变化，QA 的 Step 1 判 `ChangeSetIdMatched: No` 并停机。**但这不是一道门**（v0.2.2 第十轮实测更正：原文把这个副作用写成了强制机制「你会因为交了材料而过不了自己的准入门」）——放进任何**被 gitignore 的非发布目录**、或放进 `memory/` 且是 **`.md`**，指纹与 `git status` 都看不见，intake 与 QA 会双双看到一个干净的绑定，而材料事后被换掉没有任何机制会发现。真正的门是 `plaud-theme-qa-intake` Step 1 的**三条命令**（常规位置 / ignored 位置 / `memory/` 全量），必须逐条跑。
 
 ### 9.1.3 反馈分类工件（`plaud-theme-feedback-triage` 专用）
 
@@ -1018,7 +1168,7 @@ ReleaseScope:
     IncludedInThisPush: # Yes | No —— Pending 的块填 No，留到下次
 ```
 
-> 🔴 **v0.2.2 只支持单块发布**（§2）：`IncludedInThisPush: Yes` 的块**至多一个**。多于一个 → `plaud-theme-release-ops` 停机，要求逐块串行发布。`ReleaseScope` 仍是列表结构，是为了让"这次发哪块、哪些块留到下次"能一起记清楚。
+> 🔴 **v0.2.3 只支持单块发布**（§2）：`IncludedInThisPush: Yes` 的块**至多一个**。多于一个 → `plaud-theme-release-ops` 停机，要求逐块串行发布。`ReleaseScope` 仍是列表结构，是为了让"这次发哪块、哪些块留到下次"能一起记清楚。
 
 > 🔴 **`AcceptanceStatus` 必须逐块给。** 顶层一个 `Accepted` 表达不了"A 验收了、B 还没"，而 DTC 要求的正是**只发已验收的部分**。用单标量时，要么把没验收的一起发了，要么把验收了的一起压住——两种都错。
 
@@ -1062,12 +1212,13 @@ ReleaseScope:
 | `AcceptanceStatus` | `Accepted` \| `Pending`（**逐 ChangeSet 填**，不是整批一个值） |
 | `StyleHardRuleCheck` | `Passed` \| `Failed` \| `Blocked` \| `NotApplicable` |
 | `ApprovedExceptionsChecked` | `Passed` \| `Failed` \| `Blocked` \| `NotApplicable`。🔴 **界线**：`ApprovalRef` **为空 / 越界 / 自批 → `Failed`**（判过了，不成立）；**提供了但核不动**（403、权限不足、平台故障）→ `Blocked`。「没提供」不等于「验不了」，把前者填 `Blocked` 是谎报 |
-| `ApprovedExceptions[].Clause` | 只能取 §8.1 **封闭清单**里的条款号。清单外的取值一律视为契约违规，`ApprovedExceptionsChecked: Failed` |
+| `ApprovedExceptions[].Clause` | 只能取 §8.1 **封闭清单**里的条款号。清单外的取值一律视为契约违规，`ApprovedExceptionsChecked: Failed`。🔴 **「双周会已同意但清单尚未更新」不构成清单内**——那种条款不得列进 `ApprovedExceptions`，走 `BlockingGaps` 的 `PendingClauseListAmendment` 正文形态（§8.1「封闭清单的变更权限」）；清单本身只能由矩阵包 maintainer 在新版本快照里改 |
 | `ClassificationRecommendation` / `PMDecisionValue` | `DeliveryDefect` \| `RequirementEvolution` \| `Undetermined`（`PMDecisionValue` 不取 `Undetermined`）\| `N/A`（**仅 `PMDecisionValue`，且仅当 `PMDecision: Pending`**——PM 还没决定就不存在决定值。v0.2.2 第九轮补：模板要求 Pending 时填 `N/A`，而本枚举原来不含它，结构核会判非法，等于逼 agent 去伪造一个尚未发生的 PM 决定） |
 | `PMDecision` | `Pending` \| `Confirmed` |
 | `NextRoute` | `AwaitPMDecision`（`PMDecision: Pending` 时**只能**取此值）\| `NewWorkItem(Assess)` \| `Backlog(排期)` \| `NoAction` |
 | `PreviewManifestStatus` | `Complete` \| `Incomplete` |
 | `TestSetTrace` / `PreviousAcceptedTestSetTrace` | 自由文本，格式与判定**唯一事实源是 `package-checklist.md` §3**；此表只约束一点：**缺 `@<revision>`、或分号后为空 → 视为未提供**。`PreviousAcceptedTestSetTrace` 另可取 `None(FirstSubmission)` 或 `Unavailable(<原因>)`。**`Unavailable` 的成立条件是「找不到任何一条 `TestSetTrace` 非 `N/A` 的历史行，且用户也给不出上一轮已通过准入的工件」**——含三种情形：日志无此列（旧日志）/ 有列但历史行全是 `N/A` / 日志文件缺失。判定见 `package-checklist.md` §3 |
+| `TestSetMigrationRef` | 结构化迁移声明（`From=…; To=…; Reason=…; ReasonRef=…; CaseDisposition=…`）\| `N/A(SameDocument)` \| `N/A(NoPreviousTrace)`。其中 **`Reason` 是封闭枚举三值**：`PlatformMigration` \| `OwnerHandover` \| `Deprecated`（**刻意无 `Other` 兜底**，越界即 `SelfTestReportStatus: Incomplete` + `BlockingGaps: TestSetMigrationReasonOutsideClosedEnum`）；`CaseDisposition` 两形态：`Mapped(<locator>)` \| `BulkRetired(<locator>)`，且 locator **只能是 `Local(<相对路径>)`**（清单要核内容，云端 `Manifest(...)` 只能核到 revision/digest）。语法与判定**唯一事实源是 `package-checklist.md` §3.1**，此表只约束一点：**`From` 必须逐字等于本轮 `PreviousAcceptedTestSetTrace` 的 `ID@revision`、`To` 必须逐字等于本轮 `TestSetTrace` 的 `ID@revision`**。一拆多 / 多合一的迁移形状本版**不支持**，须停机（`BlockingGaps: TestSetMigrationShapeUnsupported`），不得挑一份旧文档冒充一对一 |
 | 红线分级标记（§8.1） | `🔴 红线` \| `🟠 EvidenceBased` \| `🟠 ApprovedException` \| `🟡 建议`。🟠 的两种**不可互换**：`ApprovedException` 缺 `ApprovalRef` 直接 `Failed`，`EvidenceBased` 缺证据是 `Blocked` |
 | `IncludedInThisPush` | `Yes` \| `No` |
 | `TestSetTraceAfterArchive` | 与 `TestSetTrace` **同格式且三段齐**（`Added` / `Updated` / `Removed` 都要出现，只新增时后两段写 `[]`；唯一事实源 `package-checklist.md` §3），另可取 `N/A(NoOnlineBug)`。**稳定文档 ID 与 QAIntake 那份不一致 → 视为未归档**。它不接受 `None(reason)`——归档轮次必然有新增用例 |
@@ -1086,7 +1237,7 @@ ReleaseScope:
 | 字段 | 允许值 | 位置 |
 |---|---|---|
 | `QAStatus` | `Pending` \| `Valid` \| `Invalidated` | `changeset-log.md` |
-| `TestSetTrace` | 该轮**已通过准入**（`QAAdmissionStatus: Accepted`）的测试集那一行原文（格式见 `plaud-theme-qa-intake/references/package-checklist.md` §3）\| `N/A(NotAccepted)`（该轮 `QAAdmissionStatus: Blocked`）\| `N/A(NoTestSet)` | `changeset-log.md`，**v0.2.2 新增列**，由 `plaud-theme-qa` 在写 log 时**原样抄自 `QAIntake` 工件**（列格式见 `plaud-theme-qa/references/evidence-and-invalidation.md`）—— 它是 `plaud-theme-qa-intake` 下一轮取 `PreviousAcceptedTestSetTrace` 的唯一权威来源。**旧日志不回填** |
+| `TestSetTrace` | 该轮**已通过准入**（`QAAdmissionStatus: Accepted`）的测试集那一行原文（格式见 `plaud-theme-qa-intake/references/package-checklist.md` §3）\| `N/A(NotAccepted)`（该轮 `QAAdmissionStatus: Blocked`）\| `N/A(NoTestSet)` | `changeset-log.md`，**v0.2.2 新增列**，由 `plaud-theme-qa` 在写 log 时**原样抄自 `QAIntake` 工件**（列格式见 `plaud-theme-qa/references/evidence-and-invalidation.md`）—— 它是 `plaud-theme-qa-intake` 下一轮取 `PreviousAcceptedTestSetTrace` 的**首选权威来源**（取数路径①；日志不可得时走路径②的成对工件，见 `package-checklist.md` §3）。**旧日志不回填** |
 | `VisualAcceptance` | `Pending` \| `Accepted` | 迁移状态文件 |
 | 模块 / 模板迁移态 | `待办` \| `进行中` \| `已迁`（需 QA 背书，见 shared SKILL.md） | 模板/模块清单 |
 

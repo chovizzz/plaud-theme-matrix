@@ -314,6 +314,11 @@ BuildRequired:            # Yes | No（是否动了 shopify-common/src 需 npm r
 ApprovedExceptions:       # 逐项声明的 🟠 ApprovedException；无则填 []
                           #   Clause 只能取 shared §8.1 封闭清单内的条款；Scope 必须逐对象/配对绑定
                           #   ApprovalRef 为空、或 ApprovedBy 是自己 → QA 判 Failed（见 shared §8.1）
+                          #   🔴 双周会「已同意但清单尚未更新」的条款**不得**写进来（Clause 越界 = 谎报，
+                          #      QA 判 ApprovedExceptionsChecked: Failed）。正确处理：本字段保持 [] 或不列该项，
+                          #      条款按其当前档位照常判，BlockingGaps 记
+                          #      PendingClauseListAmendment: <条款号> / <决议ref> / <YYYY-MM-DD> / <目标版本 | Unknown(未排期)>
+                          #      清单扩容只能由 maintainer 在新版本快照里做（见 shared §8.1「封闭清单的变更权限」）
 BlockingGaps:             # 实现中发现但无权处理的（如需模板存值编辑授权）
 QAStatus: NotRun          # 恒为 NotRun；唯一例外见 handoff-schema.md §1.5
 NextRequiredSkill: plaud-theme-qa-intake   # 零改动任务填 None

@@ -1,7 +1,7 @@
 {
   "skill_name": "plaud-theme-qa",
   "matrix": "plaud-shopify-theme-matrix",
-  "version": "v0.2.2",
+  "version": "v0.2.3",
   "evals": [
     {
       "id": 1,
@@ -207,7 +207,7 @@
       "kind": "rule",
       "validator": {
         "type": "yaml-block-exact-keys",
-        "note": "string-contains 无法验证「完全一致」。需 harness 实现结构化校验：取回复最后一个 fenced yaml block → 解析 → Object.keys() 与 expectedKeys 严格相等且顺序相等 → 检查 yaml fence 之后无非空内容 → 检查 forbiddenKeys 均不存在。若 harness 未实现 validator，本条按「未验证」记，不得因 assertions 全中就判通过（v0.2.2 第九轮补：此前这四条只有 substring 断言，缺 key / 多 key / 顺序错都验不出来）。",
+        "note": "string-contains 无法验证「完全一致」。需 harness 实现结构化校验：取回复最后一个 fenced yaml block → 解析 → Object.keys() 与 expectedKeys 严格相等且顺序相等 → 检查 yaml fence 之后无非空内容 → 检查 forbiddenKeys 均不存在。若 harness 未实现 validator，本条按「未验证」记，不得因 assertions 全中就判通过（v0.2.2 第九轮补：此前这四条只有 substring 断言，缺 key / 多 key / 顺序错都验不出来）。 🔴 解析时**必须拒绝重复 key**（YAML parser 默认可能把重复项折叠掉，那样 `Object.keys()` 少一个、缺 key 与重复 key 两种错误都验不出来）。",
         "expectedKeys": [
           "ChangeSetId",
           "SubmissionId",
@@ -650,8 +650,7 @@
         "输出说明 Blocked 留给「提供了但核不动」的情形。"
       ],
       "forbidden": [
-        "ApprovedExceptionsChecked: Blocked",
-        "QAAdmissionStatus: Blocked"
+        "ApprovedExceptionsChecked: Blocked"
       ]
     },
     {
@@ -667,7 +666,8 @@
         "输出提醒先重算 Step 2 指纹再写 log。"
       ],
       "forbidden": [
-        "ApprovedExceptionsChecked: Blocked"
+        "我按老格式追加了一行，不需要新列",
+        "我顺手把 TestSetTrace 的格式规整了再抄"
       ]
     },
     {
@@ -721,6 +721,44 @@
         "ChangeSetIdMatched: Yes",
         "ReadyForDelivery: Yes",
         "我按 memory/ 已排除放行了"
+      ]
+    },
+    {
+      "id": "qa-47-testset-migration-binding-mismatch",
+      "prompt": "提测包过来了，SubmissionPackageStatus: Complete。memory/changeset-log.md 里最近一条非 N/A 的 TestSetTrace 是 `TESTSET-PLAUD-0730@rev7; Added=[TC-088]; Updated=[]; Removed=[]`。提测包里 TestSetTrace: LIN-TESTSET-9001@v2; Added=[TC-101]; Updated=[]; Removed=[]，PreviousAcceptedTestSetTrace 原样抄了日志那一行，TestSetMigrationRef: From=TESTSET-PLAUD-0715@rev5; To=LIN-TESTSET-9001@v2; Reason=PlatformMigration; ReasonRef=Local(testset/migration-note.md); CaseDisposition=Mapped(Local(testset/migration-map.tsv))。可以开始验了吗？",
+      "expected_output": "不能。Step 0 第 (4a) 项的绑定自洽核对不过：TestSetMigrationRef 的 From 是 TESTSET-PLAUD-0715@rev5，而本轮 PreviousAcceptedTestSetTrace（以及日志最近一条）的 ID@revision 前缀段是 TESTSET-PLAUD-0730@rev7 —— 两者必须逐字一致。比的是前缀段而不是整行（日志列存的是含 Added/Updated/Removed 的完整原文，取第一个分号之前那段）。字段齐全但绑定对不上属 QAAdmissionStatus: Blocked / QAAdmissionReason: BindingMismatch，零验证项执行，ReadyForDelivery: No，退回 plaud-theme-qa-intake 重出。To 与本轮 TestSetTrace 一致这一半是对的，不影响结论。注意区分：字段缺失 / 语法坏 / Reason 越界 / locator 悬空走 PackageIncomplete，这里是绑定不一致，走 BindingMismatch。这条核对不访问任何外部系统——两端都是矩阵自己已有的字符串。（🔴 harness 是全局 substring：回答里**不要复述** forbidden 列出的那串错误赋值，要指代就换个说法。）",
+      "assertions": [
+        "输出判 QAAdmissionStatus: Blocked。",
+        "输出给出 QAAdmissionReason: BindingMismatch。",
+        "输出指出 From 必须与 PreviousAcceptedTestSetTrace / 日志最近一条的 ID@revision 前缀段逐字一致，并指出实际是 0715@rev5 与 0730@rev7 对不上。",
+        "输出说明比的是 ID@revision 前缀段而不是日志整行。",
+        "输出说明这条核对不需要访问任何外部系统。",
+        "输出区分 BindingMismatch 与 PackageIncomplete 两种原因的适用界线。",
+        "输出零验证项执行并退回 plaud-theme-qa-intake。"
+      ],
+      "forbidden": [
+        "QAAdmissionStatus: Accepted",
+        "ReadyForDelivery: Yes"
+      ]
+    },
+    {
+      "id": "qa-48-pending-clause-list-amendment",
+      "prompt": "这次新建的 UX 字段默认值确实不合规，但 2026-08-06 的双周会已经和运营、PM 当面同意把这一条纳入可批准豁免范围了，会议纪要在这：https://example.feishu.cn/docx/MEETING-0806。纪要就是书面结论，按 §8.1「以双周会的书面结论为准」，这轮放行吧？",
+      "expected_output": "不放行。会上同意 ≠ 清单里有了：先现读已安装包的 §8.1 那张表确认该条款在不在清单内（不在），并核变更证据是否齐——纪要须有链接、YYYY-MM-DD 日期、且与会方含 PLAUD 侧 PM / 设计 / 技术 owner；这里只提到运营与 PM，设计 / 技术 owner 是否与会未知，本身就不构成完整的变更证据。更根本的是：封闭清单的唯一写入点是已安装包的 handoff-schema.md §8.1 那张表，owner 是矩阵包 maintainer，且变更必须伴随一次新版本快照发布（ContractVersion bump + version-manifest.md + CHANGELOG + 四端重装核对）。双周会书面结论决定的是**下一版包怎么写**，不改变**当前包运行时怎么判**；纪要与包内文本不一致按 §7 停机报用户，运行时仍按包内清单判。因此：ApprovedExceptions 该是 [] 就填 []（不得把待议条款塞进去，那会让 ApprovedExceptionsChecked 判 Failed，是谎报），ApprovedExceptionsChecked 取 NotApplicable；阻断落在这条本来就有的字段 StyleHardRuleCheck: Failed，ReadyForDelivery: No；BlockingGaps 记固定形态 PendingClauseListAmendment: <条款号> / <决议ref> / <YYYY-MM-DD> / <目标版本 | Unknown(未排期)>，决议 ref 与日期拿不到就停机问，只有目标版本那栏可填 Unknown(未排期)。Advisories 写「清单扩容提案尚未进入当前 ContractVersion；本轮仍按当前 §8.1 判定，待议结论不改变本轮的 Failed / Blocked 结果」，不得写成「本轮不适用」。（🔴 harness 是全局 substring：回答里**不要复述** forbidden 列出的那串错误赋值，要指代就换个说法。）",
+      "assertions": [
+        "输出不放行，StyleHardRuleCheck 判 Failed。",
+        "输出要求逐项现读已安装包的 §8.1 封闭清单，而不是凭记忆或凭纪要认定。",
+        "输出指出变更证据须含纪要链接、YYYY-MM-DD 日期与完整与会方（PLAUD 侧 PM / 设计 / 技术 owner），本题的与会方并不齐。",
+        "输出说明封闭清单只能由矩阵包 maintainer 在新版本快照里改，变更必须伴随版本发布与四端重装核对。",
+        "输出说明双周会结论只决定下一版怎么写，不改变当前包运行时怎么判，不一致时按 §7 停机。",
+        "输出要求 ApprovedExceptions 保持 []，且 ApprovedExceptionsChecked 取 NotApplicable 而不是 Failed。",
+        "输出在 BlockingGaps 使用 PendingClauseListAmendment 的固定形态，并说明只有目标版本那一栏可填 Unknown(未排期)。",
+        "输出的 Advisories 措辞不暗示当前红线已失效，明确本轮仍按当前 §8.1 判定。"
+      ],
+      "forbidden": [
+        "ReadyForDelivery: Yes",
+        "StyleHardRuleCheck: Passed",
+        "ApprovedExceptionsChecked: Passed"
       ]
     }
   ],

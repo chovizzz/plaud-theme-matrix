@@ -140,6 +140,7 @@ handoff-schema §2 的规范命令里含 `git status --porcelain=v1`，它输出
 - **`TestSetTrace` 列（v0.2.2 新增）**：只要本轮 **`QAAdmissionStatus: Accepted`**（= 提测包过了准入），就把提测包里那一行**原样抄进去**（来自 `QAIntake` 工件，QA 不重编、不规整、不补全），**与 `ReadyForDelivery` 是 `Yes` 还是 `No` 无关**。
   - `QAAdmissionStatus: Blocked`（材料不齐 / 绑定失配 / 用户弃材料）→ 写 `N/A(NotAccepted)`；该轮确实没有测试集 → `N/A(NoTestSet)`。
   - 🔴 **锚点是"最近一次准入通过"，不是"最近一次交付通过"。** 下一轮 `PreviousAcceptedTestSetTrace` 取的是**最近一条 `TestSetTrace` 非 `N/A` 的行**。这样 QA 失败的返工轮次也留下了测试集版本，测试集的连续性不会因为一轮 `ReadyForDelivery: No` 就断链——那正是返工轮次最容易换文档的时候。
+  - **换了新测试文档的那一轮**：`TestSetTrace` 列照抄本轮那一行（已是**新**文档 ID），因此下一轮取到的自然是新 ID，链不断。`TestSetMigrationRef` **不入日志列**；可在 `Note` 列写 `Migrated(<旧ID> -> <新ID>)` 作**人读备注**——🔴 `Note` 列**不被 `plaud-theme-qa-intake` 消费**，不得声称"靠它让下一轮取到新 ID"。要机器审计迁移，查那一轮的 `QAIntake` 工件（`TestSetMigrationRef` 与它指向的清单已被 `PackageFingerprint` 绑定）。
   🔴 **这一列存在的唯一目的**：下一轮 `plaud-theme-qa-intake` 取 `PreviousAcceptedTestSetTrace` 时有个权威来源可查（`plaud-theme-qa-intake/references/package-checklist.md` §3 的取数路径①）。不写这一列，"测试集随交付增量维护"就退回不可查。
   ⚠️ **旧日志兼容**：v0.2.2 之前的行没有这一列，**不要回填**（回填等于编造历史）。下一轮命中「取不到」时按取数路径③走 `Unavailable(...)` + `Advisories`。
   - `Pending` — 已登记但结论尚未落定（例如等补证据）

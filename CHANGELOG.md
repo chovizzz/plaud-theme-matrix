@@ -4,6 +4,143 @@
 
 ---
 
+## v0.2.3 — 2026-08-14
+
+**第十轮评审 + 首次端到端演练 + 三项"仍未做"收口。** v0.2.2 装到四端后又过了一轮独立评审（第五个评审），同时第一次把整条链路写成**可执行的演练**去跑——这一轮**指纹门与安装器各出一个真实可绕过点，都是演练/评审跑出来的，eval 一条都没抓到**（第十次重复这个模式）。
+
+> **为什么切新版本**：v0.2.2 已发布并装到四端，本轮是契约与门禁的实质改动（新增必填环境变量、准入门从一条命令变三条、`TestSetMigrationRef` 新字段、工件 22→23 key）。原地改一个已发布快照，等于让同一棵 `memory/` 被两套 spec 处理——那正是本项目记录在案的客户端漂移事故。v0.2.2 目录与 zip 保持发布态冻结。
+
+### 🔴 指纹门：两个真实可绕过点
+
+- **被 gitignore 的 `.gitattributes` 完全绕过 clean-filter 门。** 门原来枚举四个来源，其中未跟踪那一路带 `--exclude-standard`，而它**按定义排除 ignored 文件** —— 可一个 `.gitattributes` 是否被 ignore，与它在 git 里生不生效**完全无关**（`.git/info/exclude` 是合法的本地配置）。实测：挂上 clean filter 后三次完全不同的工作树内容算出**同一个指纹**。Shopify push 推的是工作树字节，QA 重算一致就放行 —— 上线的 CSS 与 QA 认证过的不是同一份。已改为连 ignored 一起枚举。
+- **`plaud_package_fingerprint` 没有根目录守卫 —— 整套门禁里唯一的 false acceptance。** §2 第七轮为此加了 `NOT_REPO_ROOT`，§9.1.2 一直没有配套：在材料树的子目录里跑，`find .` 只看得见该子目录，**静默算出子集指纹并返回 0**（metamorphic 已证是子集：改兄弟目录的自测报告，子目录指纹纹丝不动）。危险的不是失配 —— 是 intake 与 QA 用同一个错误的 `PackageRootRef` 时**两边算出同一个值、`Accepted` 照发**，而自测报告 / 配置说明 / 截图全部不在绑定链里。已新增**必填**环境变量 `PLAUD_PACKAGE_ROOT`（须等于工件的 `PackageRootRef`），cwd 不等即 `NOT_PACKAGE_ROOT`、未设即 `NO_PACKAGE_ROOT`，两处调用方（qa-intake Step 4、QA Step 0）同步接线。
+
+### 🔴 安装器：「完全替换」这个保证一直是静默失效的
+
+- **`rm -rf "$dest"` 的退出码从不判**，而安装后唯一校验是 `[[ -f "$dest/SKILL.md" ]]` —— SKILL.md 必然存在，**包括它是上个版本残留的那一份**。实测（chmod 500 父目录使删除失败）：脚本打印 "Overwriting…" 与 "Installed…"、**exit 0**，而陈旧 reference 原样存活。这正是本项目文档点名的灾难模式：被新版删掉的 reference 留在客户端继续被路由。根因链还有一层：`install_one_skill … && ok=$((ok+1)) || true` 这个条件上下文让**函数体内的 errexit 被忽略**，所以裸 `rm -rf` 与随后失败的 `tar` 都继续执行。
+- **修法**：`rm -rf` 判退出码 + 删除后复查残留 + `mkdir` / `tar` 各自判 + **安装后逐文件清单比对**（源与目标的文件清单必须完全相等，多出来的即陈旧残留，直接列出）。
+- **顺带修掉一个被这次检查暴露的既有假失败**：`tar -cf - . | tar -xf -` 在 stock macOS bsdtar 上**必然假报失败** —— 接收端读到归档结束标记先退出，发送端写填充块时吃 EPIPE。原脚本从不判这条管道的退出码所以隐形；一加检查，正常安装全变 exit 1。改走临时归档文件，两端退出码才诚实。（这也解释了为什么注入失败 `tar` 能被发现、而真实的单端 tar 失败一直发现不了。）
+
+### 🔴 两处「声明与行为不符」
+
+- **"提测材料落进工作树 → 你过不了自己的准入门"是错的。** 材料放进**任何被 gitignore 的非发布目录**、或放进 `memory/` 且是 **`.md`**，指纹与 `git status` 都看不见（§2 排除 `memory/`、qa-intake 的校验命令也排除、而 §2 那条盲区自检只找**非 `.md`**），intake 与 QA 会双双看到一个干净的绑定。把一个副作用当成了强制机制。**真正的门**现在是 qa-intake Step 1 的**三条命令**（常规位置 / ignored 位置 / `memory/` 全量），canonical 同一处声明同步改写。
+- **"指纹覆盖权限"是过度声明**：tracked 文件 git 只记 executable 一个 bit，0644→0600 指纹纹丝不动。对 Shopify push 无害，但 `CORE_FILEMODE_FALSE` 那道门恰恰是以"覆盖权限"的名义 fail closed 的。已改为准确表述。
+
+### 从 v0.3.0 设计原型回补的两条纯 bug（不改契约）
+
+- **`core.autocrlf` 无门。** 开着 autocrlf 时把工作树文件从 LF 改成 CRLF，git 归一化后语义相同 —— `git status` 空、`git diff` 空、**指纹一字不变**，而 Shopify 推的是工作树字节。与 clean filter 同族，按同样姿态 fail closed（`true` / `input` 及大小写变体）。
+- **已跟踪 symlink 的目标内容不在指纹里。** 包里原文写着「已跟踪的 symlink 不受影响」—— 那句话只对**链接字符串**成立，对**推送内容**不成立（Shopify CLI 上传的是解引用后的内容）。实测：目标文件内容换掉，指纹一字不变。精确拦截"目标解析后落在仓库外、或目标不是已跟踪文件"两类，指向仓库内已跟踪文件的合法用法照常放行。
+
+### `sb_worktree_set` 两个盲区
+
+- **换行路径无守卫**：`plaud_fingerprint` 为此专门 fail closed（`NEWLINE_IN_PATH`），本函数一直没有配套 —— 同一个仓库同一个文件，一个门停机、另一个门给出一份坏 `ModifiedFiles` 还说自己成功。已对齐。
+- **baseline 已脏的文件再改一次 → delta 为空**：name-status 前后都是 `M`，`comm -13` 抵消，命令层完全看不出来，而「baseline 已脏且与本任务路径重叠 → 停机」只是散文。按命令走、跳过散文的 agent 会交出一个 `ModifiedFiles` 为空的 ChangeSet。已改为命令层可判定：对 baseline 里已脏的路径存内容 hash、收尾重算、差集非空即 `BASELINE_DIRTY_OVERLAP`。
+
+### 三项"仍未做"收口
+
+**这一轮不引入新机制，只把三个已知空位填上。** 外部评审（Codex，read-only）对初稿判「方案 1 有条件通过、方案 2 不通过、方案 3 只能部分通过」，下面是按它的意见改后的落点。
+
+**① 封闭清单的变更权限（治理歧义消除）**
+
+`handoff-schema.md` §8.1 新增「🔴 封闭清单的变更权限」：owner 只有矩阵包 maintainer、只能在切新版本快照时改；变更须同时具备双周会书面结论（纪要 + `YYYY-MM-DD` + 与会方含 PLAUD 侧 PM/设计/技术 owner）**与**该结论已写进新版本包，缺后者即"清单没变"；因为本包按全量快照分发而**纪要不随包分发**，不发版就是四端各读各的旧清单。并把开头那句"以双周会的书面结论为准"消歧为：**它决定下一版怎么写，不改变当前包怎么判**，不一致按 §7 停机。
+
+"已同意但尚未进清单"给了完整的诚实落点，不留无值可填的洞：该条款**不得**写进 `ApprovedExceptions[]`（`Clause` 越界是谎报），`ApprovedExceptions` 保持 `[]` → `ApprovedExceptionsChecked: NotApplicable`（**不是** `Failed`——没声明就没有可判对象，这条是评审当场纠正的）；阻断落在该条款**原本就有**的那个字段（`StyleHardRuleCheck` / `A11yCheck` / `CopyConfigurabilityCheck` / release-ops 的门），**不新造 `ClauseCheck`**；都不承载时只能靠 `BlockingGaps`。`BlockingGaps` 写固定正文形态 `PendingClauseListAmendment: <条款号> / <决议ref> / <YYYY-MM-DD> / <目标版本 | Unknown(未排期)>`（**只有目标版本那一栏**可 `Unknown`，ref 与日期拿不到就停机），`Advisories` 措辞被写死，**禁止**写"本轮不适用""暂不阻断"——当前包的红线仍然适用。
+
+接线点：canonical §8.1 + §4 模板注释 + §9.2 `ApprovedExceptions[].Clause` 行、`qa-global.md` §11（只补 QA 侧三条动作，**不复制清单与 owner 规则**）、`shared/matrix-contract.md` 的「红线增删」表新增一行、`version-manifest.md` 新增 §1.1「哪些改动必须伴随一次版本发布」、三个 producer SKILL 的 `ApprovedExceptions` 模板注释、新增 eval `qa-48-pending-clause-list-amendment`。
+⚠️ `version-manifest.md` 里明写**它不是安装状态账本**：安装器对不存在的客户端目录静默跳过，"脚本跑完没报错"不等于四端都装上了，把"已校验"写进 Markdown 不构成证据。
+
+**② 测试集换文档：结构化 `TestSetMigrationRef`**
+
+自由文本理由里「我们换到 Linear 了」和「上一轮那份找不到了、我重新整理了一份」**长得一模一样**。新字段（QAIntake 工件第 17 个 key）：`From=<旧ID>@<旧rev>; To=<新ID>@<新rev>; Reason=<封闭枚举>; ReasonRef=<locator>; CaseDisposition=Mapped(<locator>) | BulkRetired(<locator>)`（`<locator>` = `Local(<相对材料根的路径>)` | `Manifest(<materials.tsv 条目名>)`；**清单只能 `Local`**）。
+
+- **不引入新的事实源**：`From` 必须逐字等于本轮 `PreviousAcceptedTestSetTrace`（其权威来源是 QA 自己写的 `memory/changeset-log.md` `TestSetTrace` 列），`To` 必须逐字等于本轮 `TestSetTrace` —— 两端都是矩阵已经持有的字符串，比对不需要访问任何外部系统。
+- `Reason` 封闭枚举**三值**：`PlatformMigration` / `OwnerHandover` / `Deprecated`。**刻意不给 `Other` 兜底**（兜底会立刻变成默认选项，这一行就退回自由文本）；越界 → `SelfTestReportStatus: Incomplete` + `BlockingGaps: TestSetMigrationReasonOutsideClosedEnum`。
+- 旧用例去向的两种形态都必须指向**一份放进提测材料目录的清单文件**，因此自动进 `PackageFingerprint`（走既有材料绑定机制，不是新链路）：`Mapped` 逐条 `TC-old → TC-new / Dropped(<理由>)`，`BulkRetired` 给 `OldCaseCount` + 逐条旧 ID。🔴 **"旧文档打不开所以列不出来"不是免除理由**，这里不存在"矩阵去查外部系统失败"的降级取值（初稿的 `BulkRetired` 规则自相矛盾——一边要求旧文档不可访问、一边要求可核对的计数，已改）。
+- **能力边界写明**：矩阵核**自洽性 + 内容绑定**（清单在材料里、条数与声明一致、旧 ID 不重复、事后不可替换），**不核真实性**（`TC-1042` 是否真在旧文档里，矩阵查不到也不查）。**一拆多 / 多合一的迁移形状本版不支持**（`From`/`To` 单值、上一轮 trace 只有一条），遇到即停机 `TestSetMigrationShapeUnsupported`，不得挑一份旧文档冒充一对一 —— 这是初稿把 `DocumentSplit` / `DocumentMerge` 写进枚举时的硬伤，评审指出后删掉这两个值并改成显式的能力声明。
+- 降级取值：未换文档 `N/A(SameDocument)`；无可比对的上一轮（`None(FirstSubmission)` / `Unavailable(...)`）`N/A(NoPreviousTrace)`，不判 `Incomplete`、记 `Advisories`。ID 变了却填 `N/A(SameDocument)`、或 ID 没变却给完整声明，都是自相矛盾 → `Incomplete`。
+- QA 的 `QAAdmissionReason` 界线定死：**字段缺失 / 语法坏 / `Reason` 越界 → `PackageIncomplete`**（本该在 intake 就判 `Incomplete`）；**字段齐全但 `From`/`To` 绑定对不上 → `BindingMismatch`**。
+- `changeset-log.md` 的 `Note` 列可写 `Migrated(<旧ID> -> <新ID>)`，但**明写它是人读备注、不被下游消费**——下一轮仍只从 `TestSetTrace` 列取最近一条非 `N/A` 的行（那一行已经是新 ID，链本来就不断）。初稿曾声称"靠 Note 列让下一轮取到新 ID"，是假的。
+- 接线点：`package-checklist.md` §3 + **新增 §3.1**（唯一语法源）、canonical §9.1.2 模板 + 六项材料表 + §8.1.1 + §9.2 新增枚举行、`qa-intake/SKILL.md` Step 2、`qa-intake/matrix-contract.md` 下游、`qa/SKILL.md` Step 0 新增第 (4) 项机械核对 + 两行准入表 + Step 5 日志规则、`qa/matrix-contract.md` 消费清单、`evidence-and-invalidation.md`、README；eval 新增 `intake-18` / `intake-19` / `qa-47`，改写 `intake-16`（"给个迁移说明"不再够）。
+
+**③ 9 处历史 collision**
+
+这 9 处是第三轮保留的 substring `forbidden`（`dev-12` / `impact-05` / `sb-25` 的 `QA-Global`、`impact-14` 的字段名、`orch-14` 的 `ReadyForDelivery`）。**结论是部分结构化，不是全部**：
+
+| 处 | 结论 |
+|---|---|
+| `impact-14`（6 条 `\n<字段名>:`） | **已结构化**：语义完全由 validator 的 `forbiddenKeys` 承载 |
+| `orch-14`（5 条同形态） | **已结构化**：给它补上此前缺失的 `forbiddenKeys`（并注明只针对**顶层** key —— `ChangeSetPlan` 的值里提到 ChangeSetId 是正常内容） |
+| `dev-12` / `sb-25`（`QA-Global`） | **已结构化**：这是**字段值**约束，`yaml-block-exact-keys` 验不了，因此给 validator 加 `fieldValueConstraints`（`mode: "set"`、`allowedValues` / `forbiddenValues`），并写死语义：只解析最后一个 fenced yaml、逐成员比对、正文解释不算违规、未实现按未验证记 |
+| `impact-05` / `impact-05b`（`QA-Global`） | 🔴 **做不到，明说**：这两题是问答、回复里**没有最终 yaml 工件块**，结构 validator 无处可用。只能留作 assertions + 赋值形态 forbidden 的文字约定；要机器可判就得改题目的输出契约，那已经不是清理 collision 了 |
+
+🔴 **`forbidden` 一条都没删**（除了两处真会误杀的散文形态 `RequiredQAProfile 含 QA-Global` —— 正确答案写"…含 QA-Global 属违规"就会被命中）。评审的判据是对的：validator 目前只是 eval JSON 里的**声明**，harness 未实现就按"未验证"记，此时删掉 substring 回退，当前 runner 对这些约束就**完全没有机械约束**了。四条 validator 的 `note` 里都写明了：**forbidden 是 validator 落地前的回退，harness 真执行后才可以整批删**。
+
+结构 validator **从 6 个增到 7 个**：新增 `intake-20-artifact-block-exact-fields`（qa-intake 此前**没有任何**结构 validator，`TestSetMigrationRef` 这种新增字段整字段漏写都发现不了），锁 QAIntake 的 23 个 key。
+
+**外部评审第二轮（同一评审读实际改动）又抓出 4 组接线问题，已全部修掉**：
+
+- 🔴 **`qa-global.md` §11 仍复述了清单当前成员**（"只有 A11y 3.0–4.5""§8.1 十一条无一在内"），同一段却写着"本处不复制清单"——那就是运行时文档里的**第二份适用清单**，canonical 一改、QA 仍按旧复述执行。改为「逐项现读已安装包的 §8.1 那张表」，不列成员；`version-manifest.md` 里的 v0.2.2 摘要也标明它是**发布当时的历史快照、不是运行时事实源**。
+- 🔴 **`PreviousAcceptedTestSetTrace` 取数路径② 本来就跑不通**：它说"用户给的上一轮 `QAIntake` 工件，须是 `QAAdmissionStatus: Accepted` 的那一轮"，可 **`QAAdmissionStatus` 是 QA §5 工件的字段，`QAIntake` 里根本没有**——单给一份 `QAIntake` 证明不了"已通过准入"，谁都能拿自己写的草稿冒充。改为必须给**一对**工件（上一轮 `QAIntake` + 同 `SubmissionId` 的 QA 工件且后者 `Accepted`）。同时 QA Step 0 的 `From` 比对**按来源分支**：走路径① 才额外核日志，走路径②（前提就是日志不可用）再拿日志卡它会把合法输入锁死。并明确 `From` 比的是那一行的 **`ID@revision` 前缀段**，不是含 delta 的整行（类型本来对不上）。
+- 🔴 **`ReasonRef` 与清单 locator 的语法没闭合**：正文写"四段"实际五段、判定表整段漏了 `ReasonRef`；语法要求 `Mapped(<materials.tsv 条目名>)` 而正文又说清单是本地普通文件（本地文件根本不需要 manifest 条目）；`Mapped` 要求"条数 = 头部 `OldCaseCount`"却只给 `BulkRetired` 定义了头部。统一为 **`Local(<相对路径>)` / `Manifest(<条目名>)` 两种 locator**，补上 `ReasonRef` 的判定行（只核**存在性 + 内容绑定**，**不核内容真伪**）、给 `Mapped` 定义头部，并写明 intake 做全量判定、QA 在重算包指纹时复核。
+- 🔴 **`N/A` 分支被无条件跳过**：Step 0 原写"取 `N/A(SameDocument)` / `N/A(NoPreviousTrace)` 时跳过本项"，正好漏掉 §3.1 明文规定为自相矛盾的两种工件（ID 不同却填 `SameDocument`、有具体上一轮却填 `NoPreviousTrace`）。改为 (4a)/(4b)/(4c)/(4d) 四支逐项核；准入表另加一行：`Unavailable` / `NoPreviousTrace` 且其余项都对时**不阻断**，进 `Advisories`、**不进 `BlockingGaps`**。顺带把 Step 0 的"三项都要查"改成"四项"、`qa/matrix-contract.md` 的消费清单补回本轮 `TestSetTrace`。
+- 🟠 eval 侧：`qa-47` 原题面的 `PreviousAcceptedTestSetTrace` 只给了 `ID@revision` 而不是上一轮完整原文（按契约它本身就该判 `PackageIncomplete`，题目不成立），且断言引用了题面没给的日志内容 —— 已补齐日志行与完整 trace；`intake-18` 原题面没有上一轮的 `Accepted` 证明、断言漏 `ReasonRef` / `OldCaseCount` / 本轮完整 delta —— 已补；`qa-48` 原题面只有"上周、运营/PM"，覆盖不到新治理证据门的"日期 + 完整与会方"—— 已补精确日期并加断言。`fieldValueConstraints` 补 `minItems: 1` / `allowEmpty: false`（否则 `RequiredQAProfile: []` 真空通过）；7 个 `yaml-block-exact-keys` 的 `note` 统一补上「解析时必须拒绝重复 key」（YAML parser 会把重复项折叠掉，缺 key 与重复 key 都验不出来）。
+
+**验证**：10 份 eval JSON 全部 `json.load` 通过；**eval 266 条 / forbidden 185 个 / 结构 validator 7 个**，forbidden 自伤 0、合法值真前缀 0（每次改完 forbidden 都重跑，不只在收尾跑）；新增/改写的 forbidden 一律赋值形态，且在 `expected_output` 里附"不要复述该串"的提示；`intake-19` 因为它的每条错误结论都可能被正确答案以否定形式复述，**整条走 assertions、不设 forbidden**。
+
+### ⚠️ 仍未做（留 v0.3.0）
+
+- **指纹改绑不可变 commit / tree 对象** —— 多 ChangeSet 同批发版的彻底解法。
+- **测试集迁移的一拆多 / 多合一形状** —— `TestSetMigrationRef` 本版只支持一对一，其余形状按停机处理（见上）。
+- **evaluator 真正实现 `yaml-block-exact-keys` 与 `fieldValueConstraints`** —— 在那之前 7 个结构 validator 全部按"未验证"记，9 处 collision 的 substring 回退**不能删**。
+- **真实端到端提测演练** —— 三档、`TestSetTrace` / `TestSetMigrationRef`、`ApprovedExceptions` 至今只经过静态评审。三轮评审里最严重的两个问题（🟠 开洞、指纹自毁）都是**评审**发现的、不是跑出来的，这一层还不够。
+
+### 未变
+
+10 个 skill 与 order、阶段轴三值、交付权归属、ChangeSet 指纹机制、**仍不支持多 ChangeSet 同批发版**（留 v0.3.0）、v0.2.1 的三档框架与存量复用豁免三道闸门（本版只给 🟠 加封闭清单与结构化字段，不放宽任何一档）。
+
+### 仍未做
+
+行为验证依旧没有：三个 v0.2.0 新 skill、三档分级、`TestSetTrace`、`ApprovedExceptions` 全部只经过静态评审 + evals，**没跑过一次真实提测**。v0.2.1 那两处高危问题正是静态评审第二轮才发现的，说明这一层还不够。
+
+---
+
+### 端到端提测演练（首次）
+
+`dist/plaud-theme-matrix-e2e/` —— **不是方案文档，是能跑出 PASS/FAIL 的东西**：按内容锚点从包 Markdown 抽取 shell（不按行号，行号会随编辑漂移）、确定性 fixture 主题仓库（commit 日期钉死故 HEAD sha 可复现）、三组场景（指纹 17 / `sb_worktree_set` 8 / 包指纹 9）、20 条契约规则的 linter（**key 集合运行时从 canonical 模板取，不是转写**）+ 30 个单事实 fixture 的变异测试。首跑 146 断言全过、bash 3.2 与 zsh **连算出的指纹值都逐字节相同**、变异测试 20/20 规则被杀。
+
+**它给自己装了反空跑门**：驱动会检查场景退出码、`E2E_TOTALS` 唯一性，并把 pass/defect 计数钉死成基线；实测两个 saboteur（场景改 `exit 0`、注释掉两条断言）都被抓出。**这一层是本包九轮评审里唯一一次"自证的检查项本身也被证伪过"。**
+
+### eval harness 的真实状态：**未实现**
+
+包里 7 条 `yaml-block-exact-keys` + 2 处 `fieldValueConstraints` 的 validator，**没有任何执行者**：包内无 runner、无 CI；`dist/` 下 26 个 `run_evals.py` 全属别的 suite，最完整的那份只遍历 `assertions`，既不读 `forbidden` 也不读 `validator`。好消息是**接线全对** —— 7 条的 `expectedKeys` 与 canonical 模板逐字逐序相等。这 7 条当前真实状态是 **UNVERIFIED 而不是 PASS**，`e2e/README.md` 给了人工核验流程，`lint/contract_lint.py` 可直接充当核验工具。
+
+### 也修了第九轮记录里的一条假"已修"
+
+第九轮写「去掉 `qa-42` 里连坐的合法正交值 `QAAdmissionStatus: Blocked`」，实际那一条还在；同族的 `qa-43` 还挂着与题面（changeset-log / TestSetTrace）完全无关的 `ApprovedExceptionsChecked: Blocked`，是复制粘贴残留。两条都已处理。**"已修"记录不可单独作为证据。**
+
+### 第十轮演练回打的 6 项（演练套件对齐 v0.2.3 后跑出来的）
+
+演练套件重钉基线后一口气打出 15 条新缺陷，**其中 5 条直接打脸本轮的修法**——修一个门时把同族的另一个漏掉，第十一次重复这个模式：
+
+- **`core.autocrlf` 门可用布尔别名绕过**（`yes` / `on` / `1` / `iNpUt`）。本轮只比了六个字面量，而 git 还认这些。**第八轮给 `core.fileMode` 修的就是同一族**（当时的修法是交给 `git config --bool` 归一化），教训没带到新键上。修法要两条：`--bool` 归一化 + 大小写不敏感的 `input` 匹配（`input` 不是布尔，`--bool` 会直接报错）。
+- **`.gitattributes` 的 `text` / `eol=` 在 autocrlf 全关时仍归一化**：两个不同的工作树字节串算出同一指纹且**没有任何门触发**。attributes 门至今只 grep `filter=`，已扩到 `text` / `eol=` / `working-tree-encoding` / `ident`。
+- **已跟踪 symlink 指向 `memory/` 里的已跟踪文件**：本轮新加的门放行了它——因为门的前提是「目标已跟踪 ⇒ 内容进指纹」，而 **`memory/` 恰恰是唯一一个指纹刻意看不见的目录**，等于从这道门自己的假设里绕了出去。目标是**目录**时同理（pathspec 也能匹配 index）。两类已补。
+- **`sb_worktree_set` 的 ②b/②c 只挡住 `M→M`**：awk 正则不含 `?`，而 **Path B 的产出恰恰全是未跟踪文件**，主场景根本没覆盖；改名行取的是 old path；只改 mode 时 `hash-object` 只看内容，**与指纹「覆盖未跟踪文件权限位」互相矛盾**；删除的文件因为诊断只打 `/^>/` 一个名都不列。四条全修。
+- **`set -u` 下裸展开在打 sentinel 之前就崩**（`unbound variable`），仍 fail closed 但不可诊断。改 `${VAR:-}`。
+
+**qa-intake Step 1 两个洞**（材料落仓的唯一门）：**已 commit 的材料三条命令全瞎**（`git add -A` 是最常见落法）；**子目录下三条 rc=0 且输出为空**——报告"干净"而其实什么都没查。已补三件：仓库根站位、**材料根必须落在主题仓库之外**（唯一一条机械可判的硬边界）、相对 `BaseHeadSha` 的已提交清单。
+
+**仍未关闭的一条**：`PLAUD_PACKAGE_ROOT` 只关掉了「站错目录」，没关掉「**声明错目录**」——把某个子目录写成 `PackageRootRef`，producer 与 QA 仍会一致地算出子集。false acceptance 通道被**收窄**（错根写进工件、人能看见）而不是关闭。在"绑工作树"这个模型下没有干净解法，随 v0.3.0 的 tree-oid 改造一并处理。
+
+### 仍未做（留 v0.3.0）
+
+- **指纹改绑不可变 git 对象** —— 设计与可跑原型已完成，见 `dist/_wip-v0.3.0-fingerprint-design/`：新身份是空白临时索引 + `git write-tree` 得到的 tree oid（不 commit、不动 HEAD/ref/用户 index，默认不写 `.git/objects`）。诚实结算：同树串行**只部分解开**（Implement 真并行，但 QA 是对整树的观测，必须先物化不可变快照）；多块同批发版**解开，但集成 QA 这道串行屏障消不掉**；clean filter 族 / `core.fileMode` / symlink / 嵌套 repo / 含换行路径**仍在**。施工图 36 文件 / 173 处。
+- 一拆多 / 多合一的测试集迁移形状（`TestSetMigrationRef` 的 `From`/`To` 目前单值）。
+- evaluator 实现 `yaml-block-exact-keys` 与 `fieldValueConstraints`；在那之前不得删除作为回退的 substring `forbidden`。
+- **真实 agent 黑盒演练**：现在的演练验的是"命令与门禁真跑起来是什么行为"，验不了"agent 读了 SKILL.md 之后会不会照做"。工件字段只能证明**报告称**未执行，不能证明真的零执行。
+
+---
+
 ## v0.2.2 — 2026-08-12
 
 **v0.2.1 的门禁收口版。** v0.2.1 发布并装到四端后，外部评审（Codex gpt-5.6-sol，read-only）判**不通过**：三档框架、存量豁免、A6/A7 事实修正都落地了，但 🟠 那一档在两处被写成了实际可绕过的形式。v0.2.2 只修这些，不引入新机制。
@@ -31,7 +168,7 @@
 
 初版 v0.2.2 只写了「由 `plaud-theme-qa-intake` 从项目侧 `memory/changeset-log.md` 或用户给的上一轮工件里取」—— 但 `changeset-log.md` 由 `plaud-theme-qa` 维护、且**根本没有承载测试集行的列**，这条控制写了却不可执行（正是 v0.1.0 指纹 bug 那一类：文档承诺了实现没有的控制）。补齐：
 
-- `changeset-log.md` **新增 `TestSetTrace` 列**（`plaud-theme-qa/references/evidence-and-invalidation.md` 的格式表 + 规则）：只在 `ReadyForDelivery: Yes` 时写，且**原样抄自 `QAIntake` 工件**（不重编、不规整、不补全，否则失去比对意义）；`No` / 被豁免写 `N/A(NotAccepted)`，确无测试集写 `N/A(NoTestSet)`；**旧日志不回填**（回填等于编造历史）。
+- `changeset-log.md` **新增 `TestSetTrace` 列**（`plaud-theme-qa/references/evidence-and-invalidation.md` 的格式表 + 规则）：只在 `ReadyForDelivery: Yes` 时写，且**原样抄自 `QAIntake` 工件**（⚠️ 锚点在**同版第四轮**已改为 `QAAdmissionStatus: Accepted`，与 `ReadyForDelivery` 无关——见下文「PreviousAcceptedTestSetTrace 的锚点改为最近一次准入通过」，本行是改动前的记述）（不重编、不规整、不补全，否则失去比对意义）；`No` / 被豁免写 `N/A(NotAccepted)`，确无测试集写 `N/A(NoTestSet)`；**旧日志不回填**（回填等于编造历史）。
 - `package-checklist.md` §3 给出**三级取数路径**：① `changeset-log.md` 的该列（唯一权威）→ ② 用户给的上一轮已通过准入的 `QAIntake` 工件 → ③ 都拿不到时填 `PreviousAcceptedTestSetTrace: Unavailable(<原因>)`，**不判 `Incomplete`、也不假装查过**，改记 QA 的 `Advisories`。③ 是明写的过渡条款（v0.2.2 之前的日志必然命中），一旦该列有值即不再适用。
 - `handoff-schema.md` §9.2 的 `memory/` 记录字段表定义该列取值；`plaud-theme-shared/SKILL.md` 的 memory 文件表与 `plaud-theme-qa/SKILL.md` 的写 log 步骤同步；新增 eval `changeset-log-testsettrace-column`（考「新列必填 + 原样抄不得规整 + 不回填」）。
 
@@ -277,22 +414,6 @@ Spec：
 **两条评审说了但不成立的**（已复验）：安装器 symlink ancestor（评审跑的是它开工前的快照，该问题在它跑动期间已修，当前树对 symlink 的 `skills` 目录与 symlink 祖先都拒绝）；"三份实现 skill 的接线图直接画 Implement→QA"（三份 matrix-contract 早就写的是 `qa-intake → qa`）。
 
 **验证**：指纹函数 13 场景 × bash 3.2 / zsh 全过且两家逐字节一致（含新增的未跟踪 `.gitattributes`、`$GIT_DIR/info/attributes`、`core.fileMode=no`、注入 `git ls-files` 失败、3000 个 attributes 高基数）；包指纹 3 locale × 2 shell 六次同值；`sb_worktree_set` 注入失败 `sort` 两家都打 `BASELINE_FAILED` / `AFTER_FAILED`，正常路径 0 次误报；安装器隔离 HOME 实装 10 个 exit 0、注入失败 `tar` exit 1；`bash -n` / `zsh -n` 全过；**eval 261 条 / forbidden 183 个 / 结构 validator 6 个，自伤 0、合法值真前缀 0**。
-
-### ⚠️ 仍未做（留 v0.3.0）
-
-- **指纹改绑不可变 commit / tree 对象** —— 多 ChangeSet 同批发版的彻底解法。
-- 封闭清单的正式变更权限（规范 owner 审批 + 新版本发布）；`handoff-schema.md` §8.1 那句"双周会书面结论优先"目前仍有治理歧义。
-- 测试集换文档时的结构化 `MigrationRef`（现在只有自由文本理由）。
-- 剩下那 9 处历史 collision 改成更干净的结构化校验。
-- **真实端到端提测演练** —— 三档、`TestSetTrace`、`ApprovedExceptions` 至今只经过静态评审。三轮评审里最严重的两个问题（🟠 开洞、指纹自毁）都是**评审**发现的、不是跑出来的，这一层还不够。
-
-### 未变
-
-10 个 skill 与 order、阶段轴三值、交付权归属、ChangeSet 指纹机制、**仍不支持多 ChangeSet 同批发版**（留 v0.3.0）、v0.2.1 的三档框架与存量复用豁免三道闸门（本版只给 🟠 加封闭清单与结构化字段，不放宽任何一档）。
-
-### 仍未做
-
-行为验证依旧没有：三个 v0.2.0 新 skill、三档分级、`TestSetTrace`、`ApprovedExceptions` 全部只经过静态评审 + evals，**没跑过一次真实提测**。v0.2.1 那两处高危问题正是静态评审第二轮才发现的，说明这一层还不够。
 
 ---
 

@@ -1,7 +1,7 @@
 {
   "skill_name": "plaud-theme-impact",
   "skill": "plaud-theme-impact",
-  "version": "v0.2.2",
+  "version": "v0.2.3",
   "description": "plaud-theme-impact（Assess 阶段）的行为 eval：ReconMode 判定、理论 vs 实际影响分离、disabled 实例单列、依赖树覆盖、共享传播链、RiskTier/QA profile、入口候选、停机点、职责边界。\n\n断言体系（harness 需支持三者；只实现 assertions 时后两者按未验证处理，不得记为通过）：\n- assertions：必须出现的字符串（string-contains）\n- forbidden：必须不出现的字符串（反向鉴别力，防止反向答案蒙混过关）\n- validator：结构化校验（目前仅 impact-14 使用 yaml-block-exact-keys）\n\n两类 eval：\n- rule 类（无需仓库）：只考模式判定、边界、职责归属、字段契约，不要求真实数字；\n- fixture 类（需挂载 Plaud theme 仓库）：要求实际跑 grep/node 并给出实例清单。无 fixture 时正确行为是 BlockingGaps 非空 + ReadyForImplement: No，不得编造数字。\n- forbidden 项以换行开头（如 \"\\nRootCause:\"）时，含义是**不得作为 yaml key 出现在行首**；正文里提到该字段名（说明它为什么不该出现）不算违规。这是为了避免禁裸字段名误杀合法解释。\n- 🔴 **不要把「否定短语」写成 forbidden**：正确答案常引用题面措辞来否定它（「不能 X」含「X」），全局 substring 会误判。要禁就禁**赋值形态**或明确的错误结论句。 forbidden 判据（v0.2.2 第九轮定稿）：只写「错误工件里必然出现、正确工件里不可能出现」的赋值形态；不要写否定短语或裸概念词（`可以并行` 会被「不可以并行」命中）；也不要写会被正确答案顺带复述的串——确实需要禁某个赋值时，同时在 expected_output 里注明「不要复述该串」。能用 assertions 表达的约束一律走 assertions，不进 forbidden。",
   "evals": [
     {
@@ -88,7 +88,7 @@
       "id": "impact-05-mode-upgrade-shared-snippet",
       "kind": "rule",
       "prompt": "我在做新建 sa-feature-grid，为了让它用上共享区头，计划给 snippets/section-header.liquid 加一个参数分支。这次评估算 IntegrationSurface 还是 LegacyImpact？",
-      "expected_output": "明确判为 LegacyImpact，因为计划写入集包含存量共享文件；对该存量文件走完整 LegacyImpact 流程，新建部分的复用面检查照做；RequiredQAProfile 为 QA-A, QA-B（不把 QA-Global 写进字段）。",
+      "expected_output": "明确判为 LegacyImpact，因为计划写入集包含存量共享文件；对该存量文件走完整 LegacyImpact 流程，新建部分的复用面检查照做；RequiredQAProfile 为 QA-A, QA-B（不把 QA-Global 写进字段）。（🔴 本题**没有**最终 yaml 工件块，结构化 validator 用不上，「不得写 QA-Global」只能靠 assertions + 赋值形态的 forbidden 约束；回答里**不要复述** forbidden 列出的那串错误赋值。）",
       "assertions": [
         "LegacyImpact",
         "升级",
@@ -96,12 +96,12 @@
         "共享",
         "RequiredQAProfile",
         "QA-A",
-        "QA-B"
+        "QA-B",
+        "输出的 RequiredQAProfile 只含 QA-A / QA-B，不含 QA-Global。"
       ],
       "forbidden": [
         "ReconMode: IntegrationSurface",
         "RequiredQAProfile: QA-Global",
-        "RequiredQAProfile 含 QA-Global",
         "QA-A, QA-Global",
         "QA-B, QA-Global",
         "QA-C, QA-Global"
@@ -111,19 +111,19 @@
       "id": "impact-05b-mode-upgrade-existing-template",
       "kind": "rule",
       "prompt": "新建的 sa-promo-strip section 做完后要加进已有的 templates/page.about.json，这算 IntegrationSurface 吗？",
-      "expected_output": "判为 LegacyImpact——写入了存量模板（运行时入口，不需要「被其它文件引用」）；同时保留 Path B 的复用面/命名冲突/schema/bundle 检查；指出编辑 templates/*.json 需用户明确批准。",
+      "expected_output": "判为 LegacyImpact——写入了存量模板（运行时入口，不需要「被其它文件引用」）；同时保留 Path B 的复用面/命名冲突/schema/bundle 检查；指出编辑 templates/*.json 需用户明确批准。（🔴 本题**没有**最终 yaml 工件块，结构化 validator 用不上，「不得写 QA-Global」只能靠 assertions + 赋值形态的 forbidden 约束；回答里**不要复述** forbidden 列出的那串错误赋值。）",
       "assertions": [
         "LegacyImpact",
         "templates/",
         "存量",
         "批准",
         "QA-A",
-        "QA-B"
+        "QA-B",
+        "输出的 RequiredQAProfile 只含 QA-A / QA-B，不含 QA-Global。"
       ],
       "forbidden": [
         "ReconMode: IntegrationSurface",
         "RequiredQAProfile: QA-Global",
-        "RequiredQAProfile 含 QA-Global",
         "QA-A, QA-Global",
         "QA-B, QA-Global",
         "QA-C, QA-Global"
@@ -340,7 +340,7 @@
       ],
       "validator": {
         "type": "yaml-block-exact-keys",
-        "note": "string-contains 无法验证「完全一致」。需 harness 实现结构化校验：取回复最后一个 fenced yaml block → 解析 → Object.keys() 与 expectedKeys 严格相等且顺序相等 → 检查 yaml fence 之后无非空内容 → 检查 forbiddenKeys 均不存在。若 harness 未实现 validator，本条按「未验证」记，不得因 assertions 全中就判通过。",
+        "note": "string-contains 无法验证「完全一致」。需 harness 实现结构化校验：取回复最后一个 fenced yaml block → 解析 → Object.keys() 与 expectedKeys 严格相等且顺序相等 → 检查 yaml fence 之后无非空内容 → 检查 forbiddenKeys 均不存在。若 harness 未实现 validator，本条按「未验证」记，不得因 assertions 全中就判通过。 🔴 **本条 `forbidden` 的定位（v0.2.2 收口）**：它们只是 validator 未落地前的 substring **回退**，语义已由上面的结构化校验完整承载。harness 真正执行本 validator 后可以整批删除；在那之前不得删——删了当前 substring runner 对这些 key 就完全没有机械约束。 🔴 解析时**必须拒绝重复 key**（YAML parser 默认可能把重复项折叠掉，那样 `Object.keys()` 少一个、缺 key 与重复 key 两种错误都验不出来）。",
         "expectedKeys": [
           "AssessmentRef",
           "ReconMode",

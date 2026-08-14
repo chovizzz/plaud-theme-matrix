@@ -54,7 +54,7 @@
 
 | 判定 | 条件 |
 |---|---|
-| `Complete` | ① 每条用例四段齐全（前置条件 / 操作步骤 / 预期结果 / 结论）**且**有附件截图或视频；② **`TestSetTrace` 一行齐全**（见下） |
+| `Complete` | ① 每条用例四段齐全（前置条件 / 操作步骤 / 预期结果 / 结论）**且**有附件截图或视频；② **`TestSetTrace` + `PreviousAcceptedTestSetTrace` 齐全**（见 §3）；③ 换了测试文档时**另有合法的 `TestSetMigrationRef`**（见 §3.1） |
 | `Incomplete` | 任一条用例的预期结果写成"显示正常""功能可用""无异常"——DTC 原文：**这类用例视同未测** |
 | `Incomplete` | 有用例但无截图/视频附件 |
 | `Incomplete` | 只有结论没有步骤（"测过了，没问题"） |
@@ -72,6 +72,8 @@ TestSetTrace: <稳定文档ID>@<不可变revision>; Added=[TC-…]; Updated=[TC-
 # 本轮无增删时：
 TestSetTrace: <稳定文档ID>@<不可变revision>; None(<reason>)
 PreviousAcceptedTestSetTrace: <上一轮已通过准入的同一行原文> | None(FirstSubmission) | Unavailable(<原因>)
+# 换了一份新测试文档时必填（语法见 §3.1）：
+TestSetMigrationRef: From=…; To=…; Reason=…; ReasonRef=…; CaseDisposition=… | N/A(SameDocument) | N/A(NoPreviousTrace)
 ```
 
 | 组成 | 取值 | 说明 |
@@ -82,30 +84,98 @@ PreviousAcceptedTestSetTrace: <上一轮已通过准入的同一行原文> | Non
 | `Removed=[…]` | 本轮从测试集**删除**的用例 ID | ⚠️ **必须显式列，推不出来**：被删的用例已不在本轮报告里，`Added/Updated/Unchanged` 标记覆盖不到它。无删除时写 `Removed=[]` |
 | `None(<reason>)` | 本轮确实没有增删时的合法取值（替代上面三段） | 必须给理由（如 `None(纯样式改动，复用 TC-042/TC-043)`）。**空着不算** |
 | `PreviousAcceptedTestSetTrace` | 上一轮通过准入时那一行的**原文** | 🔴 **这是"长期增量维护"唯一能被查证的地方**（v0.2.2 补）。只比 ID 与 revision，**不复制测试集内容** |
+| `TestSetMigrationRef` | 换了一份新测试文档时的**结构化**迁移声明；未换填 `N/A(SameDocument)` | 🔴 **v0.2.2 起自由文本理由不再成立**——文档 ID 一变链就断，而"正常换库"与"重新现编一份"在自由文本里长得一样。完整语法与判定见 **§3.1** |
 
 | 判定 | 条件 |
 |---|---|
-| `Complete` | `TestSetTrace` 齐全（含 revision；三段分列或 `None(reason)`）**且** `PreviousAcceptedTestSetTrace` 的稳定文档 ID 与本轮一致、revision 不同（= 同一份资产往前推进了一版） |
+| `Complete` | `TestSetTrace` 齐全（含 revision；三段分列或 `None(reason)`）**且** `PreviousAcceptedTestSetTrace` 的稳定文档 ID 与本轮一致、revision 不同（= 同一份资产往前推进了一版）；**或**文档 ID 不同但附了合法的 **`TestSetMigrationRef`**（见 §3.1） |
 | `Incomplete` | 缺 revision（只给链接）；delta 段留空；`Removed` 段缺失；文档 ID 指向本次临时文档 |
-| `Incomplete` | **文档 ID 与上一轮不同**且未说明迁移原因 —— 这正是「每轮新建一份文档并称其为稳定 ID」的绕过形态 |
+| `Incomplete` | **文档 ID 与上一轮不同**，而 `TestSetMigrationRef` 缺失 / 取 `N/A(SameDocument)` / 不合法 —— 这正是「每轮新建一份文档并称其为稳定 ID」的绕过形态（v0.2.2 起**自由文本理由不再成立**，必须是 §3.1 的结构化形态） |
 | `Incomplete` | revision 与上一轮**完全相同**却声明了 `Added` / `Updated` / `Removed` —— 自相矛盾（测试集没变却说改了用例） |
-| 首次提测 | `PreviousAcceptedTestSetTrace: None(FirstSubmission)` 合法，但**只有第一次** |
+| 首次提测 | `PreviousAcceptedTestSetTrace: None(FirstSubmission)` 合法，但**只有第一次**，且**必须配 `TestSetMigrationRef: N/A(NoPreviousTrace)`** |
 
 **上一轮那一行从哪里来（v0.2.2 明确取数路径，避免这条控制写了却不可执行）：**
 
 | 优先级 | 来源 | 说明 |
 |---|---|---|
-| ① | 项目侧 `memory/changeset-log.md` 里**最近一条 `TestSetTrace` 非 `N/A` 的行** | v0.2.2 起该列由 `plaud-theme-qa` 在本轮 **`QAAdmissionStatus: Accepted`** 时写入（与 `ReadyForDelivery` 无关，所以 QA 失败的返工轮也有值；列定义见 `plaud-theme-shared/references/handoff-schema.md` §9.2「`memory/` 记录字段」）。这是唯一权威来源 |
-| ② | 用户直接给的上一轮 `QAIntake` 工件原文 | ①不可得时用；须是**已通过准入**（`QAAdmissionStatus: Accepted`）的那一轮，不是任意一轮草稿 |
+| ① | 项目侧 `memory/changeset-log.md` 里**最近一条 `TestSetTrace` 非 `N/A` 的行** | v0.2.2 起该列由 `plaud-theme-qa` 在本轮 **`QAAdmissionStatus: Accepted`** 时写入（与 `ReadyForDelivery` 无关，所以 QA 失败的返工轮也有值；列定义见 `plaud-theme-shared/references/handoff-schema.md` §9.2「`memory/` 记录字段」）。这是**首选**权威来源；它不可得时才走②，**②不是「可选的偷懒路径」，是日志确实读不到时的唯一替代** |
+| ② | 用户直接给的**一对**工件：上一轮的 `QAIntake` 工件原文 **+** 同一 `SubmissionId` / `ChangeSetId` 的那一轮 **QA §5 工件**，且后者 `QAAdmissionStatus: Accepted` | ①不可得时用。🔴 **必须成对**：`QAAdmissionStatus` 是 QA 工件的字段，**`QAIntake` 工件里根本没有它**——只给一份 `QAIntake` 无法证明「已通过准入」，那样谁都能拿一份自己写的草稿冒充上一轮。两份对不上 `SubmissionId` / `ChangeSetId`，或 QA 工件不是 `Accepted` → 当作①②都不可得，走③ |
 | ③ | 都拿不到 | 🔴 **不判 `Incomplete`，也不假装查过**：本轮 `PreviousAcceptedTestSetTrace` 填 `Unavailable(<原因>)`，`SelfTestReportStatus` 按其余条件判定，并在 QA 的 `Advisories` 记「测试集跨轮次连续性本轮无法核验」。**这是过渡条款**：`changeset-log.md` 在 v0.2.2 之前没有 `TestSetTrace` 列，早期项目必然命中③；一旦该列有值就不再适用 |
 
 > ⚠️ **`Unavailable(...)` 的成立条件（v0.2.2 收紧措辞）**：**在 `changeset-log.md` 里找不到任何一条 `TestSetTrace` 非 `N/A` 的历史行，且用户也给不出上一轮已通过准入的工件**。
 > 这包含三种真实情形：① 日志根本没有这一列（v0.2.2 之前的旧日志）；② 有这一列但历史行全是 `N/A(NotAccepted)` / `N/A(NoTestSet)`（例如前几轮都卡在准入）；③ 日志文件本身缺失。
 > **不成立**的情形：日志里明明有可用的历史 trace 却填 `Unavailable` = 契约违规。
+>
+> 🔴 **`None(FirstSubmission)` 与 `Unavailable(...)` 的分界（否则「首次」变成一个谁都能自称的状态）**：「首次」的事实源同样是 `changeset-log.md` —— **日志读到了、且其中没有任何一条非 `N/A` 的 `TestSetTrace` 行** → `None(FirstSubmission)`；**日志读不到 / 没有这一列 / 有列但历史行全是 `N/A`** → `Unavailable(<原因>)`。区别就在「读到了但确实是空的」与「根本读不到」。两者都必须配 `TestSetMigrationRef: N/A(NoPreviousTrace)`；日志里明明有可用历史行却填 `None(FirstSubmission)`，与填 `Unavailable` 同样是契约违规。
 > 填了 `Unavailable` 就必须在 QA 的 `Advisories` 记「测试集跨轮次连续性本轮无法核验」+ 写明属于上面哪一种。
 
 > ⚠️ **矩阵不拥有测试集本身**（与 `memory/` 同类，项目侧长期资产，不随包分发）。这里只查"有没有挂在测试集上、这一版是哪一版、这轮动了哪几条"，**不查测试集内容**。
 > Aily 的审查是**外部人工流程**，矩阵不代替：尚未双方固化时记 QA 的 `Advisories`，**不进 `BlockingGaps`**（那是停机项），也**不因此判 `Incomplete`**。
+
+### 3.1 换了一份新测试文档：结构化 `TestSetMigrationRef`（v0.2.2 补）
+
+**要解决的是什么**：`PreviousAcceptedTestSetTrace` 靠「同一个稳定文档 ID」把两轮串起来，**文档 ID 一变链就断**。v0.2.1/v0.2.2 只要求"说明迁移原因"，而自由文本里「我们换到 Linear 了」和「上一轮那份找不到了，我重新整理了一份」长得一模一样——**正常换库**与**重新现编一份来掩盖没做增量维护**因此不可区分。这一节把它改成结构化、可机械比对的一行。
+
+语法（**唯一事实源在此**；`handoff-schema.md` §9.1.2 / §9.2 只登记字段与取值，不复制语法）：
+
+```yaml
+TestSetMigrationRef: From=<旧稳定文档ID>@<旧revision>; To=<新稳定文档ID>@<新revision>; Reason=<封闭枚举>; ReasonRef=<locator>; CaseDisposition=Mapped(<locator>) | BulkRetired(<locator>)
+# 🔴 算 PackageFingerprint 前必须 cd 到材料根并 export PLAUD_PACKAGE_ROOT=$(pwd -P)（v0.2.2 第十轮）：
+#    否则在子目录跑会静默算出子集指纹且 rc=0，两边同样错就 Accepted 照发、材料根本没被绑住。
+# <locator> 只有两种合法形态，指向的对象必须在提测材料里（因而进 PackageFingerprint）：
+#   Local(<相对提测材料根的路径>)     —— 本地文件，如 Local(testset/migration-map.tsv)
+#   Manifest(<materials.tsv 条目名>)  —— 云端材料，须带不可变 revision / digest（§9.1.2 既有规则）
+# 🔴 适用范围不同，不可互换：
+#   ReasonRef        两种都可以（只核存在性 + 内容绑定）
+#   CaseDisposition  **只能 Local(...)** —— 清单要核条数 / 重复 ID / 空理由，而云端材料按 §9.1.2
+#                    只重取 revision / digest、取不到内容，写 Manifest(...) 就是写了一条查不了的规则
+# 未换文档：
+TestSetMigrationRef: N/A(SameDocument)
+# 本轮没有可比对的上一轮（PreviousAcceptedTestSetTrace 为 None(FirstSubmission) 或 Unavailable(...)）：
+TestSetMigrationRef: N/A(NoPreviousTrace)
+```
+
+**五段的取值与判定**（`From` / `To` / `Reason` / `ReasonRef` / `CaseDisposition`，**缺一即 `Incomplete`**）：
+
+| 段 | 取值 | 判定（不满足即 `SelfTestReportStatus: Incomplete`） |
+|---|---|---|
+| `From` | `<旧稳定文档ID>@<旧revision>` | 🔴 **必须与本轮 `PreviousAcceptedTestSetTrace` 的 `ID@revision` 逐字一致**。它的事实源就是矩阵自己已有的那一行，**不引入任何需要另外去查的新事实源**。🔴 **比的是那一行的 `ID@revision` 前缀段，不是整行**——日志列里存的是 `ID@revision; Added=[…]; …` 的完整原文，取第一个 `;` 之前那段做逐字比对。**按来源分支**：走取数路径① 时，`From` 还要等于 `memory/changeset-log.md` 里最近一条 `TestSetTrace` 非 `N/A` 行的同一前缀段；走路径②（日志不可得、用成对工件）时**只与那对工件里的 `QAIntake.TestSetTrace` 比**，不得再去要求日志——路径②的前提就是日志不可用，再卡日志等于把合法输入锁死；走路径③ 时本字段应为 `N/A(NoPreviousTrace)`。对不上 = 迁移声明与历史记录矛盾 |
+| `To` | `<新稳定文档ID>@<新revision>` | 🔴 **必须与本轮 `TestSetTrace` 的 `ID@revision` 逐字一致**。对不上 = 声明迁到 A、实际交的是 B |
+| `Reason` | **封闭枚举，三值**：`PlatformMigration`（换承载平台/工具，如飞书文档 → Linear 文档）\| `OwnerHandover`（agency 或测试负责人交接，旧文档不再由本方维护）\| `Deprecated`（旧文档被平台下线 / 永久不可访问 / 被判作废） | 不在枚举内**不得自造、不得硬套**：判 `Incomplete`，`BlockingGaps` 写 `TestSetMigrationReasonOutsideClosedEnum: <一句话实情>`，由 maintainer 决定下一版是否扩枚举（枚举增删同样要发版，见 `version-manifest.md` §1.1）。**刻意不提供 `Other(...)` 兜底**——兜底会立刻变成默认选项，这一行就退回自由文本 |
+| `ReasonRef` | 该迁移决定的**书面出处**（迁移说明 / 工单 / 纪要导出件）的 `<locator>` | 只核**两件事**：① locator 指向的对象**确实在提测材料里**（`Local(...)` 的文件存在、`Manifest(...)` 的条目存在且带不可变 revision / digest）；② 因此它已被 `PackageFingerprint` 绑定、事后不可替换。**悬空引用**（文件/条目不存在）、**无版本外链**、**整段缺失** → `Incomplete`。🔴 **矩阵不核它的内容真伪**（写得对不对、批没批），那是 agency 与测试同学之间的事 |
+| `CaseDisposition` | `Mapped(<locator>)`（旧用例**逐条**映射到新用例或显式弃用）\| `BulkRetired(<locator>)`（旧用例**整体废弃**） | 两种形态都**必须**指向一份进了提测材料的清单文件，见下 |
+
+**`CaseDisposition` 指向的那份清单**（这是本节唯一新增的材料要求）：
+
+🔴 **这份清单只能用 `Local(...)`**：`Manifest(...)`（云端）指向的材料，矩阵按 §9.1.2 只重新取 **revision / digest**、**取不到内容**，条数 / 重复 ID / 空理由这些核对根本做不了——允许它就等于写了一条查不了的规则。清单放云端时先下载一份进材料目录再用 `Local(...)` 指。
+
+它是**提测材料目录里的一个普通文件**（如 `testset/migration-map.tsv`），用 `Local(<相对路径>)` 指向，因此**自动进 `PackageFingerprint`**——走的是 §9.1.2 已有的材料绑定机制，不是一条新的外部查询链路。清单原本在云端时**先下载一份进材料目录**再用 `Local(...)` 指；直接写 `Manifest(...)` 一律 `Incomplete`（`Manifest(...)` 只适用于 `ReasonRef`）。两种 locator 之外的写法（裸 URL、只写个文件名而材料里找不到）一律视为**悬空引用** → `Incomplete`。🔴 `Local(...)` 的路径**必须解析后仍落在提测材料根之内**：含 `../`、绝对路径、或经 symlink 跑出根的一律 `Incomplete` —— 包指纹只 hash 材料根下的普通文件（symlink 本来就 fail closed），跑出根的对象**根本不进指纹**，「locator 可读」与「内容被绑定」是两回事，只查前者等于绑定承诺不成立。
+
+| 形态 | 清单内容 | 自洽性核对（intake 与 QA 都做） |
+|---|---|---|
+| `Mapped` | **头部一行** `OldCaseCount=<N>`；其后每行一条：`<TC-old>\t<TC-new>` 或 `<TC-old>\tDropped\t<理由>` | 数据行条数必须 = `OldCaseCount`；旧用例 ID **不得重复出现**；`Dropped` 行必须有非空理由 |
+| `BulkRetired` | **头部两行** `OldCaseCount=<N>` 与 `RetireReason=<一句话>`；其后逐条列出被废弃的旧用例 ID，一行一个 | 数据行条数必须 = `OldCaseCount`；旧 ID 不得重复；`RetireReason` 非空。🔴 **"旧文档已经打不开了所以列不出来"不是免除理由**——换库前本方本来就持有这份资产；列不出来就判 `Incomplete`，不给 `Unavailable` 之类的降级取值（这里不存在"矩阵去查外部系统失败"这回事） |
+
+> **分工**：`plaud-theme-qa-intake` 做**全量**判定（五段齐不齐、locator 是否悬空、清单条数 / 重复 ID / 空 `Dropped` 理由）；`plaud-theme-qa` 在 Step 0 重算 `PackageFingerprint` 时**复核**同样几项（它本来就要进材料目录，不额外增加取数动作），发现 intake 判错按 `QAAdmissionReason: PackageIncomplete` 退回。
+>
+> 🔴 **矩阵能保证的到此为止，多的不要声称。** 核的是**自洽性 + 内容绑定**：清单在材料里、进了指纹（事后不可替换）、条数与声明一致、旧 ID 不重复。它**不核真实性**——`TC-1042` 在旧文档里是否真的存在、`Dropped` 的理由是否属实，矩阵**查不到也不查**（`矩阵不拥有测试集本身`，见上）。举证责任在 agency；这一行的价值是**把说法固定下来、事后可追**，不是替测试同学做审查（Aily 的人工审查仍在矩阵之外）。
+
+**本版明确不支持的迁移形状**（诚实的能力边界，不要硬套）：
+
+- **一拆多**（一份旧测试集拆成多份新文档）与**多合一**（多份旧文档合并成一份）：`From` / `To` 都是单值，而 `PreviousAcceptedTestSetTrace` 本身只有"最近一条"、不是旧文档集合，**表达不了**。遇到这种情形**停机**，`BlockingGaps` 写 `TestSetMigrationShapeUnsupported: <实情>`，**不得**挑一份旧文档冒充成一对一。留待后续版本。
+
+**降级取值一览**（每一种都必须有诚实落点）：
+
+| 情形 | `TestSetMigrationRef` | `SelfTestReportStatus` |
+|---|---|---|
+| 文档 ID 与上一轮相同 | `N/A(SameDocument)` | 按 §3 主表判 |
+| `PreviousAcceptedTestSetTrace` 为 `None(FirstSubmission)` 或 `Unavailable(<原因>)` | `N/A(NoPreviousTrace)` | 不因本字段判 `Incomplete`；QA 记 `Advisories`「本轮无可比对的上一轮，迁移无从核验」（与取数路径③同口径） |
+| ID 变了、`TestSetMigrationRef` 缺失或写成自由文本 | —— | `Incomplete` |
+| ID 变了、填了 `N/A(SameDocument)` | —— | `Incomplete`（自相矛盾） |
+| ID 没变、却填了完整迁移声明 | —— | `Incomplete`（自相矛盾） |
+| `PreviousAcceptedTestSetTrace` 是**具体一行**，却填 `N/A(NoPreviousTrace)` | —— | `Incomplete`（自相矛盾；**intake 就要判**，不要留给 QA 的 Step 0 (4e) 兜底） |
+| `PreviousAcceptedTestSetTrace` 为 `None(FirstSubmission)` / `Unavailable(...)`，却提交了**完整迁移声明** | —— | `Incomplete`（没有 `From` 可比，声明无从核验） |
+| `From` / `To` 与两行 trace 对不上 | —— | `Incomplete`；已进到 QA 才发现的走 `QAAdmissionReason: BindingMismatch`（见 `plaud-theme-qa/SKILL.md` Step 0） |
 
 ---
 

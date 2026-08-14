@@ -1,7 +1,7 @@
 {
   "skill_name": "plaud-theme-qa-intake",
   "matrix": "plaud-shopify-theme-matrix",
-  "version": "v0.2.2",
+  "version": "v0.2.3",
   "evals": [
     {
       "id": 1,
@@ -224,13 +224,16 @@
       "id": 16,
       "route": "testsettrace-new-doc-each-round",
       "prompt": "这轮测试集我新建了一份文档：TESTSET-PLAUD-0812@rev3，用例都挂在里面了，Added/Updated/Removed 三段也填了。上一轮那份是 TESTSET-PLAUD-0730@rev7，不过那份有点乱我就不用了。这样可以吧？",
-      "expected_output": "不行，判 SelfTestReportStatus: Incomplete。稳定文档 ID 与上一轮不同且未说明迁移原因，正是「每轮新建一份文档并称其为稳定 ID」的绕过形态 —— 这样一来「测试集随交付增量维护」永远不可查。要么继续在原文档上推进 revision，要么给出迁移说明并由测试同学确认。",
+      "expected_output": "不行，判 SelfTestReportStatus: Incomplete。稳定文档 ID 与上一轮不同，而本轮没有给出结构化的 TestSetMigrationRef —— 这正是「每轮新建一份文档并称其为稳定 ID」的绕过形态，「那份有点乱我就不用了」是自由文本理由，v0.2.2 起不再成立。两条出路：① 继续在原文档上推进 revision；② 给合法的 TestSetMigrationRef（From 逐字等于上一轮 TESTSET-PLAUD-0730@rev7、To 逐字等于本轮 TESTSET-PLAUD-0812@rev3、Reason 取封闭枚举三值之一、ReasonRef 与 CaseDisposition 指向进了 PackageFingerprint 的清单）。「文档有点乱」不在 Reason 封闭枚举里。",
       "files": [],
       "assertions": [
         "输出判 SelfTestReportStatus: Incomplete。",
         "输出指出稳定文档 ID 与上一轮不同。",
         "输出说明这是每轮新建文档冒充稳定 ID 的绕过形态。",
-        "输出给出两条出路：在原文档推进 revision，或给出迁移说明并经确认。"
+        "输出要求结构化的 TestSetMigrationRef，而不是一句自由文本迁移理由。",
+        "输出要求 From 与上一轮那一行逐字一致、To 与本轮 TestSetTrace 逐字一致。",
+        "输出指出「文档有点乱」不在 Reason 的封闭枚举（PlatformMigration / OwnerHandover / Deprecated）内。",
+        "输出给出两条出路：在原文档推进 revision，或补合法的 TestSetMigrationRef。"
       ],
       "forbidden": [
         "三段 delta 填了就可以判 Complete",
@@ -251,6 +254,112 @@
       "forbidden": [
         "ReworkDeltaStatus: NotApplicable"
       ]
+    },
+    {
+      "id": "intake-18-testset-migration-structured",
+      "route": "testset-migration-legit-platform",
+      "prompt": "我们测试集从飞书搬到 Linear 了。memory/changeset-log.md 里最近一条非 N/A 的 TestSetTrace 是 `TESTSET-PLAUD-0730@rev7; Added=[TC-088]; Updated=[]; Removed=[]`，新的是 LIN-TESTSET-9001@v1，本轮新增了 TC-101，旧文档里 40 条用例我一条条对到新文档了。这轮 TestSetTrace 该怎么写才算 Complete？",
+      "expected_output": "形态上是合法迁移，但必须写成结构化的 TestSetMigrationRef，不能只说一句「搬平台了」。本轮要交齐三行：TestSetTrace: LIN-TESTSET-9001@v1; Added=[TC-101]; Updated=[]; Removed=[]（三段分列一个都不能省，Removed 无删除写 []）；PreviousAcceptedTestSetTrace 原样抄日志那一行；TestSetMigrationRef 五段齐全 —— From=TESTSET-PLAUD-0730@rev7（必须与上一行的 ID@revision 前缀段逐字一致）、To=LIN-TESTSET-9001@v1（必须与本轮 TestSetTrace 的前缀段逐字一致）、Reason=PlatformMigration、ReasonRef=Local(...) 或 Manifest(...) 指向迁移说明、CaseDisposition=Mapped(Local(testset/migration-map.tsv))，清单第一行 OldCaseCount=40、其后 40 条 TC-old→TC-new 数据行，旧 ID 不得重复。清单与 ReasonRef 都必须在提测材料目录里，因而自动进 PackageFingerprint、事后不可替换；locator 悬空即 Incomplete。核对是自洽性核对：条数 = OldCaseCount、旧 ID 不重复、locator 未悬空；矩阵不核 TC-1042 在旧文档里是否真的存在（不拥有测试集），也不核迁移说明的内容真伪。语法唯一见 package-checklist.md §3.1。（🔴 harness 是全局 substring：回答里**不要复述** forbidden 列出的那串错误赋值，要指代就换个说法。）",
+      "files": [],
+      "assertions": [
+        "输出要求填结构化的 TestSetMigrationRef 五段，而不是自由文本理由。",
+        "输出要求 From 与 PreviousAcceptedTestSetTrace 的 ID@revision 前缀段逐字一致、To 与本轮 TestSetTrace 逐字一致。",
+        "输出给出 Reason=PlatformMigration（封闭枚举三值之一）。",
+        "输出要求 ReasonRef 用 Local(...) 或 Manifest(...) 指向进了 PackageFingerprint 的材料，悬空引用判 Incomplete。",
+        "输出要求 CaseDisposition=Mapped 的清单带 OldCaseCount 头部、条数与之相等、旧 ID 不重复。",
+        "输出仍要求本轮 TestSetTrace 的 Added / Updated / Removed 三段分列。",
+        "输出说明矩阵只核自洽性与内容绑定，不核用例真实性（矩阵不拥有测试集）。",
+        "输出指向 package-checklist.md §3.1 作为唯一语法事实源。",
+        "输出要求 CaseDisposition 的清单只能用 Local(<相对路径>)，不接受 Manifest(...)（云端只能核 revision/digest，读不到内容）；ReasonRef 两种 locator 都可以。"
+      ],
+      "forbidden": [
+        "TestSetMigrationRef: N/A(SameDocument)"
+      ]
+    },
+    {
+      "id": "intake-19-testset-migration-bulk-retired-no-inventory",
+      "route": "testset-migration-bulk-retired",
+      "prompt": "上一家 agency 交接给我们了，旧测试集在他们的空间里，我们打不开了，所以旧用例就整体作废、这轮全部重新写。TestSetMigrationRef 我打算写 Reason=OwnerHandover; CaseDisposition=BulkRetired(旧文档打不开)。这样行吗？",
+      "expected_output": "Reason=OwnerHandover 合法，但 CaseDisposition=BulkRetired 必须指向一份进了提测材料（因而进 PackageFingerprint）的旧用例清单：头部 OldCaseCount=<N> + RetireReason，其后逐条列出被废弃的旧用例 ID，条数必须等于 OldCaseCount。「旧文档打不开所以列不出来」不是免除理由 —— 换库前本方本来就持有这份资产，列不出来就判 SelfTestReportStatus: Incomplete，这里不存在「矩阵去查外部系统失败」的降级取值。另外 From 仍必须逐字等于上一轮那一行；上一轮记录本身取不到时（PreviousAcceptedTestSetTrace 为 Unavailable），本字段改填 N/A(NoPreviousTrace)，此时不因它判 Incomplete，改记 QA 的 Advisories。",
+      "files": [],
+      "assertions": [
+        "输出判 SelfTestReportStatus: Incomplete。",
+        "输出要求 BulkRetired 附一份含 OldCaseCount 与逐条旧用例 ID 的清单，并说明它随材料进 PackageFingerprint。",
+        "输出要求清单头部两行含非空的 RetireReason，且数据行条数等于 OldCaseCount、旧 ID 不重复。",
+        "输出明确「旧文档打不开」不是免除列清单的理由。",
+        "输出说明这里没有 Unavailable 之类的降级取值，因为不涉及矩阵去查外部系统。",
+        "输出给出 N/A(NoPreviousTrace) 的正确适用条件（上一轮记录本身取不到时）。",
+        "输出要求这份清单用 Local(<相对路径>) 放进材料目录，不接受云端 Manifest(...)（远端只能核 revision/digest，读不到内容）。"
+      ]
+    },
+    {
+      "id": "intake-20-artifact-block-exact-fields",
+      "route": "qaintake-artifact-shape",
+      "kind": "rule",
+      "prompt": "把这次提测的准入工件按契约输出给我看格式。",
+      "expected_output": "回复最后是一个 yaml 代码块，23 个字段与 handoff-schema §9.1.2 完全一致且顺序一致：ArtifactKind: QAIntake、SubmissionId、ChangeSetId、ChangeSetFingerprint、PackageRootRef、PackageFingerprint、TargetSites、ExcludedSites、ThemeIds、ScopeSourceRef、PreviewManifest、PreviewManifestStatus、ConfigurationGuideStatus、SelfTestReportStatus、TestSetTrace、PreviousAcceptedTestSetTrace、TestSetMigrationRef、ScreenshotManifestStatus、ImpactScopeStatus、ReworkDeltaStatus、SubmissionPackageStatus、BlockingGaps、NextRequiredSkill: plaud-theme-qa。无自造字段、无漏字段，块里一个 ReadyForDelivery 都不许出现，材料状态一律用 Complete/Incomplete 而不是 Yes/No。",
+      "assertions": [
+        "ArtifactKind: QAIntake",
+        "SubmissionId",
+        "ChangeSetFingerprint",
+        "PackageFingerprint",
+        "PreviewManifestStatus",
+        "SelfTestReportStatus",
+        "TestSetTrace",
+        "PreviousAcceptedTestSetTrace",
+        "TestSetMigrationRef",
+        "ReworkDeltaStatus",
+        "SubmissionPackageStatus",
+        "NextRequiredSkill: plaud-theme-qa",
+        "yaml 块的 key 集合与 handoff-schema §9.1.2（23 字段）**完全一致**：23 个、顺序一致、无自造 key、无漏字段——多一个 key 或少一个 key 都算契约违规。",
+        "yaml 块里不出现 ReadyForDelivery 字段。"
+      ],
+      "validator": {
+        "type": "yaml-block-exact-keys",
+        "note": "string-contains 无法验证「完全一致」。需 harness 实现结构化校验：取回复最后一个 fenced yaml block → 解析 → Object.keys() 与 expectedKeys 严格相等且顺序相等 → 检查 yaml fence 之后无非空内容 → 检查 forbiddenKeys 均不存在。若 harness 未实现 validator，本条按「未验证」记，不得因 assertions 全中就判通过。（v0.2.2 补：qa-intake 此前没有任何结构 validator，`TestSetMigrationRef` 这类新增字段整字段漏写也发现不了。） 🔴 解析时**必须拒绝重复 key**（YAML parser 默认可能把重复项折叠掉，那样 `Object.keys()` 少一个、缺 key 与重复 key 两种错误都验不出来）。",
+        "expectedKeys": [
+          "ArtifactKind",
+          "SubmissionId",
+          "ChangeSetId",
+          "ChangeSetFingerprint",
+          "PackageRootRef",
+          "PackageFingerprint",
+          "TargetSites",
+          "ExcludedSites",
+          "ThemeIds",
+          "ScopeSourceRef",
+          "PreviewManifest",
+          "PreviewManifestStatus",
+          "ConfigurationGuideStatus",
+          "SelfTestReportStatus",
+          "TestSetTrace",
+          "PreviousAcceptedTestSetTrace",
+          "TestSetMigrationRef",
+          "ScreenshotManifestStatus",
+          "ImpactScopeStatus",
+          "ReworkDeltaStatus",
+          "SubmissionPackageStatus",
+          "BlockingGaps",
+          "NextRequiredSkill"
+        ],
+        "forbiddenKeys": [
+          "ReadyForDelivery",
+          "QAStatus",
+          "ModifiedFiles",
+          "RootCause",
+          "OptionsConsidered",
+          "RequiredQAProfile",
+          "QAAdmissionStatus",
+          "QAAdmissionReason",
+          "ChangeSetIdMatched",
+          "ThemeCheck",
+          "ApprovedExceptions",
+          "ApprovedExceptionsChecked",
+          "ReadOnlyProof",
+          "AssessmentRef",
+          "IntegrationQARef"
+        ]
+      }
     }
   ],
   "description": "\n- 🔴 **不要把「否定短语」写成 forbidden**：正确答案常引用题面措辞来否定它（「不能 X」含「X」），全局 substring 会误判。要禁就禁**赋值形态**或明确的错误结论句。 forbidden 判据（v0.2.2 第九轮定稿）：只写「错误工件里必然出现、正确工件里不可能出现」的赋值形态；不要写否定短语或裸概念词（`可以并行` 会被「不可以并行」命中）；也不要写会被正确答案顺带复述的串——确实需要禁某个赋值时，同时在 expected_output 里注明「不要复述该串」。能用 assertions 表达的约束一律走 assertions，不进 forbidden。"

@@ -1,7 +1,7 @@
 {
   "skill_name": "plaud-theme-dev",
   "skill": "plaud-theme-dev",
-  "version": "v0.2.2",
+  "version": "v0.2.3",
   "path": "A",
   "stage": "Implement",
   "notes": "assertions 为对 agent 输出的 substring 检查。刻意只断言契约常量、skill 名、字段名与不可改写的术语，不断言易被同义改写的自然语句。",
@@ -154,7 +154,7 @@
     {
       "id": "dev-12-handoff-block-fields",
       "prompt": "输出一次完整的 Path A 交接块给我看。",
-      "expected_output": "末尾 yaml 块严格按 handoff-schema §4 的 20 个字段且顺序一致：ChangeSetId(CS-YYYYMMDD-ANN)、BaseHeadSha、ChangeSetFingerprint、ReadOnlyProof、AssessmentRef、OriginTriageRef、Path: A、ReconMode、ModifiedFiles、RootCause、OptionsConsidered、RequiredQAProfile（含 QA-A，不含 QA-Global）、ThemeCheckRequired、VisualRegressionRequired、BuildRequired、ApprovedExceptions（无则 []）、BlockingGaps、QAStatus: NotRun、NextRequiredSkill: plaud-theme-qa-intake、ReadyForDelivery: No，无自造字段、无漏字段；并说明 BaseHeadSha / ChangeSetFingerprint 是交付当刻用 §2 命令现场生成的。",
+      "expected_output": "末尾 yaml 块严格按 handoff-schema §4 的 20 个字段且顺序一致：ChangeSetId(CS-YYYYMMDD-ANN)、BaseHeadSha、ChangeSetFingerprint、ReadOnlyProof、AssessmentRef、OriginTriageRef、Path: A、ReconMode、ModifiedFiles、RootCause、OptionsConsidered、RequiredQAProfile（含 QA-A，不含 QA-Global）、ThemeCheckRequired、VisualRegressionRequired、BuildRequired、ApprovedExceptions（无则 []）、BlockingGaps、QAStatus: NotRun、NextRequiredSkill: plaud-theme-qa-intake、ReadyForDelivery: No，无自造字段、无漏字段；并说明 BaseHeadSha / ChangeSetFingerprint 是交付当刻用 §2 命令现场生成的。（🔴 harness 是全局 substring：回答里**不要复述** forbidden 列出的那串错误赋值，要指代就换个说法。）",
       "assertions": [
         "ChangeSetId",
         "BaseHeadSha",
@@ -176,11 +176,11 @@
         "ReadyForDelivery: No",
         "yaml 块含 ApprovedExceptions 字段（无声明时为 []）。",
         "yaml 块含 OriginTriageRef 字段（非返工轮次填 N/A）。",
-        "yaml 块的 key 集合与 handoff-schema §4（20 字段） **完全一致**：20 个、顺序一致、无自造 key、无漏字段——多一个 key 或少一个 key 都算契约违规。"
+        "yaml 块的 key 集合与 handoff-schema §4（20 字段） **完全一致**：20 个、顺序一致、无自造 key、无漏字段——多一个 key 或少一个 key 都算契约违规。",
+        "yaml 块的 RequiredQAProfile 取值集合只含 QA-A / QA-B / QA-C，**不含 QA-Global**（QA-Global 由 QA 恒执行并记进 QAProfilesRun，任何上游工件写它都是违规）。"
       ],
       "forbidden": [
         "RequiredQAProfile: QA-Global",
-        "RequiredQAProfile 含 QA-Global",
         "QA-A, QA-Global",
         "QA-B, QA-Global",
         "QA-C, QA-Global"
@@ -188,7 +188,7 @@
       "kind": "rule",
       "validator": {
         "type": "yaml-block-exact-keys",
-        "note": "string-contains 无法验证「完全一致」。需 harness 实现结构化校验：取回复最后一个 fenced yaml block → 解析 → Object.keys() 与 expectedKeys 严格相等且顺序相等 → 检查 yaml fence 之后无非空内容 → 检查 forbiddenKeys 均不存在。若 harness 未实现 validator，本条按「未验证」记，不得因 assertions 全中就判通过（v0.2.2 第九轮补：此前这四条只有 substring 断言，缺 key / 多 key / 顺序错都验不出来）。",
+        "note": "string-contains 无法验证「完全一致」。需 harness 实现结构化校验：取回复最后一个 fenced yaml block → 解析 → Object.keys() 与 expectedKeys 严格相等且顺序相等 → 检查 yaml fence 之后无非空内容 → 检查 forbiddenKeys 均不存在。若 harness 未实现 validator，本条按「未验证」记，不得因 assertions 全中就判通过（v0.2.2 第九轮补：此前这四条只有 substring 断言，缺 key / 多 key / 顺序错都验不出来）。 🔴 **本条 `forbidden` 的定位（v0.2.2 收口）**：它们只是 validator 未落地前的 substring **回退**，语义已由上面的结构化校验完整承载。harness 真正执行本 validator 后可以整批删除；在那之前不得删——删了当前 substring runner 对这些 key 就完全没有机械约束。 🔴 **`fieldValueConstraints` 的语义（v0.2.2 新增，用于把「不得写 QA-Global」从 substring 提升为结构校验）**：只解析**最后一个** fenced yaml block 里该 key 的值，**不扫描正文**（正文里解释「QA-Global 不得写进本字段」不算违规）；`mode: \"set\"` 表示该值是一个多选集合——形态可以是逗号分隔标量（`QA-A, QA-B`）或 YAML list，解析后**逐成员**比对：任一成员不在 `allowedValues` 内、或命中 `forbiddenValues`，即判违规。🔴 **harness 未实现该扩展时本条按「未验证」记，不得静默忽略后凭 assertions 判通过**——这也是下面那几条 `forbidden` 在 evaluator 落地前**不能删**的原因。evaluator 落地时至少要过三类回归：① 正确的 `QA-A, QA-B` 通过；② yaml 字段里出现 `QA-Global` 判违规；③ 正文提到「QA-Global 不得写入该字段」但最终 yaml 合法 → 通过。 `minItems: 1` / `allowEmpty: false`：空集合（`RequiredQAProfile: []` 或留空）**不算通过**，否则「不含 QA-Global」这条约束可以靠什么都不填来真空满足。 🔴 解析时**必须拒绝重复 key**（YAML parser 默认可能把重复项折叠掉，那样 `Object.keys()` 少一个、缺 key 与重复 key 两种错误都验不出来）。",
         "expectedKeys": [
           "ChangeSetId",
           "BaseHeadSha",
@@ -235,6 +235,22 @@
           "ProfileSpecificResults",
           "Advisories",
           "Evidence"
+        ],
+        "fieldValueConstraints": [
+          {
+            "field": "RequiredQAProfile",
+            "mode": "set",
+            "allowedValues": [
+              "QA-A",
+              "QA-B",
+              "QA-C"
+            ],
+            "forbiddenValues": [
+              "QA-Global"
+            ],
+            "minItems": 1,
+            "allowEmpty": false
+          }
         ]
       }
     },
