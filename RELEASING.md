@@ -141,7 +141,7 @@ curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/in
 
 | | 状态 |
 |---|---|
-| `install.sh` | **实跑验证过**（macOS）：装最新 tag / 钉 `--ref v0.2.2` / `--check` / `--dry-run`；造陈旧残留文件与陈旧 skill 目录并确认能报出、重装能清；注入恒失败的 `tar` / `git` / `curl` / `mktemp`；`chmod 500` 复现「删除失败却报成功」的历史事故；symlink 目标目录；`HOME` 未设；管道截断。`bash 3.2` / `dash` / `zsh` 三家一致 |
+| `install.sh` | **实跑验证过**（macOS）：装最新 tag / 钉 `--ref v0.2.2` / `--check` / `--dry-run`；造陈旧残留文件与陈旧 skill 目录并确认能报出、重装能清；注入恒失败的 `tar` / `git` / `curl` / `mktemp`；`chmod 500` 复现「删除失败却报成功」的历史事故；symlink 目标目录；`HOME` 未设；管道截断。`bash 3.2` / `dash` / `zsh` 三家一致。另外按外部评审（Codex）构造的攻击逐条实测：清空 marker、伪造 `commit:`、把 marker 的 `ref:` 改成分支名、把 in-progress 标记换成目录、把被删掉的 skill 改成不带 `plaud-theme-` 前缀的名字、残留 staging 目录、并发两个不同 ref、swap 中途 `kill -9` —— 全部报出问题并非零退出，没有一条能让 `--check` 说"一致" |
 | `install.ps1` | **从未在 Windows 上跑过，连语法解析都没跑过**（开发机没有 PowerShell）。是 `install.sh` 的静态移植。首次在 Windows 上用前先 `-DryRun`，再 `-Check`，别直接实装 |
 
 改安装器之后**至少**要重跑这几条：

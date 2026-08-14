@@ -20,7 +20,7 @@
 param(
   [string]$Ref = "",
   [string]$Repo = "https://github.com/chovizzz/plaud-theme-matrix",
-  [string]$Tarball = "",
+  [string]$Tarball = "",   # .zip only on this port (Expand-Archive); the sh port takes .tar.gz
   [string]$Source = "",
   [string]$Clients = "",
   [string]$CreateMissing = "",
@@ -54,7 +54,9 @@ Parameters (same names and meaning as the sh port's long options):
                        If that cannot be resolved the run FAILS; it never
                        silently falls back to a branch.
   -Repo URL            Repo to install from.
-  -Tarball PATH|URL    Install from a prepared .zip/.tar.gz (requires -Ref).
+  -Tarball PATH|URL    Install from a prepared .ZIP (requires -Ref). This port
+                       uses Expand-Archive, so .tar.gz is NOT accepted here;
+                       the sh port takes .tar.gz and not .zip.
   -Source DIR          Install from a local checkout (provenance UNPROVEN).
   -Clients LIST        Comma-separated: cursor,claude,codex,agents.
   -CreateMissing LIST  Create absent skills dirs ('all' accepted).
@@ -335,7 +337,11 @@ function Write-Marker {
     "skills_count: $($Skills.Count)"
   )
   foreach ($s in $Skills) { $lines += "skill: $s" }
-  Set-Content -LiteralPath $f -Value $lines -Encoding UTF8
+  # Written to a temp file and moved into place, like the sh port: a marker
+  # half-written by a crash would claim an install that did not finish.
+  $tmp = "$f.tmp.$PID"
+  Set-Content -LiteralPath $tmp -Value $lines -Encoding UTF8
+  Move-Item -LiteralPath $tmp -Destination $f -Force
 }
 
 # ------------------------------------------------------------------ legacy
@@ -346,7 +352,9 @@ function Find-Legacy {
   foreach ($t in $Targets) {
     foreach ($l in $LegacySkills) {
       $p = Join-Path $t $l
-      if (Test-Path -LiteralPath $p) {
+      # -Force so a hidden or dangling reparse point is seen; Test-Path alone
+      # returns $false for a broken link, which would let it slip past the gate.
+      if ((Test-Path -LiteralPath $p) -or (Get-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue)) {
         $item = Get-Item -LiteralPath $p -Force
         if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { $links += $p }
         elseif ($item.PSIsContainer) { $found += $p }
@@ -451,6 +459,23 @@ function Install-Client {
 
   # Staging lives INSIDE the skills dir: same volume, so the swap is a move,
   # not a second copy that can half-fail.
+  # Two concurrent installs would interleave their swaps and trample each
+  # other's in-progress marker. New-Item -ItemType Directory FAILS when the
+  # directory already exists, which makes it the atomic test-and-set. A lock we
+  # did not create is NEVER removed automatically: an abandoned lock has to be
+  # looked at by a human, because the alternative is silently resuming on top
+  # of an unknown half-state.
+  $lock = Join-Path $SkillsDir '.plaud-install-lock'
+  try {
+    New-Item -ItemType Directory -Path $lock -ErrorAction Stop | Out-Null
+  } catch {
+    Warn "FAILED: another install is running (or crashed) in $SkillsDir"
+    Warn "        Lock: $lock"
+    Warn "        If no installer is running, inspect the directory, then: Remove-Item '$lock'"
+    return $false
+  }
+  try {
+
   $stage = Join-Path $SkillsDir (".plaud-staging-" + (Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss') + "-$PID")
   if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
   try { New-Item -ItemType Directory -Force -Path $stage | Out-Null } catch {
@@ -528,6 +553,10 @@ function Install-Client {
   Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
   Remove-Item -LiteralPath $prog -Force
   return $true
+  } finally {
+    # Only ever removes the lock this call created.
+    Remove-Item -LiteralPath $lock -Recurse -Force -ErrorAction SilentlyContinue
+  }
 }
 
 # ------------------------------------------------------------------- check
@@ -553,12 +582,38 @@ function Invoke-Check {
     if ($why) { Warn "   UNSAFE PATH: $why"; $bad++; continue }
 
     $clientBad = $false
+    # Test-Path, not Test-Path -PathType Leaf: replacing the marker with a
+    # directory or a reparse point must not read as "no interrupted install".
     if (Test-Path -LiteralPath (Join-Path $dir $InProgressName)) {
       Say "   INTERRUPTED INSTALL: $InProgressName is still present"
       $clientBad = $true
     }
+    $leftoverStage = @(Get-ChildItem -LiteralPath $dir -Directory -Force -Filter '.plaud-staging-*' -ErrorAction SilentlyContinue)
+    foreach ($st in $leftoverStage) {
+      Say "   INTERRUPTED INSTALL: leftover staging dir $($st.Name)"
+      $clientBad = $true
+    }
+    if (Test-Path -LiteralPath (Join-Path $dir '.plaud-install-lock')) {
+      Say "   LOCK PRESENT:  an install is running here, or one crashed"
+      $clientBad = $true
+    }
 
+    $mf = Join-Path $dir $MarkerName
+    if ((Test-Path -LiteralPath $mf) -and -not (Test-Path -LiteralPath $mf -PathType Leaf)) {
+      Say "   marker:        NOT A REGULAR FILE — unusable, provenance unproven"
+      $clientBad = $true
+    }
     $m = Read-Marker -SkillsDir $dir
+    if ($m -and -not $m.ref) {
+      Say "   marker:        HAS NO ref: FIELD — unusable, provenance unproven"
+      $clientBad = $true; $m = $null
+    }
+    if ($m -and -not (Test-ValidRef $m.ref)) {
+      # Without this, editing the marker to say `main` would make -Check fetch
+      # a branch and hold the client to it.
+      Say "   marker ref:    NOT A RELEASE TAG ($($m.ref)) — refusing to compare against it"
+      $clientBad = $true; $m = $null
+    }
     if ($m) {
       Say "   marker ref:    $($m.ref)"
       Say "   marker commit: $($m.commit)"
@@ -580,6 +635,16 @@ function Invoke-Check {
     }
     if (-not $Ref -and $latest -and $m -and $m.ref -and $m.ref -ne $latest) {
       Say "   BEHIND: $($m.ref) installed, $latest is the newest tag"
+    }
+
+    # The marker's commit is a claim too. A moved tag or a forged marker shows
+    # up as a mismatch against what the tag actually points at now.
+    if ($m -and $m.commit -and -not $m.commit.StartsWith('unknown')) {
+      $realCommit = Resolve-CommitSha -RepoUrl $Repo -R $m.ref
+      if ($realCommit -and -not $realCommit.StartsWith('unknown') -and $realCommit -ne $m.commit) {
+        Say "   COMMIT MISMATCH: marker says $($m.commit), $($m.ref) now points at $realCommit"
+        $clientBad = $true
+      }
     }
 
     $root = Get-PackageTree -R $useRef -WorkDir $WorkDir
@@ -609,9 +674,18 @@ function Invoke-Check {
     # a hand-deleted marker). Other packages' skills are never touched.
     $cand = @()
     if ($m) { $cand += $m.skills }
-    $cand += @(Get-ChildItem -LiteralPath $dir -Directory -Force |
-               Where-Object { $_.Name.StartsWith($SkillPrefix) -or ($_.Name -in $LegacySkills) } |
-               ForEach-Object { $_.Name })
+    foreach ($d in (Get-ChildItem -LiteralPath $dir -Directory -Force)) {
+      if ($d.Name.StartsWith($SkillPrefix) -or ($d.Name -in $LegacySkills)) { $cand += $d.Name; continue }
+      # Third source: the directory NAME can be changed, the skill's declared
+      # `name:` cannot without breaking the skill. Renaming a dropped skill out
+      # of the plaud-theme-* prefix would otherwise slip past both the marker
+      # list and the prefix scan and keep being routed to.
+      $sk = Join-Path $d.FullName 'SKILL.md'
+      if (Test-Path -LiteralPath $sk -PathType Leaf) {
+        $decl = (Select-String -LiteralPath $sk -Pattern '^name:\s*(.+)$' -List).Matches.Groups[1].Value
+        if ($decl -and $decl.Trim().Trim('"',"'").StartsWith($SkillPrefix)) { $cand += $d.Name }
+      }
+    }
     $stale = @($cand | Sort-Object -Unique | Where-Object { $_ -and ($_ -notin $refSkills) -and (Test-Path -LiteralPath (Join-Path $dir $_)) })
     foreach ($s in $stale) {
       Say "   STALE SKILL:   $s — not in $useRef, still installed and still routable"
@@ -635,6 +709,12 @@ function Invoke-Check {
 $work = Join-Path ([IO.Path]::GetTempPath()) ("plaud-install-" + [Guid]::NewGuid().ToString('N').Substring(0, 8))
 New-Item -ItemType Directory -Force -Path $work | Out-Null
 try {
+  # The sh port also accepts a local git repo for -Repo (via `git archive`).
+  # This port has no such path, so reject it loudly instead of building a
+  # nonsense codeload URL out of a filesystem path.
+  if ($Repo -notmatch '^https?://') {
+    Die "-Repo must be an https URL here. Installing from a local git repo is a sh-port-only feature; use -Source DIR or -Tarball FILE instead."
+  }
   $clientList = if ($Clients) { @($Clients -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) } else { $ClientNames }
   foreach ($c in $clientList) { if (-not (Get-ClientPath $c)) { Die "Unknown client: $c" } }
 

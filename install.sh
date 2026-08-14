@@ -99,6 +99,13 @@ CLEANED=0
 cleanup() {
   [ "$CLEANED" = 1 ] && return 0
   CLEANED=1
+  # Release only the locks THIS process created. A lock left by another run is
+  # never removed automatically — that is the whole point of it.
+  if [ -n "$WORK" ] && [ -f "${WORK}/locks" ]; then
+    while IFS= read -r _cl_l; do
+      [ -n "$_cl_l" ] && rmdir "$_cl_l" 2>/dev/null || true
+    done <"${WORK}/locks"
+  fi
   if [ -n "$WORK" ] && [ -d "$WORK" ]; then rm -rf "$WORK" 2>/dev/null || true; fi
 }
 on_exit() { rc=$?; cleanup; exit "$rc"; }
@@ -643,6 +650,24 @@ install_client() {
     return 0
   fi
 
+  # Two concurrent installs of different refs would interleave their swaps and
+  # trample each other's in-progress marker. `mkdir` is atomic on every POSIX
+  # filesystem, so it is the lock. A lock we did not create is NEVER removed
+  # automatically: an abandoned lock has to be looked at by a human, because
+  # the alternative is silently resuming on top of an unknown half-state.
+  _ic_lock="${_ic_dir%/}/.plaud-install-lock"
+  if ! mkdir "$_ic_lock" 2>/dev/null; then
+    if [ -e "$_ic_lock" ]; then
+      warn "FAILED: another install is running (or crashed) in $_ic_dir"
+      warn "        Lock: $_ic_lock"
+      warn "        If no installer is running, inspect the directory, then: rmdir \"$_ic_lock\""
+    else
+      warn "FAILED: cannot create the install lock in $_ic_dir"
+    fi
+    return 1
+  fi
+  printf '%s\n' "$_ic_lock" >>"${WORK}/locks"
+
   # Staging lives INSIDE the skills dir: same filesystem, so the swap is a
   # rename, not a second copy that can half-fail. Dot-prefixed so no client
   # ever scans it as a skill.
@@ -746,19 +771,53 @@ check_client() {
 
   _ck_rc=0
   _ck_marker="${_ck_dir%/}/${MARKER_NAME}"
-  if [ -f "${_ck_dir%/}/${INPROGRESS_NAME}" ]; then
+  # `-e || -L` on purpose, not `-f`: replacing the marker with a directory or a
+  # dangling symlink must not read as "no interrupted install".
+  if [ -e "${_ck_dir%/}/${INPROGRESS_NAME}" ] || [ -L "${_ck_dir%/}/${INPROGRESS_NAME}" ]; then
     say "   INTERRUPTED INSTALL: ${INPROGRESS_NAME} is still present"
-    sed 's/^/     /' "${_ck_dir%/}/${INPROGRESS_NAME}"
+    [ -f "${_ck_dir%/}/${INPROGRESS_NAME}" ] && sed 's/^/     /' "${_ck_dir%/}/${INPROGRESS_NAME}"
+    _ck_rc=1
+  fi
+  # A leftover staging dir means a run died between staging and the swap — the
+  # window where no in-progress marker exists yet.
+  for _ck_sd in "${_ck_dir%/}"/.plaud-staging-*; do
+    [ -e "$_ck_sd" ] || continue
+    say "   INTERRUPTED INSTALL: leftover staging dir $(basename "$_ck_sd")"
+    _ck_rc=1
+  done
+  if [ -e "${_ck_dir%/}/.plaud-install-lock" ]; then
+    say "   LOCK PRESENT:  an install is running here, or one crashed and left"
+    say "                  ${_ck_dir%/}/.plaud-install-lock behind"
     _ck_rc=1
   fi
 
   _ck_marker_ref=""
-  if [ -f "$_ck_marker" ]; then
-    _ck_marker_ref="$(marker_field "$_ck_marker" ref)"
-    say "   marker ref:    ${_ck_marker_ref:-<unset>}"
-    say "   marker commit: $(marker_field "$_ck_marker" commit)"
-    say "   installed at:  $(marker_field "$_ck_marker" installed_at)"
-    say "   source:        $(marker_field "$_ck_marker" source)"
+  if [ -e "$_ck_marker" ] || [ -L "$_ck_marker" ]; then
+    if [ ! -f "$_ck_marker" ] || [ -L "$_ck_marker" ]; then
+      say "   marker:        NOT A REGULAR FILE — unusable, provenance unproven"
+      _ck_rc=1
+    elif [ ! -r "$_ck_marker" ] || [ ! -s "$_ck_marker" ]; then
+      say "   marker:        UNREADABLE OR EMPTY — provenance unproven"
+      _ck_rc=1
+    else
+      _ck_marker_ref="$(marker_field "$_ck_marker" ref)"
+      _ck_marker_commit="$(marker_field "$_ck_marker" commit)"
+      say "   marker ref:    ${_ck_marker_ref:-<unset>}"
+      say "   marker commit: ${_ck_marker_commit:-<unset>}"
+      say "   installed at:  $(marker_field "$_ck_marker" installed_at)"
+      say "   source:        $(marker_field "$_ck_marker" source)"
+      if [ -z "$_ck_marker_ref" ]; then
+        say "   marker:        HAS NO ref: FIELD — unusable, provenance unproven"
+        _ck_rc=1
+      elif ! valid_ref "$_ck_marker_ref"; then
+        # Without this, editing the marker to say `main` would make --check
+        # fetch a branch and hold the client to it — exactly the "not a release"
+        # boundary the installer refuses everywhere else.
+        say "   marker ref:    NOT A RELEASE TAG (${_ck_marker_ref}) — refusing to compare against it"
+        _ck_marker_ref=""
+        _ck_rc=1
+      fi
+    fi
   else
     say "   marker:        MISSING — provenance unproven (installed by hand, or an older installer)"
     _ck_rc=1
@@ -783,6 +842,27 @@ check_client() {
   fi
   if [ -z "$OPT_REF" ] && [ -n "$LATEST_TAG" ] && [ -n "$_ck_marker_ref" ] && [ "$_ck_marker_ref" != "$LATEST_TAG" ]; then
     say "   BEHIND: ${_ck_marker_ref} installed, ${LATEST_TAG} is the newest tag"
+  fi
+
+  # The marker's commit is a claim too. Compare it with the commit the tag
+  # actually points at: a moved tag, or a hand-edited marker, shows up here.
+  if [ -n "$_ck_marker_ref" ] && [ -n "${_ck_marker_commit-}" ]; then
+    case "$_ck_marker_commit" in
+      unknown*) : ;;
+      *)
+        _ck_real_commit="$(resolve_commit "$OPT_REPO" "$_ck_marker_ref" 2>/dev/null || true)"
+        case "$_ck_real_commit" in
+          ""|unknown*) say "   commit check:  skipped (cannot resolve ${_ck_marker_ref} right now)" ;;
+          *)
+            if [ "$_ck_real_commit" != "$_ck_marker_commit" ]; then
+              say "   COMMIT MISMATCH: marker says ${_ck_marker_commit}, ${_ck_marker_ref} now points at ${_ck_real_commit}"
+              say "                    (a moved tag, a forged marker, or a different repo)"
+              _ck_rc=1
+            fi
+            ;;
+        esac
+        ;;
+    esac
   fi
 
   _ck_root="$(acquire_tree "$_ck_ref")" || { warn "   cannot obtain the tree for ${_ck_ref}"; return 1; }
@@ -841,9 +921,20 @@ check_client() {
     case "$_ck_n" in
       ${SKILL_PREFIX}*) printf '%s\n' "$_ck_n" >>"${WORK}/stale.cand" ;;
       *)
+        _ck_hit=0
         for l in $LEGACY_SKILLS; do
-          [ "$_ck_n" = "$l" ] && printf '%s\n' "$_ck_n" >>"${WORK}/stale.cand"
+          [ "$_ck_n" = "$l" ] && { printf '%s\n' "$_ck_n" >>"${WORK}/stale.cand"; _ck_hit=1; }
         done
+        # Third source: the directory NAME can be changed, the skill's declared
+        # `name:` cannot without breaking the skill. Renaming a dropped skill to
+        # something outside the plaud-theme-* prefix would otherwise slip past
+        # both the marker list and the prefix scan and keep being routed to.
+        if [ "$_ck_hit" = 0 ] && [ -f "${_ck_d}/SKILL.md" ]; then
+          _ck_decl="$(sed -n 's/^name:[[:space:]]*//p' "${_ck_d}/SKILL.md" 2>/dev/null | head -1 | tr -d '\r"'"'")"
+          case "$_ck_decl" in
+            ${SKILL_PREFIX}*) printf '%s\n' "$_ck_n" >>"${WORK}/stale.cand" ;;
+          esac
+        fi
         ;;
     esac
   done

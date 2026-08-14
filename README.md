@@ -128,10 +128,32 @@ sh 与 PowerShell 两边**同名同义**：
 1. 该客户端**声明**装的 tag / commit / 时间 / 来源
 2. 与该 ref 的树**逐文件比对**：路径、类型、以及**内容字节**（等价于过去手工跑的 `0/10` tree diff）
 3. **陈旧 skill**：仓库该 ref 里已经没有、客户端却还留着且仍会被路由的 skill
-4. **中断的安装**：残留的 `.plaud-install-inprogress`
+4. **中断的安装**：残留的 `.plaud-install-inprogress`、残留的 `.plaud-staging-*`、
+   或还占着的 `.plaud-install-lock`
+
+marker 里的 `commit:` 也会跟该 tag **当前实际指向的 commit** 比对 —— tag 被移动过、
+或 marker 被伪造，都会报 `COMMIT MISMATCH`。marker 被清空、被换成目录、或 `ref:` 被改成
+一个分支名（想让 `--check` 去按分支取树），一律判为「provenance unproven」并非零退出。
 
 只比文件名是不够的 —— 实测 v0.2.2 与 v0.2.3 的**文件名清单完全相同**，只有内容不同；
 只比清单的话会把一个装错版本的客户端报成「一致」。
+
+### 同时跑两个安装
+
+不行，也不该。安装器在每个 skills 目录用 `mkdir` 原子地占一把 `.plaud-install-lock`：
+第二个进程直接失败退出（rc=1），不会跟第一个交错 swap。**它绝不会自动删掉不是自己创建的锁**
+—— 崩溃留下的锁必须人看一眼再手动 `rmdir`，因为另一种做法是在一个未知的半成品状态上继续覆盖。
+
+### 想先看一眼脚本再跑
+
+`curl … | sh` 这种流式执行看不到 curl 的退出码。脚本本身做了截断防护（全部语句在函数里，
+唯一的顶层动作是最后一行的 `main "$@"`，截断即什么都不跑），但要完全掌控就先下载再执行：
+
+```bash
+curl -fsSL -o /tmp/plaud-install.sh https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh
+less /tmp/plaud-install.sh          # 看一眼
+sh /tmp/plaud-install.sh --ref v0.2.3
+```
 
 ### WSL / Git Bash 与 PowerShell 不要互相污染
 
