@@ -1,7 +1,7 @@
 {
   "skill_name": "plaud-theme-qa-intake",
   "matrix": "plaud-shopify-theme-matrix",
-  "version": "v0.2.0",
+  "version": "v0.2.1",
   "evals": [
     {
       "id": 1,
@@ -177,6 +177,33 @@
         "输出说明此种情形下 QA 会照常执行技术检查项，但 ReadyForDelivery 恒为 No。",
         "输出区分了'材料不齐=零验证项执行'与'用户主动弃流程=照跑但不给许可'。",
         "输出没有伪造一份准入通过的记录。"
+      ]
+    },
+    {
+      "id": 14,
+      "route": "testsettrace-url-only",
+      "prompt": "测试文档我挂了测试集链接了：https://example.feishu.cn/wiki/TESTSET-PLAUD。用例四段齐全、都有截图。这样 SelfTestReportStatus 可以判 Complete 了吧？",
+      "expected_output": "不行。TestSetTrace 缺 @<不可变revision> 与 delta 段，判 SelfTestReportStatus: Incomplete。只给 URL 无法区分「增量维护」与「每次现编」，因为同一链接可被覆盖内容。",
+      "files": [],
+      "assertions": [
+        "输出判 SelfTestReportStatus: Incomplete。",
+        "输出要求 TestSetTrace 带不可变 revision。",
+        "输出要求 delta 段给 Added/Updated/Removed 或 None(reason)。",
+        "输出说明只给 URL 无法区分增量维护与每次现编。",
+        "输出不出现 ReadyForDelivery 字段。"
+      ]
+    },
+    {
+      "id": 15,
+      "route": "testsettrace-no-delta-this-round",
+      "prompt": "这轮是纯样式微调，测试用例一条没加没改，复用了 TC-042 和 TC-043。TestSetTrace 的增删清单那段我就留空了。",
+      "expected_output": "留空不行，但本轮无增删是合法情形：写 None(<reason>)，例如 None(纯样式改动，复用 TC-042/TC-043)。revision 仍必须给。",
+      "files": [],
+      "assertions": [
+        "输出指出 delta 段留空判 Incomplete。",
+        "输出给出 None(<reason>) 这个合法取值。",
+        "输出仍要求 @<不可变revision>。",
+        "输出不要求另写一份用例清单。"
       ]
     }
   ]

@@ -128,7 +128,7 @@ QA **在执行任何检查之前**（Step 1，早于 theme check、早于回归�
 
 QA 通过后必须**再算一次**指纹并记入 `changeset-log`；后续任何时刻指纹与记录不符，该 QA 结论即失效（§1.4）。
 
-### 🔴 v0.2.0 不支持多 ChangeSet 同批发版
+### 🔴 v0.2.1 不支持多 ChangeSet 同批发版
 
 `ChangeSetFingerprint` 绑的是**整个 HEAD + 整个工作树**，不是"这个 ChangeSet 涉及的那几个文件"。由此推出一个必然结果：
 
@@ -138,7 +138,7 @@ QA 通过后必须**再算一次**指纹并记入 `changeset-log`；后续任何
 
 **曾经考虑过、但行不通的收口**：让合并方生成一个"集成 ChangeSet"（`ModifiedFiles` = 各块并集）再跑一次 QA。它跑不通——合并提交之后工作树是**干净的**，`git status` / `git diff HEAD` 拿到的是空集，与"各块并集"必然失配；若改用未提交的合并态过 QA，之后一提交 `HEAD` 就变，QA 又自动失效。**在绑工作树的模型下，没有一个稳定对象能从"已验证"走到"实际推送"。**
 
-**v0.2.0 的处置：**
+**v0.2.1 的处置：**
 
 | 场景 | 支持情况 |
 |---|---|
@@ -148,7 +148,7 @@ QA 通过后必须**再算一次**指纹并记入 `changeset-log`；后续任何
 
 > 🟢 **为什么宁可不支持也不硬撑。** 硬给一套跑不通的流程，实际效果是使用者发现走不通之后自己找绕过路径——那比明说"这版不支持"危险得多。
 >
-> **彻底解法留 v0.3.0**：把指纹从"工作树"改绑**不可变的 commit / tree 对象**（`git rev-parse HEAD^{tree}`），QA 验的是一个具体 tree oid，合并产生的新 tree 再验一次即可，"已验证对象 → 推送对象"之间就有了稳定标识。这是一次契约层改动，不适合在 v0.2.0 顺带做。
+> **彻底解法留 v0.3.0**：把指纹从"工作树"改绑**不可变的 commit / tree 对象**（`git rev-parse HEAD^{tree}`），QA 验的是一个具体 tree oid，合并产生的新 tree 再验一次即可，"已验证对象 → 推送对象"之间就有了稳定标识。这是一次契约层改动，不适合在 v0.2.1 顺带做。
 
 ### 零改动任务（只读审计 / code review / A11y 审计）
 
@@ -408,7 +408,26 @@ CLI 未安装、仓库不是 theme root、`shopify-common` build 产物缺失导
 
 ### 8.1 运营协作红线（源自《DTC 开发交付标准 v1.0》§三）
 
-> ⚠️ **原文的性质**：DTC §三 标题写的是「软性，尽量遵守，在开发/测试时注意这些问题」。下表把其中**可机械判定、且踩了必然出事**的几条提升为矩阵红线（标 🔴），其余保持**建议**级（标 🟡，进 QA 的 `Advisories`，不阻断交付）。这个提升是矩阵侧的收紧，**若与运营/agency 的双方共识冲突，以双周会的书面结论为准**。
+> ⚠️ **原文的性质**：DTC §三 标题写的是「软性，尽量遵守，在开发/测试时注意这些问题」。v0.2.0 把其中 10 条一律提为 🔴 硬红线；**设计方在 v0.2.0 评审中明确反对「一刀切」**（原话：过于绝对化会导致设计/开发/测试任何环节的偏差都要全环节对齐，降低效率，应给出合理空间，并点名"复用 section"的情形）。v0.2.1 据此改为**三档**，并对 #5 / #9 / #10 改成**按范围**判定而不是整条降级。这个分级仍是矩阵侧的解释，**若与运营/agency 的双方共识冲突，以双周会的书面结论为准**。
+
+#### 三档的定义
+
+| 档 | 含义 | QA 后果 |
+|---|---|---|
+| 🔴 **红线** | 踩了必然出事，且机械可判 | `Failed`，阻断 `ReadyForDelivery` |
+| 🟠 **可论证放行** | 偏离本身不必然出事，但必须能被复核 | 论证成立 → `Passed`（附论证引用）；论证缺失/空洞 → `Blocked`（可补）；论证证明确实不该偏离 → `Failed` |
+| 🟡 **建议** | 只在同页面内部明显不自洽时才提 | 进 `Advisories`，不阻断 |
+
+🟠 **不是"写了理由就放行"。** 它分两种，判据不同：
+
+| 类型 | 谁提供 | QA 怎么复核 | 空的时候 |
+|---|---|---|---|
+| **EvidenceBased** | agency / 实现方**自证** | 对着 `AssessmentRef` + `ActualAffectedInstances` + `OptionsConsidered`（§4）核**证据是否齐**，不需要任何人"审批" | 三者缺任一、或只有套话没有影响面引用 → `Blocked` |
+| **ApprovedException** | agency 可起草，但**必须**有 PLAUD PM / 设计 / 技术 owner 的书面 `ApprovalRef` | 核 `ApprovalRef` 是否存在、是否指向本 ChangeSet 的这一项 | `ApprovalRef` 为空 → **降级为 `Failed`**（与 §8 红线⑤ A11y 豁免同一模式：封闭适用范围 + 批准引用必填 + 空引用回落 Failed） |
+
+🔴 **agency 自写自批不构成 `ApprovedException`。** 提供论证的人和批准的人必须不同方。
+
+#### 条款分级表
 
 | # | 条款 | 级别 | 判定方式 |
 |---|---|---|---|
@@ -416,12 +435,12 @@ CLI 未安装、仓库不是 theme root、`shopify-common` build 产物缺失导
 | 2 | 不得修改运营的线上配置项 | 🔴 | `templates/*.json`、`config/settings_data.json` 默认只读，改需授权（已见 §7 停机点） |
 | 3 | 运营验收完成前，禁止发版对应 section / page | 🔴 | 由 `plaud-theme-release-ops` 守；QA 通过 ≠ 可发版（§1.1） |
 | 4 | 发版前必须确认推送站点清单 | 🔴 | `TargetSites` / `ExcludedSites` 必须显式列出，见 §9.1.4 |
-| 5 | 新增文案禁止硬编码 | 🔴 | **分流判定**：固定 UI 文案（按钮、状态、报错）走 `locales`；运营可配置文案走 schema 字段。两者都不得写死在 Liquid 里。与红线①、QA-B 同一判据 |
+| 5 | 新增文案禁止硬编码 | 🔴 **本次新增/修改的行** / 🟡 存量未触及 | **按范围判**，不整条降级：① 本 ChangeSet `git diff -U0` 新增或修改的行里出现硬编码文案 → 🔴 `Failed`（固定 UI 文案走 `locales`，运营可配文案走 schema 字段）；② 未被本次改动触及的存量硬编码 → 🟡 `Advisories`，**不要求顺手修**；③ ⚠️ 但如果本次改动**让原本不可达的旧硬编码进入了新的可达路径**（复用旧 snippet、放开条件分支、新模板挂载旧 section），它按①判 🔴 —— 这一条**必须人工判**，`git diff` 看不出来 |
 | 6 | metafield 的 namespace / key / type 必须与已有定义一致，不得新建未申报字段 | 🔴 | 新建前先 grep 现有定义；无对应定义 → 停机要申报 |
-| 7 | 动手前先算影响面 | 🔴 | 已由 `plaud-theme-impact` 承担（§3） |
-| 8 | 优先改模板存值，其次 schema，最后模块代码 | 🔴 | 已是三层入口规则（`EntrypointCandidates`） |
-| 9 | schema 已有的 option values 永不修改 | 🔴 | 改了会让存量实例存值失效；只在 Liquid 端做映射 |
-| 10 | 影响 UX 合规的字段，默认值必须已合规；任何字段留空都不能崩 | 🔴 | QA-B 的空配置 / 满配置双测 |
+| 7 | 动手前先算影响面 | 🔴 | 已由 `plaud-theme-impact` 承担（§3）。**它是红线的理由不是"不可逆"，而是"没有它后面每一条都失去可复核的基准"** |
+| 8 | 优先改模板存值，其次 schema，最后模块代码 | 🟠 **EvidenceBased** | 偏离三层入口顺序时，用**既有的 `OptionsConsidered`（§4）**说明为什么上层入口不适用 + 引用 `AssessmentRef`。**不新增 `EntrypointRationale` 字段**——那会形成第二个事实源 |
+| 9 | schema 已有的 option values 永不修改 | 🔴 **删/改既有 value** / 🟠 纯新增 | **删除或修改**既有 `value` → 🔴（会让存量实例存值静默失效）；**纯新增** option 不触发本条，但仍须在 `OptionsConsidered` 里给出：新 value 的 Liquid 端映射、schema 保存验证、旧存值向后兼容结论。「新增一律允许、无需验证」**不成立** |
+| 10 | 影响 UX 合规的字段，默认值必须已合规；任何字段留空都不能崩 | 🔴 **留空不崩** + 🔴 **本次新建/修改字段的默认值** / 🟡 未触及的存量默认值 | 崩就是崩，无豁免（QA-B 空配置 / 满配置双测）。默认值合规性：本次**新建或修改**的 UX 相关字段 → 🔴（否则每加一个实例就持续制造新的不合规状态）；本次未触及的存量字段默认值 → 适用 §8.1.2 存量复用豁免 |
 | 11 | 公共文件修改的英文注释标记 | 🟡 | 见 §8.2 |
 
 ### 8.1.1 测试集治理（DTC §一 第 3 条）
@@ -430,12 +449,26 @@ DTC 把「测试集要定期更新，建立 PLAUD 专属测试规范」列为**�
 
 | 条款 | 落点 | 字段 |
 |---|---|---|
-| agency 维护测试集并**随交付更新**，不是一次性文档 | `plaud-theme-qa-intake` | `SelfTestReportStatus` 的判据里含**三项可查证据**（见 `package-checklist.md` §3）：测试集引用（在哪）、基线版本 / 快照时间、本轮**新增与更新的用例清单**。三项缺任一 → `Incomplete`。没有这三项就无法区分"增量维护"和"每次现编一份" |
+| agency 维护测试集并**随交付更新**，不是一次性文档 | `plaud-theme-qa-intake` | **v0.2.1 起收敛为一行 `TestSetTrace`**（原来是三项分别手写，设计方评审指出「重复性工作影响效率」）：`TestSetTrace: <稳定文档ID>@<不可变revision>; Added/Updated/Removed=[TC-ID…] \| None(<reason>)`。取值规则见 `package-checklist.md` §3 |
 | **每个线上 bug 反推一条回归用例入库** | `plaud-theme-release-ops` | `RegressionCasesAdded`（为空即本次上线治理未完成） |
 | 由 PLAUD 测试同学（Aily）**审查** agency 的测试注意文档，双方对齐后固化 | 外部流程 | 矩阵不代替这道人工审查。**不写进 `BlockingGaps`**（那是停机项，会污染语义），改记 QA 的 `Advisories`：「测试规范尚未双方固化」 |
 
+> **为什么不能退到"只给个链接"**：同一个 URL 可以被覆盖内容，也可以每次指向一份临时文档——只要引用不带**不可变 revision**，"长期增量维护"和"每次现编一份"就完全不可区分，这条总则等于没落地。`TestSetTrace` 的成本是一行，且 delta 可由测试报告里每条用例自带的 `Added/Updated/Unchanged` 标记直接推出，**不需要另写一份清单**；若平台 URL 本身已携带不可变 revision，则「引用 + 版本」合并为一个字段即可。
+
 > 🔴 **矩阵不拥有测试集本身。** 测试集是项目侧长期资产（与 `memory/` 同类，不随包分发）。矩阵能做的是：提测时要求用例可复核（`test-case-format.md`）、上线后要求补回归用例、以及在两处都指向同一份测试集。
 > **不得**在包里内置一份测试集副本——那会变成第二个事实源，且下次 install 被整包覆盖。
+
+### 8.1.2 存量复用豁免（Legacy Reuse Carve-out）
+
+复用既有 section / snippet / 遗留工具类时，**不因未被本次改动触及的存量偏差判 `Failed`**，记 `Advisories`，也不要求顺手修。
+
+🔴 **它豁免的是"修复义务"，不是"验证范围"。** 三条硬约束：
+
+1. **必须能证明该偏差在 `BaseHeadSha` 上已存在**（给出证据命令或引用）。证不出来 → 按新引入判，不适用豁免。
+2. **不得加重，也不得让它变成新的可达行为。** 本次改动使旧偏差在更多实例 / 更多断点 / 新模板上可达 → 按新引入判 🔴（与红线⑤③同一判据）。
+3. **回归范围不缩小。** 仍按 `plaud-theme-impact` 的 `ActualAffectedInstances` 全量回归；QA-B 的空配置 / 满配置双测**不因本条豁免**——新接入的上下文、本次改过的字段、schema、以及本次可达的所有路径都要双测。
+
+> 因此本条**依赖** `plaud-theme-impact`，不与它冲突：没有影响面工件就无法证明"已存在且未加重"，豁免自动不成立。
 
 ### 8.2 公共文件的改动注释（🟡 建议级，且有前置约束）
 
@@ -511,6 +544,8 @@ PreviewManifest:          # 后台链接 + 前端链接 + 各自实测可访问�
 PreviewManifestStatus:    # Complete | Incomplete —— 上述内容的判定（状态）
 ConfigurationGuideStatus: # Complete | Incomplete | NotApplicable
 SelfTestReportStatus:     # Complete | Incomplete
+TestSetTrace:             # <稳定文档ID>@<不可变revision>; Added/Updated/Removed=[TC-ID…] | None(<reason>)
+                          #   —— 一行即可（v0.2.1 取代原「溯源三项」）；缺 revision 或 delta 段留空 → SelfTestReportStatus: Incomplete
 ScreenshotManifestStatus: # Complete | Incomplete
 ImpactScopeStatus:        # Complete | Incomplete
 ReworkDeltaStatus:        # Complete | Incomplete | NotApplicable（非返工轮次填 NotApplicable）
@@ -529,7 +564,7 @@ NextRequiredSkill: plaud-theme-qa
 |---|---|
 | `PreviewManifest` | 后台链接与前端链接**都实测访问过**并记录时间；后台链接必须可配置（能看到 schema 字段），不是只读预览。失效链接 = 未提测 |
 | `ConfigurationGuideStatus` | 新 section / 新配置项必交：字段说明 + 默认值 + 使用场景 + 填错怎么办，**关键部分有截图**。本次未新增任何配置项时才可填 `NotApplicable` |
-| `SelfTestReportStatus` | ① 用例写成可复核形式：前置条件（具体站点 + 主题 ID + 配置状态）→ 操作步骤（具体 URL）→ 预期结果（**具体值或现象**）→ 结论，且**有附件截图/视频**。预期结果写"显示正常""功能可用"的用例**视同未测**；② **测试集溯源三项**（测试集引用 / 基线版本或快照时间 / 本轮新增与更新的用例 ID 清单）—— 缺一即 `Incomplete`，见 §8.1.1 |
+| `SelfTestReportStatus` | ① 用例写成可复核形式：前置条件（具体站点 + 主题 ID + 配置状态）→ 操作步骤（具体 URL）→ 预期结果（**具体值或现象**）→ 结论，且**有附件截图/视频**。预期结果写"显示正常""功能可用"的用例**视同未测**；② **一行 `TestSetTrace`**（`<稳定文档ID>@<不可变revision>; Added/Updated/Removed=[TC-ID…] \| None(<reason>)`）—— 缺 revision 或 delta 段留空即 `Incomplete`，见 §8.1.1 与 `package-checklist.md` §3 |
 | `ScreenshotManifestStatus` | 8 张：`375 / 768 / 1024 / 1280 / 1440` + 边界 `767 / 1279 / 1599` |
 | `ImpactScopeStatus` | 本模块被几个模板使用、涉及哪些站点。**直接引用 `plaud-theme-impact` 的 `AssessmentRef`**，不自行重算；站点维度 `AssessmentRef` 不覆盖，须另填 `TargetSites` |
 | `ReworkDeltaStatus` | 返工轮次必交「本轮修改点」清单（逐条：反馈 → 改了什么 → 在哪个文件） |
@@ -657,7 +692,7 @@ ReleaseScope:
     IncludedInThisPush: # Yes | No —— Pending 的块填 No，留到下次
 ```
 
-> 🔴 **v0.2.0 只支持单块发布**（§2）：`IncludedInThisPush: Yes` 的块**至多一个**。多于一个 → `plaud-theme-release-ops` 停机，要求逐块串行发布。`ReleaseScope` 仍是列表结构，是为了让"这次发哪块、哪些块留到下次"能一起记清楚。
+> 🔴 **v0.2.1 只支持单块发布**（§2）：`IncludedInThisPush: Yes` 的块**至多一个**。多于一个 → `plaud-theme-release-ops` 停机，要求逐块串行发布。`ReleaseScope` 仍是列表结构，是为了让"这次发哪块、哪些块留到下次"能一起记清楚。
 
 > 🔴 **`AcceptanceStatus` 必须逐块给。** 顶层一个 `Accepted` 表达不了"A 验收了、B 还没"，而 DTC 要求的正是**只发已验收的部分**。用单标量时，要么把没验收的一起发了，要么把验收了的一起压住——两种都错。
 
@@ -701,6 +736,8 @@ ReleaseScope:
 | `PMDecision` | `Pending` \| `Confirmed` |
 | `NextRoute` | `AwaitPMDecision`（`PMDecision: Pending` 时**只能**取此值）\| `NewWorkItem(Assess)` \| `Backlog(排期)` \| `NoAction` |
 | `PreviewManifestStatus` | `Complete` \| `Incomplete` |
+| `TestSetTrace` | 自由文本，但必须匹配 `<稳定文档ID>@<revision>; Added/Updated/Removed=[…]` 或 `<稳定文档ID>@<revision>; None(<reason>)`。**缺 `@<revision>`、或分号后为空 → 视为未提供** |
+| 红线分级标记（§8.1） | `🔴 红线` \| `🟠 EvidenceBased` \| `🟠 ApprovedException` \| `🟡 建议`。🟠 的两种**不可互换**：`ApprovedException` 缺 `ApprovalRef` 直接 `Failed`，`EvidenceBased` 缺证据是 `Blocked` |
 | `IncludedInThisPush` | `Yes` \| `No` |
 | `PushResult` | `NotExecuted` \| `Executed` \| `PartiallyExecuted`（部分站点失败时**必须**用它，填 `NotExecuted` 会抹掉已发生的线上副作用、导致重复推送） |
 | `PerSitePushResult[].Status` | `Succeeded` \| `Failed` \| `NotAttempted` |

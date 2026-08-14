@@ -134,7 +134,7 @@ SiteListConfirmedBy: 运营确认过  # 无时间、无出处、看不出是几�
 | 数量 | **每个**线上 bug 至少一条，不是"这批问题写一条" |
 | 格式 | 四段式 + 附件，见 `plaud-theme-qa-intake/references/test-case-format.md` |
 | 内容 | 前置条件要能**复现原 bug 的那个配置状态**——这是这条用例存在的意义 |
-| 归档 | 进测试集，随交付更新（DTC §一 第 3 条：测试集要定期更新，不是一次性文档） |
+| 归档 | 进测试集，随交付更新（DTC §一 第 3 条）。**必须指向 `plaud-theme-qa-intake` 提测时那同一个 `TestSetTrace` 的稳定文档 ID**（见 `package-checklist.md` §3），并在本次归档后给出新的 `@<revision>` —— 两处指向不同文档就等于没有长期测试集 |
 
 `RegressionCasesAdded` 为空 = 本次上线治理未完成，工件不得标记结束。
 

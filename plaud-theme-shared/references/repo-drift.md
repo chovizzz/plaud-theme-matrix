@@ -49,7 +49,7 @@ grep -c '\-\-color-purple' "$F"
 
 ## 3. 已知案例：编译产物可能缺什么 / 差什么
 
-以下是在真实仓库编译产物中**实测到过**的差异（2026-08-06）。它们不绑定任何特定站点 —— 任何仓库只要 build 时间点早于对应变更，就会出现同样情况。**用作核对时的检查清单。**
+以下是在真实仓库编译产物中**实测到过**的差异（3.1–3.5 于 2026-08-06，3.6–3.7 于 2026-08-12）。它们不绑定任何特定站点 —— 任何仓库只要 build 时间点早于对应变更，就会出现同样情况。**用作核对时的检查清单。**
 
 ### 3.1 `.container` 左右内边距可能仍是旧值
 
@@ -95,6 +95,27 @@ grep -c '\-\-color-purple' "$F"
 | `.bg-soft` | `--color-bg-tertiary` | `#F7F7F7` |
 
 → ux-spec 文档笼统说"bg-card / bg-soft 重绑到 surface `#F7F7F7`"，但编译产物里两者**变量不同、默认色也不同**。需要两层浅色面拉开层次时这 2 点色差可用，但**不要假设两者可互换**。
+
+### 3.6 outline 按钮在仓库里是两条链，且 label 变量重绑已实际发生
+
+**已实测（`shopify-plaud-yidian`，2026-08-12）**：
+
+| 事实 | 证据 |
+|---|---|
+| `.btn-outline` 消费 `--btn-outline-border-color`（scheme 级可配，setting `btn_outline_border_color` default `#39F672`，映射 `role.secondary_button_border`） | `assets/critical.css:520`；`config/settings_schema.json`；`layout/theme.liquid:350`、`layout/password.liquid:87` |
+| `.btn-secondary-outline` **不**消费该变量，而是写死 `1px solid var(--color-label-secondary)` | `snippets/design-system.liquid` |
+| 同一产物的 `.use-color-scheme` 把 `--color-label-secondary` 重绑为 `var(--color-text)` → 借用 label 变量做边框**确实会变色**（不是理论风险） | `snippets/design-system.liquid` |
+| 10 个 color scheme 存的 `btn_outline_border_color` **全是 `#39f672`**（`btn_outline_background` 亦同），与 spec 的 `#717171` 不一致 | `config/settings_data.json` |
+| 已有模块把 outline 边框覆盖成 label-secondary | `assets/sa-user-guide-anchor.css:56` |
+| `--color-label-secondary: #7A7A7A`、`--color-label-tertiary: #A3A3A3` 仍在产物里 → 2026-08-11 基线的 `#717171` / tertiary 废止**尚未落库** | `snippets/design-system.liquid` |
+
+→ 结论：**「仓库已经有边框变量」不等于「直接复用即可」**。选路规则见 `colors-and-schemes.md` §3；两条链的关系未裁决时**停机**。
+
+### 3.7 全局 heading 规则仍是旧 vendor 值
+
+`assets/critical.css:107/148` 的 `:where(h1..h6)` 走 `--size` × `--heading-font-scale`，根字号 `html{font-size:16px}`（`critical.css:8`）：`h5` = `1.8rem` → **28.8px**，`h1` = `clamp(3.6rem, …, 4rem)` → **57.6–64px**，正是 `typography.md` §3 标为**已废止**的 vendor 64px。另有一套 `layout/theme.liquid:418-424` 的 `--h0-size…--h6-size`（`--h5-size: 18px`）。
+
+→ **不要**用"复用全局 h5 规则"来解决字号问题（v0.2.0 曾这样写，v0.2.1 已撤回）。按 `typography.md` §4 处理：标签与字号解耦。
 
 ---
 

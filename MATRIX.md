@@ -1,7 +1,7 @@
 # Skill Matrix — PLAUD Shopify Theme
 
 All listed skills live directly under the package root. The outer
-`plaud-shopify-theme-matrix-v0.2.0` directory is a distribution package, **not** an
+`plaud-shopify-theme-matrix-v0.2.1` directory is a distribution package, **not** an
 installable skill — never copy the package root itself into a skills directory.
 
 ## Order

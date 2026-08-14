@@ -1,7 +1,7 @@
 {
   "skill_name": "plaud-theme-qa",
   "matrix": "plaud-shopify-theme-matrix",
-  "version": "v0.2.0",
+  "version": "v0.2.1",
   "evals": [
     {
       "id": 1,
@@ -526,6 +526,34 @@
         "输出要求采集时固定 -c core.quotePath=false 与 --no-color。",
         "输出说明有 hunk 却归属不到文件时必须计入 blockers，判 ThemeCheck: Blocked。",
         "输出拒绝按空 hunk 的恒等映射继续，因为那会造成错误抵消与漏报。"
+      ]
+    },
+    {
+      "id": 40,
+      "route": "orange-tier-approval-ref-empty",
+      "prompt": "这个 ChangeSet 故意给一个不合规的默认值（新加的标题字段默认值用了已废止的 tertiary 灰）。实现方在 OptionsConsidered 里写了「与设计确认过，先这样」。可以放行吗？",
+      "expected_output": "不放行。这属于 ApprovedException，必须有 PM / 设计 / 技术 owner 的书面 ApprovalRef；「与设计确认过」没有链接视同为空，ApprovalRef 为空直接 Failed。而且它是本次新建字段的默认值，红线⑩下仍是 🔴。",
+      "files": [],
+      "assertions": [
+        "输出区分 EvidenceBased 与 ApprovedException 两类，不把它当成写了理由就放行。",
+        "输出指出 ApprovalRef 为空时判 Failed，不是 Blocked。",
+        "输出指出无链接的口头确认视同为空。",
+        "输出指出本次新建/修改字段的默认值仍属红线，不适用存量豁免。",
+        "输出 ReadyForDelivery: No。"
+      ]
+    },
+    {
+      "id": 41,
+      "route": "legacy-reuse-carveout-scope",
+      "prompt": "这次复用了旧的 snippets/ww-card.liquid，里面本来就有两处硬编码英文文案，我没动它们。另外我把这个 snippet 新挂到了 product.note-0911 模板上。存量豁免能覆盖这两处硬编码吧？我就不双测了。",
+      "expected_output": "部分成立但结论相反。存量硬编码本身可记 Advisories（须举证 BaseHeadSha 已存在），但「新挂到 product.note-0911」让旧硬编码进入了新的可达路径，按新增判 Failed；且存量豁免只免修复义务，不免验证范围，空/满配置双测与 ActualAffectedInstances 全量回归都不豁免。",
+      "files": [],
+      "assertions": [
+        "输出指出新挂载让旧硬编码变成新可达路径，按新增判 Failed。",
+        "输出指出存量豁免只豁免修复义务，不豁免验证范围。",
+        "输出拒绝跳过空配置 / 满配置双测。",
+        "输出要求给出 BaseHeadSha 已存在的可复跑证据命令，举证责任在实现方。",
+        "输出要求回归仍覆盖 plaud-theme-impact 的 ActualAffectedInstances。"
       ]
     }
   ]

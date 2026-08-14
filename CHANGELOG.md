@@ -4,6 +4,59 @@
 
 ---
 
+## v0.2.1 — 2026-08-12
+
+**评审回应版。** v0.2.0 的 15 项待确认清单发给设计方后收到 9 条逐项评审意见，本版只处理其中三类：一条矩阵写错的事实，两条被明确反对的门禁收紧。不新增 skill、不动阶段轴、不动交付权。
+
+### 撤回
+
+- **`typography.md` §4「H5 = 22px 是现行规范值」整条撤回。** UX Spec v1.3（2026-08-11 基线）通篇没有 H1–H6 字号表、没有 22px；该命名来自 vendor 旧文档。§4 重写为「HTML 标题标签不是 UX Spec 的档位」，标签语义与字号解耦。
+- **「22px 在工具类体系里根本不存在」撤回。** `.fs-22` 真实存在（`assets/critical.css:1019` = `1.38rem` = 22.08px；另见 `snippets/critical-style.liquid`），且 `sections/newsletter-popup.liquid` / `sections/login-popup.liquid` 仍在引用。原表述把 `design-system.liquid` 的 **9 个语义类**误当成了全部 `.fs-*`。新增 §4.2 区分「语义类 / 数字遗留类」两套体系。
+- **「优先复用既有 `h5 {}` 全局规则」撤回并明确禁止。** 该规则实测产出 **28.8px**（`--size: 1.8rem` × 根字号 `16px`），`h1` 同理 57.6–64px，正是被标为已废止的 vendor 64px。新增 §4.1 列出仓库里三套并行的 h5 实现。
+- `version-manifest.md` §6 的「H5 = 22px 无同值工具类」「H 标签表的断点标注」两条缺口标记撤回。
+- `feedback-triage/references/evidence-lookup.md` 的「已知缺口」示例换成品牌渐变缺几何参数。
+
+### 分级修订（DTC §三 红线）
+
+设计方反对「一刀切」（原话：过于绝对化会导致设计/开发/测试任何环节的偏差都要全环节对齐，降低效率；点名「复用 section」应给空间）。`handoff-schema.md` §8.1 改为三档：
+
+- 新增 🟠 **可论证放行**，且**拆成两类不可互换的子类**：`EvidenceBased`（自证；QA 核 `OptionsConsidered` + `AssessmentRef` + `ActualAffectedInstances` 是否齐，缺 → `Blocked`）与 `ApprovedException`（须 PM / 设计 / 技术 owner 的书面 `ApprovalRef`，**为空直接 `Failed`**）。**agency 自写自批不构成 `ApprovedException`。**
+- 保持 🔴：#1 #2 #3 #4 #6 #7。
+- 改为**按范围**判定而非整条降级：#5（🔴 本次新增/修改的行；🟡 存量未触及；⚠️ 本次让旧硬编码进入新可达路径 → 按新增判 🔴，`git diff` 抓不到，须人工核）、#9（🔴 删/改既有 option value；纯新增放行但须验 Liquid 映射 / schema 保存 / 旧存值兼容）、#10（🔴 留空崩溃无豁免；🔴 本次新建或修改字段的默认值；🟡 未触及的存量默认值）。
+- #8 三层入口 → 🟠 `EvidenceBased`，**复用既有 `OptionsConsidered`，不新增 `EntrypointRationale` 字段**（避免第二个事实源）。
+- 新增 §8.1.2 **存量复用豁免（Legacy Reuse Carve-out）**：只豁免**修复义务**，不豁免验证范围。三项硬约束：举证偏差在 `BaseHeadSha` 已存在（可复跑命令）、未加重且未变成新可达行为、回归仍按 `ActualAffectedInstances` 全量。**QA-B 空配置 / 满配置双测不因本条豁免。**
+- 联动：`qa-global.md` 新增 §7.1（CopyConfigurability 判定范围）与 §11（🟠 复核 + 豁免三项核查）；`qa-profile-b.md` B5/B6、`qa-profile-c.md` C3、`ux-migration/hard-rules.md` §2.2 / §2.2.1、`feedback-triage/classification-rules.md` §3.1 同步。
+
+### 提测材料简化（DTC §一 第 3 条）
+
+设计方指出「测试做太多重复性工作很影响效率」。原「测试集溯源三项」收敛为一行：
+
+```yaml
+TestSetTrace: <稳定文档ID>@<不可变revision>; Added/Updated/Removed=[TC-ID…] | None(<reason>)
+```
+
+- `@<revision>` **不可省**：只给 URL 的话，同一链接既可被覆盖内容也可每次指向临时文档，「增量维护 vs 每次现编」完全不可查 —— 这是这条总则唯一还能落地的部分。
+- delta 段由测试报告里每条用例自带的 `Added / Updated / Unchanged` 标记推出，**不再另写一份清单**；平台 URL 自带不可变 revision 时两段合并成一个字段。
+- `TestSetTrace` 进 `QAIntake` 工件 YAML 与 §9.2 枚举表；`release-ops` 的 `RegressionCasesAdded` 归档必须指向同一稳定文档 ID。
+
+### 新增实测漂移记录
+
+`repo-drift.md` §3.6 / §3.7（2026-08-12 实测，`shopify-plaud-yidian`）：
+
+- outline 按钮在仓库里是**两条互不相通的样式链** —— `.btn-outline` 消费 scheme 级 `--btn-outline-border-color`（10 个 scheme 存值全是 `#39f672`，与 spec 的 `#717171` 不符），`.btn-secondary-outline` 则写死 `var(--color-label-secondary)`，而 `.use-color-scheme` 会把该变量重绑成 `var(--color-text)` —— 「借用 label 变量会变色」已经是既存现实。`colors-and-schemes.md` §3 据此改为**先判两条链是否要统一、再决定复用变量还是新增语义变量，未裁决则停机**，撤回原来「已有变量 → 直接复用」的推论。
+- 全局 heading 规则仍是旧 vendor 值（h5 = 28.8px、h1 = 57.6–64px），另有 `layout/theme.liquid` 一套 `--h5-size: 18px`。
+- `--color-label-secondary: #7A7A7A` / `--color-label-tertiary: #A3A3A3` 仍在 build 产物里 → 2026-08-11 基线的 `#717171` / tertiary 废止**尚未落库**。
+
+### 未变
+
+交付权（只有 `plaud-theme-qa` 能出 `ReadyForDelivery: Yes`）、10 个 skill 与 order、阶段轴三值、ChangeSet 指纹机制、**v0.2.1 仍不支持多 ChangeSet 同批发版**（彻底解法仍留 v0.3.0）、A11y 三道闸门（Pre Order `1.30` 仍判 `Failed`）。
+
+### 仍未做
+
+三个 v0.2.0 新 skill 依旧只有 evals + 静态校验，**没有跑过真实提测的行为验证**；`TestSetTrace` 与三档分级同样只经过静态评审。
+
+---
+
 ## v0.2.0 — 2026-08-12
 
 两条主线：**接入《DTC 开发交付标准 v1.0》**（2026-08-06，运营与产研共同维护，双周会可审议修订），以及**跟进 2026-08-11 的 UX Spec 设计 Token 基线**。

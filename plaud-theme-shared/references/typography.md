@@ -79,11 +79,13 @@
 
 上表 9 档已用编译产物 `design-system.liquid` 实测核对，**完全一致**。
 
+> 「典型用途」列里的 `H1`/`H2`/`H3`/`H4`/`H6` 只是**矩阵侧的标签↔档位映射约定**，方便迁移时对照旧文档；**UX Spec v1.3 本身不定义 H1–H6**（见 §4）。不要反向推断「spec 规定 H2 = 40px」。
+
 **被 v1.3 覆盖的旧值**：
 
 | 旧值（已废） | 现值 | 出处 |
 |---|---|---|
-| **H1 / large-title-1 = 64px PC / 36px MB**（vendor §6 旧表） | **48px PC / 40px MB** | 已裁决，以 token 为准 |
+| **large-title-1 = 64px PC / 36px MB**（vendor §6 旧表，旧表称 H1） | **48px PC / 40px MB** | 已裁决，以 token 为准；spec 层只有 `large-title-1`，没有「H1」这个档 |
 | `text-body-md` MB = 12px | **MB = 14px** | v1.3 §1.2 修订 |
 | 区头 Heading PC = 42px（`cs-section-header` 历史值） | **40px**（直接消费 `var(--text-large-title-2)`） | v1.3 优先级② |
 | 中间断点按线性插值取字号 | **按档离散取值，组件内不插值** | v1.3 优先级⑦ |
@@ -99,25 +101,37 @@
 
 ---
 
-## 4. H1–H6 全局字号表
+## 4. HTML 标题标签（h1–h6）—— 不是 UX Spec 的档位
 
-| 标签 | 字重 | Desktop | Mobile | 行高 | 对应档 |
-|---|---|---|---|---|---|
-| H1 | 400 | **48px** | **40px** | 1.2 | large-title-1 |
-| H2 | 400 | 40px | 32px | 1.2 | large-title-2 |
-| H3 | 400 | 24px | 20px | 1.2 | title-3 |
-| H4 | 400 | 24px | 20px | 1.2 | title-3 |
-| H5 | 400 | 22px | 20px | 1.2 | ⚠️ 无同值 `.fs-*` 工具类（见下） |
-| H6 | 400 | 20px | 18px | 1.2 | headline |
+> 🔴 **UX Spec v1.3（2026-08-11 基线）没有 H1–H6 字号表。** §1.2 字阶只有上面那 9 个语义 token；`H1`…`H6` 这套命名来自 **vendor 旧文档**，不是现行设计规范。因此"H5 是多少 px"这个问题在 spec 层**无答案**，不要按标签名去 spec 里找档位。
 
-- 🔴 **H1 = 48 / 40，vendor §6 旧表的 64px PC / 36px MB 已废止，不得照抄。** 翻到旧文档看到 64/36 时，以本表为准。
-- H3–H6 **非等差递减**，按上表离散取值；中间断点不插值。
-- ⚠️ **H5 = 22px 是现行规范值**，只是 `--text-*` 阶梯里没有同值工具类。
-  **已实证**：编译产物 `design-system.liquid` 里 `.fs-*` 只有 48/40/32/28/24/20/16/14/12 九档，**22px 在工具类体系里根本不存在** —— 这是真实的 spec 缺口，不是我没找到。
-  **不得**因为"没有对应类"就把它改成 20 或 24——那是改规范值，不是选档。
-  正确做法：优先复用既有的 H5 全局规则（`h5 { … }`）；若确需工具类化，**停机请示是否新增语义 token**，由用户决策，不擅自 snap。
+**正确做法**：按**用途**选 §3 的 9 档 token（区头走 §5、正文按 body-md/lg 判定），标签语义（h1/h2/…）只用于文档结构与 SEO，**与字号解耦**。
+
+### 4.1 仓库里存在三套并行的 h5 实现（改前必看）
+
+矩阵 v0.2.0 曾写「H5 = 22px 是现行规范值」「优先复用既有 `h5 {}` 全局规则」——**两句都是错的**，已在 v0.2.1 撤回。实测（`shopify-plaud-yidian`，2026-08-12）：
+
+| 来源 | 定义 | h5 实际值 |
+|---|---|---|
+| `assets/critical.css:148` `:where(h5, .h5)` | `--size: 1.8rem`，经 `font-size: calc(var(--heading-font-scale) * var(--size))`；根字号 `html{font-size:16px}`（`critical.css:8`），`heading_font_scale=100` | **28.8px** |
+| `layout/theme.liquid:423` | `--h5-size: calc(var(--heading-font-scale) * 18px)` | **18px** |
+| `snippets/design-system.liquid` 9 个语义类 | 无 h5 概念 | — |
+
+⚠️ 所以**不得**再照 v0.2.0 的话去「复用既有 `h5 {}` 全局规则」：那条规则产出 28.8px（`h1` 同理是 57.6–64px，正是 §3 表里标为已废止的 vendor 64px），复用它等于把废止值搬进新代码。碰到 h1–h6 的字号问题，按 §3 选档 + `.richtext-container`（§7）统一，不要动全局 heading 规则。
+
+### 4.2 `.fs-*` 有两套，别混
+
+| 体系 | 出处 | 命名 | 是否 spec 对齐 |
+|---|---|---|---|
+| **语义类**（9 个） | `snippets/design-system.liquid`（build 产物） | `.fs-large-title-1/2`、`.fs-title-1/2/3`、`.fs-headline`、`.fs-body-lg/md/sm` | ✅ 与 v1.3 §1.2 逐值一致（已实测） |
+| **数字遗留类** | `assets/critical.css` §字号段 + `snippets/critical-style.liquid` | `.fs-10 .fs-11 .fs-12 .fs-13 .fs-14 .fs-15 .fs-16 .fs-18 .fs-20 .fs-22 .fs-24 .fs-26 .fs-36 …` | ❌ 主题历史值，不对齐 spec |
+
+v0.2.0 写的「`.fs-*` 只有 9 档，22px 在工具类体系里根本不存在」是**把语义类当成了全部 `.fs-*`**。事实上 `.fs-22` 存在（`critical.css:1019` `font-size: 1.38rem` = **22.08px**，注意精确 22px 应为 `1.375rem`），且仍有活跃引用（`sections/newsletter-popup.liquid:79`、`sections/login-popup.liquid:15`）。
+
+**约束**：新代码**只用语义类 / `var(--text-*)`**；数字遗留类视为存量，不新增引用、也不因本次改动被强制清理（存量复用豁免见 `handoff-schema.md` §8.1.2）。需要 spec 没有的字号时**仍然停机请示**——但理由是「spec 无此档」，不再是「工具类里没有 22px」。
+
 - **不开放字体大小自定义**：结构型模块（Banner 标题、Section 标题/描述、卖点标题）字号锁定，不提供富文本工具栏与字号修改。
-- 具体仓库里富文本 H1–H6 是否已对齐 spec 属**项目运行时状态**（见项目侧 `memory/全局已知偏差.md`），本层不裁决；迁移时不要顺手改。
+- 具体仓库里富文本 h1–h6 是否已对齐 spec 属**项目运行时状态**（见项目侧 `memory/全局已知偏差.md`），本层不裁决；迁移时不要顺手改。
 
 ### 内容型模块的富文本边界
 

@@ -114,10 +114,12 @@ for(const [id,sec] of Object.entries(j.sections||{})){
 
 三层：**模板存值（JSON 实例值） > schema 配置 > 模块代码**，优先级即"当改动已获授权时选哪一层落地"。
 
+> **v0.2.1：偏离顺序本身不再直接判 `Failed`。** 三层入口是 🟠 **EvidenceBased**（`handoff-schema.md` §8.1 第 8 条）：偏离时用**既有的 `OptionsConsidered`** 说明上层入口为何不适用并引用 `AssessmentRef`，QA 按 `qa-global.md` §11 核证据是否齐 —— 齐即 `Passed`，缺则 `Blocked`，证据反证上层本可用才 `Failed`。**下表每一层自身的通过条件不变**（模板存值仍需授权证据，缺失仍 `Failed`）。
+
 | 实际落地层 | 通过条件 |
 |---|---|
 | 模板存值 | ① blast radius 小、是本轮目标模板的针对性优化；**且** ② `templates/*.json` 默认只读，必须有**用户明确授权**或有文档化的 stored-值阻断例外。授权证据缺失 → `Failed` |
-| schema | 模块自带约束（`step` / `min` / `max` / `default`）阻挡 spec 值时才用；须评估向后兼容（通常"拉高上限"安全、"收紧步长"危险），且 **schema option values 永远不改** |
+| schema | 模块自带约束（`step` / `min` / `max` / `default`）阻挡 spec 值时才用；须评估向后兼容（通常"拉高上限"安全、"收紧步长"危险）。**option values**：删除或修改既有 `value` → 🔴 `Failed`（存量实例存值静默失效）；**纯新增 option 允许**，但须在 `OptionsConsidered` 给出新 value 的 Liquid 端映射、schema 保存验证与旧存值兼容结论（`handoff-schema.md` §8.1 第 9 条） |
 | 模块代码 | 偏离由模块自身实现导致、需根本性修复；影响该模块所有现存实例，须有 blast radius 数据支撑 |
 
 取证：

@@ -109,7 +109,7 @@ git status --porcelain=v1 --untracked-files=all
 |---|---|
 | `PreviewManifestStatus` | 后台 + 前端链接都**实测访问过**并记时间；后台链接必须能看到并修改配置。内容记在 `PreviewManifest`，判定记在本字段 |
 | `ConfigurationGuideStatus` | 新 section / 新配置项必交，含字段说明 + 默认值 + 使用场景 + 填错怎么办 + **关键部分截图** |
-| `SelfTestReportStatus` | 用例四段式且**有附件截图/视频**；预期结果写"显示正常"的**视同未测**；另需**测试集溯源三项**（引用 / 基线版本 / 本轮增删清单） |
+| `SelfTestReportStatus` | 用例四段式且**有附件截图/视频**；预期结果写"显示正常"的**视同未测**；另需一行 **`TestSetTrace`**（稳定文档 ID **@不可变 revision** + 本轮 Added/Updated/Removed 或 `None(reason)`） |
 | `ScreenshotManifestStatus` | 8 张：`375 / 768 / 1024 / 1280 / 1440` + 边界 `767 / 1279 / 1599` |
 | `ImpactScopeStatus` | 引用 `AssessmentRef` 的模板/实例结论 + 本 skill 补的站点维度 |
 | `ReworkDeltaStatus` | 返工轮次必交「本轮修改点」；首轮提测填 `NotApplicable` |

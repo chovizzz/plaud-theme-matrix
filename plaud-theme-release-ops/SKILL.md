@@ -12,7 +12,7 @@ description: >
   产出 ArtifactKind: ReleaseOps 工件：ReleaseId、ReleaseScope（逐 ChangeSet 的 QA 结论与验收状态）、
   TargetSites、ExcludedSites、ThemeIds、SiteListConfirmedBy、PRRef、AuthorizationRef、
   PushResult、PerSitePushResult、PushedAt、PostReleaseWatch、RegressionCasesAdded。
-  **v0.2.0 只支持单块发布**：IncludedInThisPush: Yes 的块多于一个即停机，改逐块串行。
+  **v0.2.1 只支持单块发布**：IncludedInThisPush: Yes 的块多于一个即停机，改逐块串行。
   三条硬规则：**运营验收未通过前禁止发版对应 section/page**；**推送站点必须两次确认且有出处**；
   **每个线上 bug 必须反推一条回归用例入库**。
   本 skill 不判可交付（唯 plaud-theme-qa 有权）、不写代码、不修 bug、不做验收、不判反馈归属；
@@ -73,7 +73,7 @@ Step 5  上线后：跟踪 + 回归用例入库
 
 ⚠️ 还要核对 QA 结论**是否仍然有效**：handoff-schema §1.4，QA 通过后代码再变则原结论自动失效。发版前若工作树或 HEAD 有变化，要求重新走 QA，不得用旧结论发版。
 
-> 🔴 **v0.2.0 只支持单块发布。** `IncludedInThisPush: Yes` 的块**至多一个**；多于一个 → **停机**，要求改为逐块串行发布（每块走完 实现 → 提测 → QA → 发版，再做下一块）。
+> 🔴 **v0.2.1 只支持单块发布。** `IncludedInThisPush: Yes` 的块**至多一个**；多于一个 → **停机**，要求改为逐块串行发布（每块走完 实现 → 提测 → QA → 发版，再做下一块）。
 > 原因见 handoff-schema §2：指纹绑的是整个工作树，第二块落盘时第一块的 QA 就失效了，**不可能同时持有 N 个仍然有效的 QA 结论**；而"合并后跑一次集成 QA"在绑工作树的模型下也跑不通（合并提交后工作树是干净的，与"各块并集"必然失配）。
 > 彻底解法（指纹改绑不可变 commit / tree 对象）留 v0.3.0。**不要**自己发明变通——那正是这条限制要防的。
 
@@ -164,7 +164,7 @@ DTC §五 第 1 条：**agency 负责提供 PR，前端用 agent 同步和合并
 |---|---|
 | `IncludedInThisPush: Yes` 的块里，任一 `QAConclusion` 不是 `Yes` | 停，退回 QA |
 | 有块 `AcceptanceStatus: Pending` 但无法从发布树剥离 | 停，等它验收完一起发；不得混进本次 push |
-| `IncludedInThisPush: Yes` 的块多于一个 | 停，v0.2.0 不支持多块同批发版，改逐块串行（见 Step 0） |
+| `IncludedInThisPush: Yes` 的块多于一个 | 停，v0.2.1 不支持多块同批发版，改逐块串行（见 Step 0） |
 | QA 通过后代码又变了 | 停，要求重新生成 ChangeSetId 并重跑 QA |
 | `AcceptanceStatus: Pending` | 停（对应 section / page 部分） |
 | 站点清单只确认过一次 | 停，补第二次确认 |

@@ -89,6 +89,18 @@ DTC §2.1 的 10 条硬性样式要求（同页边距一致、背景成体系、
 
 软性项的问题 → 记进反馈但判 `RequirementEvolution` 或 `NoAction`，并在 QA 侧进 `Advisories`（非阻断）。
 
+### 3.1 存量复用的反馈不算本次交付缺陷（v0.2.1）
+
+复用既有 section / snippet 的改动被反馈时，先分清偏差是**本次引入**还是**本来就有**（`handoff-schema.md` §8.1.2）：
+
+| 情形 | 判定 | 计返工 |
+|---|---|---|
+| 偏差在 `BaseHeadSha` 上已存在，本次未加重、未使其变得可达 | `RequirementEvolution`（或另开独立治理块），**不算本次 `DeliveryDefect`** | 否 |
+| 本次改动让原本不可达的旧偏差进入新的可达路径（复用旧 snippet / 放开条件 / 新模板挂旧 section） | `DeliveryDefect` | **是** |
+| 举证不出"已存在"（无可复跑证据命令） | 按本次引入判 `DeliveryDefect` | 是 |
+
+> 举证责任在实现方，不在反馈方。判 `RequirementEvolution` 时 `EvidenceRefs` 必须带那条可复跑的 `git show <BaseHeadSha>:<file>` 证据。
+
 ---
 
 ## 4. 一条反馈可能同时是两者

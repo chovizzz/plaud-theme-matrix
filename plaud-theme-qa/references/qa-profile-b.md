@@ -155,11 +155,13 @@ sed -n '/{% schema %}/,/{% endschema %}/p' <theme-root>/sections/sa-<feature>.li
 
 **两种配置各自覆盖全部五档断点**（PC / 1599 / 1279 / 767 / 375），结论并入 `RegressionMatrix`。没有"只看两档就够"的简化版——空配置的塌陷和满配置的溢出都是断点相关的。
 
+> 🔴 **存量复用豁免（`handoff-schema.md` §8.1.2）不豁免本项。** 复用旧 section / snippet 时，「这个字段的问题以前就有」只免除**修复义务**，不免除**双测**：新接入的上下文、本次改过的字段与 schema、以及本次改动后可达的所有路径，空 / 满两种配置都要实测。留空导致崩溃**永远**是 🔴（红线⑩无豁免）。
+
 ---
 
 ## B6. 多语言
 
-- 展示文案全部走 schema 或 locales（vendor §8.1），无 liquid / js 硬编码。
+- 展示文案全部走 schema 或 locales（vendor §8.1），无 liquid / js 硬编码。**判定范围**：本次新增/修改的行；存量未触及的硬编码进 `Advisories`，但「本次让旧硬编码变得可达」按新增判——见 `qa-global.md` §7.1。
 - 新增 locale key 时 `locales/en.default.json` 与其它 `locales/*.json` 同步——否则 theme check 会新增 `TranslationKeyExists` / `MatchingTranslations`，`ThemeCheck` 直接 `Failed`。
 - **不得在代码中判断语言后切换字面量**：`grep -nE "request.locale|shop.locale" sections/sa-*.liquid` 命中且用于选文案 → `Failed`。
 - 英译德长文案测试见 QA-Global 第 3 项（`LocalizationCheck`），本项只查配置面。

@@ -1,7 +1,7 @@
 {
   "skill_name": "plaud-theme-impact",
   "skill": "plaud-theme-impact",
-  "version": "v0.2.0",
+  "version": "v0.2.1",
   "description": "plaud-theme-impact（Assess 阶段）的行为 eval：ReconMode 判定、理论 vs 实际影响分离、disabled 实例单列、依赖树覆盖、共享传播链、RiskTier/QA profile、入口候选、停机点、职责边界。\n\n断言体系（harness 需支持三者；只实现 assertions 时后两者按未验证处理，不得记为通过）：\n- assertions：必须出现的字符串（string-contains）\n- forbidden：必须不出现的字符串（反向鉴别力，防止反向答案蒙混过关）\n- validator：结构化校验（目前仅 impact-14 使用 yaml-block-exact-keys）\n\n两类 eval：\n- rule 类（无需仓库）：只考模式判定、边界、职责归属、字段契约，不要求真实数字；\n- fixture 类（需挂载 Plaud theme 仓库）：要求实际跑 grep/node 并给出实例清单。无 fixture 时正确行为是 BlockingGaps 非空 + ReadyForImplement: No，不得编造数字。",
   "evals": [
     {

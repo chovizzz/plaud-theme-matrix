@@ -72,6 +72,16 @@ grep -B 1 '"disabled": true' templates/<template>.json | grep '"type"'
 哪怕只是"换个命名风格"（`left` → `start`）**也不行**。
 需要不同的 emit 结果时，**只在 Liquid 端做映射**，stored 实例值优先。
 
+**约束对象是"删除或修改既有 `value`"**（会让存量实例存值静默失效）。**纯新增 option 允许**，但要在 `OptionsConsidered` 写清三件事：新 value 的 Liquid 端映射、schema 保存验证、旧存值向后兼容结论（`handoff-schema.md` §8.1 第 9 条）。"新增一律允许、无需验证"不成立。
+
+### 2.2.1 复用既有模块时的存量偏差（v0.2.1）
+
+迁移里常见"这个模块本来就有别的偏差"。按 `handoff-schema.md` §8.1.2：**不要求顺手修**，记进迁移日志的待评估项 + QA 的 `Advisories`，但三条不放松：
+
+1. 必须给出可复跑证据证明该偏差在 `BaseHeadSha` 上已存在；
+2. 不得加重，也不得因本次接入让它变成新的可达行为（否则按本次引入判 🔴）；
+3. 回归范围仍按 `plaud-theme-impact` 的 `ActualAffectedInstances` 全量，空 / 满配置双测不豁免。
+
 ### 2.3 验收前不动迁移日志
 
 - 约束对象是 **UX 差异日志内容**

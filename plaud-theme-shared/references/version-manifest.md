@@ -8,9 +8,9 @@
 
 | 项 | 值 |
 |---|---|
-| 矩阵包版本 | **v0.2.0** |
-| 包名 | `plaud-shopify-theme-matrix-v0.2.0` |
-| 契约版本（`ContractVersion`） | **v0.2.0** |
+| 矩阵包版本 | **v0.2.1** |
+| 包名 | `plaud-shopify-theme-matrix-v0.2.1` |
+| 契约版本（`ContractVersion`） | **v0.2.1** |
 | 对应 UX Spec 版本 | **v1.3 · 2026-08-11 设计 Token 基线**（源文档 `Plaud-UX-v1.3`「设计 Token 与组件规范文档」，8 页 PDF）。它取代了 v0.1.0 依据的 `PLAUD_UX_规范基准_v1.3.md`（含 2026-07 补充修订 4 条）——版本号同为 v1.3，但内容是重新整理过的一版，差异见 CHANGELOG |
 | 对应交付标准 | **《DTC 开发交付标准 v1.0》**（2026-08-06，运营与产研共同维护，双周会可审议修订） |
 | 前身 | v0.1.0（7 skill）；再前身是单 skill 包 `plaud-shopify-theme-skill` |
@@ -49,19 +49,23 @@
 | 文件 | 覆盖内容 | 唯一事实源范围 |
 |---|---|---|
 | `handoff-schema.md` | 两轴状态机、交付权、ChangeSetId、Assess/Implement/Verify 工件、Theme Check 门、停机点、**全路径红线正文**、输出块格式 | 契约与红线的规范性表述 |
-| `typography.md` | 字体族 / 字重、`--text-*` 与 `.fs-*` 分工、字阶表、H1–H6、区头三件套、行高、`.richtext-container` | 全部字体数值 |
+| `typography.md` | 字体族 / 字重、`--text-*` 与 `.fs-*` 分工（**语义类 vs 数字遗留类**）、字阶表、**h1–h6 标签与字号解耦**、区头三件套、行高、`.richtext-container` | 全部字体数值 |
 | `colors-and-schemes.md` | 品牌色变量、spec 色阶、AI 渐变、`color_scheme` schema + Liquid、`.use-color-scheme` 重绑表、自定义颜色规则 | 全部颜色数值 |
 | `responsive-and-spacing.md` | CSS 判定断点 + 组件特例、设计画板断点、`--space-N`、间距/圆角/按钮尺寸工具类、容器宽度 7 阶、section 间距、三层响应式变量、**三个高频陷阱** | 全部断点与间距数值 |
 | `media-quality.md` | 图片清晰度红线操作化、防 CLS、懒加载与 Swiper 冲突、`<source media>`、视频、素材来源 | 媒体取值方法 |
 | `liquid-schema-format.md` | 文案 i18n 三规则、schema 标签、完整显示、价格规范、HTML 格式、命名、schema 向后兼容、**Theme Check 高发项对照** | Liquid / schema 规则 |
 | `javascript-swiper.md` | 主题架构速记、基类选择、数据传递优先级、生命周期清理、**Swiper effect 约束表**、`section-swiper`、bug 对照表 | JS / Swiper 约束 |
 | `a11y.md` | 7 条 A11y 底线的**判定方法** | A11y 判定细则 |
-| **`repo-drift.md`** | 规范值 vs 目标仓库编译产物：为什么会滞后、开工前核对命令、5 类已知漂移案例 | build 产物滞后 |
+| **`repo-drift.md`** | 规范值 vs 目标仓库编译产物：为什么会滞后、开工前核对命令、7 类已知漂移案例 | build 产物滞后 |
 | `version-manifest.md` | 本文件 | 版本与职责 |
 
 > v0.2.0 的 `handoff-schema.md` 新增：§0.1 四个非阶段 skill、§1.1 `ReadyForDelivery` 的边界、
 > §8.1 运营协作红线（DTC §三）、§8.2 公共文件改动注释、§9.1.2–§9.1.4 三类新工件、§9.2 对应枚举。
 > `a11y.md` 新增 §5.1 新色板的实测对比度与允许配对表（🔴 待设计方裁决项进 QA 的 `Advisories`，不判 Failed）。
+
+> **v0.2.1 修订**（评审回应，不新增 skill）：
+> `handoff-schema.md` §8.1 由「10 条一律红线」改为 **🔴 / 🟠 / 🟡 三档**（🟠 分 `EvidenceBased` 与 `ApprovedException`，后者缺 `ApprovalRef` 直接 `Failed`），#5 / #9 / #10 改为**按范围**判定；新增 §8.1.2 **存量复用豁免**（只免修复义务）；§8.1.1 测试集溯源三项收敛为一行 **`TestSetTrace`**（新增进 §9.1.2 工件与 §9.2 枚举）。
+> `typography.md` §4 整节重写（**撤回 H5 = 22px 与「复用 h5 全局规则」**，新增 §4.1 三套 h5 实现 / §4.2 语义类 vs 数字遗留类）；`colors-and-schemes.md` §3 outline 边框改为**先判两条样式链是否统一再决定复用或新增变量**；`repo-drift.md` 新增 §3.6 / §3.7。
 
 > 🔴 `repo-drift.md` 是**后加的第 9 个 reference**，`SKILL.md` 的 Reference 索引表（本版不可改）里没有它。
 > 加载规则：**任何要落地 spec 数值 / 依赖某个 token 或工具类的任务都应读**（build 产物滞后与仓库无关）；`typography.md` / `colors-and-schemes.md` / `responsive-and-spacing.md` 三处已在正文交叉指向它。下次可改 `SKILL.md` 时应补进索引表。
@@ -115,10 +119,10 @@ vendor 对外版为早期基线；凡与 v1.3 不一致处**一律以 v1.3 为�
 
 | 项 | 情况 | 处理 |
 |---|---|---|
-| **H5 = 22px 无同值工具类** | 22px 是现行规范值（vendor §6）；**已实证**编译产物 `.fs-*` 只有 9 档（48/40/32/28/24/20/16/14/12），22px 确实不存在 | **不得**改成 20 或 24。优先复用既有 H5 全局规则；确需工具类化 → 停机请示是否新增语义 token（`typography.md` §4） |
+| ~~H5 = 22px 无同值工具类~~ | ❌ **v0.2.1 撤回：该条本身是错的。** UX Spec v1.3 没有 H1–H6 表，22px 不是 spec 值；且「工具类里不存在 22px」也不成立（`.fs-22` 真实存在于 `assets/critical.css` / `snippets/critical-style.liquid`，且仍被两个 section 引用）。原「优先复用既有 H5 全局规则」的建议会产出 **28.8px**（旧 vendor 值），必须停用 | 已改写为 `typography.md` §4：标签与字号解耦，按用途选 9 档语义 token |
 | ~~H1：64/36 vs large-title-1：48/40~~ | ✅ **已裁决**：以 token **48/40** 为准，vendor §6 的 64/36 **作废** | 已落进 `typography.md` §3、§4 |
 | ~~`.btn-primary-lg` 字号未给值~~ | ✅ **已解决**：编译产物实测 LG = 18px PC / 16px MB | 已补进 `responsive-and-spacing.md` §3.3 |
-| **H 标签表的断点标注** | vendor §6 写 "Desktop（≥1920px）/ Mobile（≤768px）"，与 CSS 判定值 1599.98 / 767.98 不是同一套 | 表内**数值有效**；断点标注按 `responsive-and-spacing.md` §1 理解，中间档离散取值 |
+| ~~H 标签表的断点标注~~ | ❌ **v0.2.1 一并撤回**：H 标签表已不作为 spec 档位存在（见上条），其断点标注无需再裁决 | 见 `typography.md` §4 |
 | **区头 992 vs 全站 767.98 / 1279.98** | 区头样式表按 992 分 PC/MB | 已确认为**组件特例**，勿泛化（`typography.md` §5、`responsive-and-spacing.md` §1.1） |
 
-> **不属于本节的**：某仓库"富文本 H1–H6 是否已对齐""按钮档差是否要调"这类**项目运行时状态**，在项目侧 `memory/全局已知偏差.md`，不写进契约层。
+> **不属于本节的**：某仓库"富文本 h1–h6 是否已对齐""按钮档差是否要调"这类**项目运行时状态**，在项目侧 `memory/全局已知偏差.md`，不写进契约层。

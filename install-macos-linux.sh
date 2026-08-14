@@ -5,7 +5,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PACKAGE_NAME="plaud-shopify-theme-matrix"
-PACKAGE_VERSION="v0.2.0"
+PACKAGE_VERSION="v0.2.1"
 
 # Skills that this matrix supersedes and that must not stay installed alongside it.
 # Keeping the old single skill causes routing competition: two different specs

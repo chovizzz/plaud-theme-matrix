@@ -204,11 +204,26 @@ Hover（**仅 PC**）：见 §1 的品牌色 hover 表（黑 `#635F5D` / 蓝 `#0
 
 - 颜色一律走变量，不写死 hex（红线④）。需要局部微调时覆盖 `--btn-primary-bg-color` / `--btn-primary-hover-bg-color`，见 §7。
 - Secondary-Outline 的边框色 `#717171` 与 `label-secondary` 同值，但**语义不同**——写边框时用边框变量，别借 `--color-label-secondary`（label 变量在 `.use-color-scheme` 下会被重绑，边框会跟着变色）。
-  🔴 **spec 未给这个边框定义语义 token**。落地方式二选一，两种都要在改动说明里写清：
-  | 做法 | 何时用 |
+  🔴 **spec 未给这个边框定义语义 token**。
+
+  ⚠️ **v0.2.1 实测更正（`shopify-plaud-yidian`，2026-08-12）——「借用 label-secondary 会变色」不是假设，已经是既存现实；而且仓库里 outline 是两条互不相通的样式链，选路前必须先算 blast radius：**
+
+  | 类 | 边框色来源 | 是否消费 `--btn-outline-border-color` |
+  |---|---|---|
+  | `.btn-outline`（旧，`assets/critical.css:520`） | `var(--btn-outline-border-color)`，由 `layout/theme.liquid:350` / `layout/password.liquid:87` 按 color scheme 输出，setting 定义在 `config/settings_schema.json`（`btn_outline_border_color`，default `#39F672`，并映射 `role.secondary_button_border`） | ✅ 是 |
+  | `.btn-secondary-outline`（新，`snippets/design-system.liquid`） | 写死 `1px solid var(--color-label-secondary)`；而同一产物的 `.use-color-scheme` 把 `--color-label-secondary` 重绑成 `var(--color-text)` | ❌ 否 |
+
+  另外 `config/settings_data.json` 的 **10 个 color scheme 存的边框值全是 `#39f672`**（`btn_outline_background` 同为 `#39f672`），与 spec 的 `#717171` 不一致；`assets/sa-user-guide-anchor.css:56` 已经把 `--btn-outline-border-color` 覆盖成 `var(--color-label-secondary)`。
+
+  🔴 **因此「仓库已有变量 → 直接复用」这个推论不成立**，落地前先回答一个问题并在改动说明里写明结论：
+
+  | 前置判断 | 落地方式 |
   |---|---|
-  | 复用既有按钮变量 `--btn-outline-border-color`（先 grep 目标仓库是否已有） | 优先 |
-  | 新增 `--color-border-outline: #717171` 到 `design-utilities.scss` 再 build | 仓库没有对应变量时；**不得内联硬编码 hex** |
+  | `.btn-outline` 与 `.btn-secondary-outline` 要**统一**成同一语义（灰边框） | 复用 `--btn-outline-border-color`，**不新增 token**；但改 10 个 scheme 存值会同时改变所有旧 `.btn-outline` 按钮 → 属改运营线上配置，走 §8.1 红线②的授权流程，并先跑 `plaud-theme-impact` |
+  | 旧 `.btn-outline` 必须**保留**现有品牌绿行为，Secondary-Outline 要稳定为灰 | 仍需独立语义变量：新增 `--color-border-outline: #717171` 到 `design-utilities.scss` 再 build |
+  | 两条链的关系尚未裁决 | **停机**要设计方/PM 裁决，不得自行选一条 |
+
+  两种落地都**禁止内联硬编码 hex**。
 
 ---
 

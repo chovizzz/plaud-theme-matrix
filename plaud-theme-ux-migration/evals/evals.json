@@ -1,6 +1,6 @@
 {
   "skill_name": "plaud-theme-ux-migration",
-  "matrix": "plaud-shopify-theme-matrix-v0.2.0",
+  "matrix": "plaud-shopify-theme-matrix-v0.2.1",
   "path": "C",
   "stage": "Implement",
   "evals": [
@@ -330,6 +330,19 @@
         "输出说明单一 ChangeSet 能装下的 B+C 直接走 plaud-theme-section-build，不必绕 plaud-theme-orchestrator；只有需要拆出第二个可独立验收的 ChangeSet 时才进 orchestrator。",
         "输出说明 RequiredQAProfile 需多选（QA-B 与 QA-C）。",
         "输出没有直接开始写新 section 的 liquid 代码。"
+      ]
+    },
+    {
+      "id": 25,
+      "route": "legacy-module-preexisting-deviation",
+      "prompt": "这个模块迁移时发现它本来就有别的 spec 偏差（正文色还是 #7A7A7A、圆角写了 8px）。我顺手一起修了吧？",
+      "expected_output": "不要求顺手修（handoff-schema §8.1.2 存量复用豁免）：记进迁移日志待评估项 + QA 的 Advisories。但三条不放松：举证该偏差在 BaseHeadSha 已存在、不得加重或让它变成新可达行为、回归仍按 plaud-theme-impact 的 ActualAffectedInstances 全量且空/满配置双测不豁免。要修就另开一个独立可验收的块。",
+      "files": [],
+      "assertions": [
+        "输出说明存量偏差不要求顺手修，记待评估项与 Advisories。",
+        "输出要求举证偏差在 BaseHeadSha 已存在。",
+        "输出说明豁免只免修复义务，不免验证范围与双测。",
+        "输出建议要修则另开独立块，不夹带在本次迁移里。"
       ]
     }
   ]

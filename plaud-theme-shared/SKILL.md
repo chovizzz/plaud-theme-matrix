@@ -209,7 +209,7 @@ Path A 改一个 JS timer 时**不需要**加载完整字体字阶表。按当�
 被其它 skill 引用时，输出：
 
 ```yaml
-ContractVersion: v0.2.0
+ContractVersion: v0.2.1
 PathResolved:            # A | B | C | Cross(B+C) | Cross(A+C)
 StageResolved:           # Assess | Implement | Verify
 RequiredSkill:           # 当前阶段应由哪个 skill 执行
@@ -223,7 +223,7 @@ BlockingGaps:
 ```yaml
 ProducerSkill: plaud-theme-shared
 ConsumerSkill:           # 引用本层的 skill
-ContractVersion: v0.2.0
+ContractVersion: v0.2.1
 BlockingGaps:
 ReadyForNextSkill:       # Yes | No
 ```

@@ -26,7 +26,7 @@
 任何 skill 引用本层后，在自己的正文里回报一次：
 
 ```yaml
-ContractVersion: v0.2.0
+ContractVersion: v0.2.1
 PathResolved:            # A | B | C | Cross(B+C) | Cross(A+C)
 StageResolved:           # Assess | Implement | Verify | N/A(NonStage)
                          #   ↑ 后者用于 §0.1 的四个非阶段 skill：orchestrator /
@@ -44,7 +44,7 @@ BlockingGaps:
 ```yaml
 ProducerSkill: plaud-theme-shared
 ConsumerSkill:           # 引用本层的 skill
-ContractVersion: v0.2.0
+ContractVersion: v0.2.1
 BlockingGaps:
 ReadyForNextSkill:       # Yes | No
 ```
