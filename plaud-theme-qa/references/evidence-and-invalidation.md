@@ -149,7 +149,16 @@ handoff-schema §2 的规范命令里含 `git status --porcelain=v1`，它输出
 
 handoff-schema 开头明令「任何 skill 都不得自行定义字段、改字段名、或新增终态词汇」，且 §5 的字段表里**没有** `QAStatus`——它只出现在 §4（实现 skill 的工件）。所以：
 
-- **§5 yaml 块保持纯净**，只含 §5 定义的 19 个字段，一个不多。
+- **§5 yaml 块保持纯净**，只含 §5 定义的 23 个字段，一个不多、一个不少（含 `SubmissionId` / `QAAdmissionStatus` / `StyleHardRuleCheck` / `Advisories`）。
+
+> ⚠️ **区分两种「用户豁免」**，输出不一样：
+>
+> | 用户说的 | `QAAdmissionStatus` | 检查项 | 正文 |
+> |---|---|---|---|
+> | "不用检查了直接发"（弃 **QA**） | 按提测包实际情况填 | 全部 `Blocked` | 说明已跳过验证，风险由用户承担 |
+> | "这次不准备提测材料"（弃 **材料**） | `Blocked` | **照常执行并填实际结果** | 说明已跳过提测材料校验 |
+>
+> 两者的 `ReadyForDelivery` 都恒为 `No`。
 - `QAStatus: Skipped(UserWaived)` 写在**正文**里（handoff-schema §1 条款 5 的措辞），不写进 yaml 块。
 - 豁免事实同时体现在 §5 的既有字段中：`QAProfilesRun: None`、各检查项 `Blocked`、`Evidence: 无 —— 用户要求跳过验证`、`BlockingGaps: 全部验证项未执行（UserWaived）`。
 
@@ -167,6 +176,8 @@ ChangeSetIdMatched: <Yes | No —— 封闭枚举只有这两个值；未校验�
 FingerprintVerifiedAt: 未执行（用户豁免，Step1/Step2 均未重算）
 QAProfilesRun: None
 ThemeCheck: Blocked
+SubmissionId: <引用提测包；用户弃材料时写 N/A(UserWaivedMaterials)>
+QAAdmissionStatus: Blocked
 ThemeCheckEvidence: 用户豁免，未执行
 ThemeRuntimePreview: Blocked
 AdminSchemaSave: Blocked
@@ -174,10 +185,12 @@ RegressionMatrix: Blocked
 BreakpointsCovered: None
 LocalizationCheck: Blocked
 A11yCheck: Blocked
-FixedDimensionCheck: Blocked        # ⚠️ 见下「三项枚举缺口」
-ImageQualityCheck: Blocked          # ⚠️ 同上
-CopyConfigurabilityCheck: Blocked   # ⚠️ 同上
+FixedDimensionCheck: Blocked        # 未执行 → Blocked（四值均合法，见下）
+ImageQualityCheck: Blocked          # 同上
+CopyConfigurabilityCheck: Blocked   # 同上
+StyleHardRuleCheck: Blocked         # 同上
 ProfileSpecificResults: 全部 Blocked（用户豁免，未执行）
+Advisories: 无
 Evidence: 无 —— 用户要求跳过验证
 BlockingGaps: 全部验证项未执行（UserWaived）
 ReadyForDelivery: No
@@ -185,23 +198,18 @@ ReadyForDelivery: No
 
 > ⚠️ **`ChangeSetIdMatched` 没有 `Blocked`。** §9.2 的封闭枚举只有 `Yes` / `No`。校验没跑或跑不了一律填 `No`（"未确认匹配"就是"不匹配"，保守方向），原因写进 `BlockingGaps`。往这个字段塞 `Blocked` 是自造取值。
 
-> 🔴 **三项枚举缺口 —— 这是 shared 内部的自相矛盾，不是本 skill 的自造取值。**
+> 🟢 **三项枚举已收口（v0.2.0）。**
 >
-> `FixedDimensionCheck` / `ImageQualityCheck` / `CopyConfigurabilityCheck` 在 handoff-schema 里被规定了两次，两次不一致：
+> `FixedDimensionCheck` / `ImageQualityCheck` / `CopyConfigurabilityCheck` 曾被记录为「handoff-schema §5 与 §9.2 规定不一致」。**复核结论：§9.2 枚举表这三项本来就含 `Blocked`**，两处一致，所谓缺口不存在——这条提示自 v0.1.0 起就是过时描述，v0.2.0 予以删除。
 >
-> | 出处 | 规定 |
-> |---|---|
-> | **§5 开头** | 「每项检查的取值只能是 `Passed` / `Failed` / `Blocked` / `NotApplicable`」——**含 `Blocked`** |
-> | **§9.2 枚举表** | 这三项只有 `Passed` / `Failed` / `NotApplicable`——**不含 `Blocked`** |
+> 现行规定：四值 `Passed` / `Failed` / `Blocked` / `NotApplicable` 全部合法，不必再在 `BlockingGaps` 登记契约歧义。
 >
-> **本 skill 按 §5 执行**（§5 是专门定义本阶段工件的条款，更具体；这与 `NotApplicable` 那条歧义的收口方式一致）：用户豁免 / ChangeSet 失配时这三项确实**没有执行**，照实填 `Blocked`，并在 `BlockingGaps` 里显式登记这一契约歧义。
->
-> **三条不得越界的红线：**
-> 1. **绝不**改填 `NotApplicable` —— 未执行伪装成"不需要验"，是最直接的绕过交付门方式。
+> **三条不得越界的红线不变：**
+> 1. **绝不**把未执行改填 `NotApplicable` —— 伪装成"不需要验"，是最直接的绕过交付门方式。
 > 2. **绝不**改填 `Passed`。
-> 3. **绝不**改填 `Failed` —— `Failed` 的语义是"验了且发现缺陷"。把未执行写成 `Failed` 会让实现 skill 去追一个不存在的缺陷，是另一种失真；用错误的取值换取形式合规不划算。
+> 3. **绝不**改填 `Failed` —— `Failed` 的语义是"验了且发现缺陷"。把未执行写成 `Failed` 会让实现 skill 去追一个不存在的缺陷。
 >
-> **收口必须由 shared 做**（把 `Blocked` 加进这三项的 §9.2 枚举，或为"未执行"另设取值），本 skill 无权修改 shared。每次出现时在正文提示矩阵维护者。无论取哪个值，`ReadyForDelivery` 恒为 `No`，交付门本身不受影响。
+> 未执行一律 `Blocked` + 原因。无论取哪个值，`ReadyForDelivery` 恒为 `No`。
 
 不劝说、不重复、不列举"你可能会遇到的 12 种问题"。用户已经做了决定，QA 的职责是留下准确记录，不是说服。
 

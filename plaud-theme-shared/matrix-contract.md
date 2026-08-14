@@ -2,7 +2,7 @@
 
 **何时读我**：想知道契约层怎么被引用、它输出什么、以及"数值只准引用不准复制"具体怎么执行时。
 
-> 本文描述 **`plaud-theme-shared` 与其它 6 个 skill 的交接关系**。
+> 本文描述 **`plaud-theme-shared` 与其它 9 个 skill 的交接关系**。
 > 契约字段本身定义在 `references/handoff-schema.md`（唯一契约），本文不重复定义字段。
 
 ---
@@ -15,7 +15,7 @@
 |---|---|
 | 产出 | **规则**，不是主题代码 |
 | 上游 | 无。它不消费任何 skill 的 handoff |
-| 下游 | 全部 6 个 skill —— 它们**开工前必须先读**本层 |
+| 下游 | 全部 9 个 skill —— 它们**开工前必须先读**本层 |
 | 阶段 | 不占 Assess / Implement / Verify 任一阶段 |
 | 用户直接调用 | 一般不需要。仅当用户直接问"矩阵怎么衔接""handoff 字段是什么""为什么必须过 QA"时可直接用它回答 |
 
@@ -26,9 +26,11 @@
 任何 skill 引用本层后，在自己的正文里回报一次：
 
 ```yaml
-ContractVersion: v0.1.0
+ContractVersion: v0.2.0
 PathResolved:            # A | B | C | Cross(B+C) | Cross(A+C)
-StageResolved:           # Assess | Implement | Verify
+StageResolved:           # Assess | Implement | Verify | N/A(NonStage)
+                         #   ↑ 后者用于 §0.1 的四个非阶段 skill：orchestrator /
+                         #     qa-intake / feedback-triage / release-ops
 RequiredSkill:           # 当前阶段应由哪个 skill 执行
 ReferencesLoaded:        # 本次实际加载的 reference 文件名
 RedlinesApplicable:      # 本次任务命中的全路径红线编号（handoff-schema §8）
@@ -42,14 +44,14 @@ BlockingGaps:
 ```yaml
 ProducerSkill: plaud-theme-shared
 ConsumerSkill:           # 引用本层的 skill
-ContractVersion: v0.1.0
+ContractVersion: v0.2.0
 BlockingGaps:
 ReadyForNextSkill:       # Yes | No
 ```
 
 ---
 
-## 3. 六个消费者各自必读什么
+## 3. 九个消费者各自必读什么
 
 `references/handoff-schema.md` 对**所有** skill 都是必读。其余按需：
 
@@ -60,7 +62,10 @@ ReadyForNextSkill:       # Yes | No
 | `plaud-theme-dev` | handoff-schema | javascript-swiper、liquid-schema-format、media-quality、a11y |
 | `plaud-theme-section-build` | handoff-schema | 全部 7 个（新建 section 会同时碰字体/颜色/间距/媒体/schema/JS/A11y） |
 | `plaud-theme-ux-migration` | handoff-schema | typography、colors-and-schemes、responsive-and-spacing、media-quality |
-| `plaud-theme-qa` | handoff-schema | 按被验 `ChangeSetId` 的 `ModifiedFiles` 涉及面加载；`a11y.md` 恒读（QA-Global 含 A11yCheck） |
+| `plaud-theme-qa-intake` | handoff-schema（§0.1 / §9.1.2） | — （**不读**视觉数值文件：它不判样式） |
+| `plaud-theme-qa` | handoff-schema | 按被验 `ChangeSetId` 的 `ModifiedFiles` 涉及面加载；`a11y.md` 恒读（QA-Global 含 A11yCheck + Advisories allowlist） |
+| `plaud-theme-feedback-triage` | handoff-schema（§9.1.3） | 按反馈涉及的维度加载对应数值文件——判「是否违反 Spec」必须现读，不得凭记忆 |
+| `plaud-theme-release-ops` | handoff-schema（§1.1 / §9.1.4） | — （**不读**视觉数值文件：它不判样式） |
 
 **反面**：Path A 改一个 JS timer 时加载完整字阶表 = 重演单 skill 时代的注意力稀释。
 

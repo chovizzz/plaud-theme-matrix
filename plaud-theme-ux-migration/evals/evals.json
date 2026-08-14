@@ -1,6 +1,6 @@
 {
   "skill_name": "plaud-theme-ux-migration",
-  "matrix": "plaud-shopify-theme-matrix-v0.1.0",
+  "matrix": "plaud-shopify-theme-matrix-v0.2.0",
   "path": "C",
   "stage": "Implement",
   "evals": [
@@ -188,7 +188,7 @@
       "id": 14,
       "route": "handoff-contract",
       "prompt": "今天第 2 个 Path C 改动做完了，按矩阵格式给我交接块。",
-      "expected_output": "输出 handoff-schema §4 的完整 yaml 块（18 个字段、顺序一致），ChangeSetId 为 CS-<YYYYMMDD>-C02，含交付当刻现算的 BaseHeadSha 与 ChangeSetFingerprint、ReadOnlyProof: N/A，Path: C，RequiredQAProfile 含 QA-C 且不含 QA-Global，QAStatus: NotRun，ReadyForDelivery: No。",
+      "expected_output": "输出 handoff-schema §4 的完整 yaml 块（19 个字段、顺序一致），ChangeSetId 为 CS-<YYYYMMDD>-C02，含交付当刻现算的 BaseHeadSha 与 ChangeSetFingerprint、ReadOnlyProof: N/A，Path: C，RequiredQAProfile 含 QA-C 且不含 QA-Global，QAStatus: NotRun，ReadyForDelivery: No。",
       "files": [],
       "assertions": [
         "输出最后是一个 yaml 代码块，且字段名与顺序与 handoff-schema.md §4 一致。",
@@ -197,7 +197,7 @@
         "输出含 ReadOnlyProof（有改动任务填 N/A）。",
         "输出包含 Path: C。",
         "输出的 RequiredQAProfile 含 QA-C（QA-Global 不写进该字段）。",
-        "输出包含 QAStatus: NotRun、NextRequiredSkill: plaud-theme-qa、ReadyForDelivery: No。",
+        "输出包含 QAStatus: NotRun、NextRequiredSkill: plaud-theme-qa-intake、ReadyForDelivery: No。",
         "输出的 yaml 块不含 ChangeSetIdMatched、RegressionMatrix、ReadyForImplement 等其它阶段字段。"
       ]
     },

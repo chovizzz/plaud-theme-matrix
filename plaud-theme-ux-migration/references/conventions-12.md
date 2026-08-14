@@ -31,7 +31,7 @@
 | 类型 | 加载层 | 字号 / 颜色处理 |
 |---|---|---|
 | **Universal**（每页都用）<br>`cs-section-header` / `section-disclaimer` / `.container` | `design-utilities.scss` → critical inline | **组件 CSS 直接消费 token**：`color: var(--color-label-primary)` |
-| **Section-scoped**（部分页面用，**async**）<br>FAQ / accordion / pricing card 等 | `shopify-common/sections-*` | **utility class 挂 HTML**：`<div class="faq-question fs-headline text-tertiary">` |
+| **Section-scoped**（部分页面用，**async**）<br>FAQ / accordion / pricing card 等 | `shopify-common/sections-*` | **utility class 挂 HTML**：`<div class="faq-question fs-headline text-secondary">` |
 
 **理由**：section-scoped 模块的结构 CSS 走 async，字号 / 颜色若也写在 async CSS 里会在首次 paint 时 FOUC。
 utility class 来自 critical bundle、已加载，**HTML 解析瞬间生效**。

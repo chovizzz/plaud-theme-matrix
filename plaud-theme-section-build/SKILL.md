@@ -334,6 +334,7 @@ BaseHeadSha:             # 交付工件时的 git rev-parse HEAD
 ChangeSetFingerprint:    # 见上，交付工件时当场生成
 ReadOnlyProof: N/A       # 仅零改动只读任务填写；Path B 恒为 N/A
 AssessmentRef:           # 引用 plaud-theme-impact 的 ASMT-<YYYYMMDD>-<NN>
+OriginTriageRef:          # 本块若由反馈返工产生：TriageId + ItemId；否则 N/A
 Path: B
 ReconMode:               # IntegrationSurface（纯新建常态）｜LegacyImpact（写入了任何存量文件——含 snippet/全局 CSS/token/既有 section/templates/layout/config/locales 既有 key/build 产物，或新增文件被存量机制自动消费——须回 impact 重评）
 ModifiedFiles:           # 逐个文件路径 + 一句话改动；必须与工作树一致
@@ -345,7 +346,7 @@ VisualRegressionRequired: # Yes | No
 BuildRequired:           # Yes | No（是否动了 shopify-common/src 需 npm run build）
 BlockingGaps:            # 实现中发现但无权处理的（素材来源、模板接入授权、spec 取值二选一…）
 QAStatus: NotRun         # 恒为 NotRun
-NextRequiredSkill: plaud-theme-qa
+NextRequiredSkill: plaud-theme-qa-intake
 ReadyForDelivery: No     # 恒为 No，见 handoff-schema §1
 ```
 

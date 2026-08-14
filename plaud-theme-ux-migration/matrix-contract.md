@@ -43,7 +43,9 @@ disabled 实例命令是**交叉验证**手段（目的是审计与日志资格�
 **豁免**：满足 `handoff-schema.md` §3 `InlineLite` 全部条件时可跳过 Assess，
 `AssessmentRef` 填 `InlineLite` 并附豁免理由。**拿不准就不是 InlineLite。**
 
-## 3. 下游：`plaud-theme-qa`（Verify）
+## 3. 下游：`plaud-theme-qa-intake` → `plaud-theme-qa`（Verify）
+
+> 🔴 **v0.2.0 起先过 `plaud-theme-qa-intake`。** `NextRequiredSkill` 填 `plaud-theme-qa-intake`；提测包齐备后 QA 才启动（handoff-schema §9.1.2）。下文关于 QA 的内容仍然成立，只是多了一道前置关口。
 
 产出 `handoff-schema.md` §4 的 yaml 块。QA 侧的对接点：
 

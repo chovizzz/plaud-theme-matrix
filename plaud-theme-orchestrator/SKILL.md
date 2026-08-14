@@ -17,7 +17,9 @@ description: >
   **普通任务不要绕本 skill**：单个 bug、单个 section 的性能/UX/A11y 微调 → plaud-theme-dev；
   单个 Figma 稿转 sa-* section（含"按设计稿新建 section 同时要符合 UX spec"这种 B+C 交叉，
   它是一个 ChangeSet，不裂块）→ plaud-theme-section-build；单个模板/模块的 spec 迁移 →
-  plaud-theme-ux-migration；只问影响面 → plaud-theme-impact；只要验收 → plaud-theme-qa。
+  plaud-theme-ux-migration；只问影响面 → plaud-theme-impact；只要验收 → plaud-theme-qa；
+  提测材料齐不齐 → plaud-theme-qa-intake；反馈算缺陷还是变更 → plaud-theme-feedback-triage；
+  发版推站与上线后 → plaud-theme-release-ops。
   不用于非 Plaud 主题、Hydrogen/headless、Shopify App/Admin/Checkout Extension、WooCommerce。
 ---
 
@@ -69,6 +71,9 @@ description: >
 | 单个模板或单个模块的 spec 迁移 | `plaud-theme-ux-migration` |
 | 只想知道"改这个会影响什么" | `plaud-theme-impact` |
 | 只要验收/回归/theme check | `plaud-theme-qa` |
+| 提测材料齐不齐 / 站点清单 | `plaud-theme-qa-intake` |
+| 这条反馈算缺陷还是变更 / 计不计返工 | `plaud-theme-feedback-triage` |
+| 发版推站 / 上线后 bug / 回归用例入库 | `plaud-theme-release-ops` |
 | 问"矩阵怎么衔接""handoff 字段是什么" | `plaud-theme-shared` |
 
 > **单块工作即使走完 Assess → Implement → Verify 三阶段，也不需要 orchestrator。**
@@ -119,6 +124,7 @@ Path A 的质量规则（全路径红线）全局继承，**永远适用**，与
 |---|---|---|---|
 | **Assess** | `plaud-theme-impact` | `plaud-theme-impact` | `plaud-theme-impact` |
 | **Implement** | `plaud-theme-dev` | `plaud-theme-section-build` | `plaud-theme-ux-migration` |
+| 提测（过渡） | `plaud-theme-qa-intake` | `plaud-theme-qa-intake` | `plaud-theme-qa-intake` |
 | **Verify** | `plaud-theme-qa` | `plaud-theme-qa` | `plaud-theme-qa` |
 
 ### 门 1 — Assess → Implement
@@ -128,10 +134,11 @@ Path A 的质量规则（全路径红线）全局继承，**永远适用**，与
 - `BlockingGaps` 非空 → 该块挂起，向用户要材料，**其它块可继续**（不要因为一块缺证据就停整个 wave，也不要为了不停下而猜）
 - 跳过 Assess 的唯一情形是 `InlineLite` 豁免，条件见 handoff-schema §3。**在多块编排里 `InlineLite` 几乎不成立**——多块编排的前提就是跨资源，跨资源就不满足"该文件无其它引用方"。给某块判 `InlineLite` 必须逐条列出四个条件的核查结果。
 
-### 门 2 — Implement → Verify
+### 门 2 — Implement → 提测准入 → Verify
 
 - 实现 skill 必须交出 `ChangeSetId` + `ModifiedFiles`，缺任一 → 退回重出
 - 实现 skill 输出的 `ReadyForDelivery` 恒为 `No` + `QAStatus: NotRun`；**看到实现 skill 写了 `Yes` 属契约违规，退回**
+- **v0.2.0 起中间多一道 `plaud-theme-qa-intake`**：实现 skill 的 `NextRequiredSkill` 指向它，`SubmissionPackageStatus: Complete` 之后 QA 才启动（handoff-schema §9.1.2）。台账里逐块记 `SubmissionId`；`Incomplete` 的块挂起等材料，**其它块可继续**
 
 ### 门 3 — Verify → 交付
 
@@ -140,6 +147,26 @@ Path A 的质量规则（全路径红线）全局继承，**永远适用**，与
 - orchestrator 汇总各 ChangeSet 的 QA 结果，但**汇总不产生新的交付许可**：只要有一个 ChangeSet 不是 `ReadyForDelivery: Yes`，`AllChangeSetsDelivered` 就是 `No`，整体口径就是"未完成交付"
 - 全部 ChangeSet 都拿到 QA 的 `Yes` 时，orchestrator 的措辞是「各 ChangeSet 的 QA 均已通过（附 ChangeSetId 清单）」，并在协调工件里记 `AllChangeSetsDelivered: Yes`。**这是汇总读数，不是交付许可**（handoff-schema §9.1）——协调工件里根本不出现 `ReadyForDelivery` 字段，许可在 QA 的 §5 工件里
 - QA 通过后代码再变 → 该块 QA 自动失效，重新生成 `ChangeSetId` 重跑（handoff-schema §1.4）
+- **QA 通过 ≠ 可发版**（handoff-schema §1.1）。推站前还要过运营验收与站点二次确认，归 `plaud-theme-release-ops`；orchestrator 只汇总，不代它判
+
+### 门 4 — 反馈回流（v0.2.0 新增）
+
+> 🔴 **先分清两种"打回"，它们的路由不同：**
+>
+> | 来源 | 例子 | 路由 |
+> |---|---|---|
+> | **QA 的机械失败** | Theme Check 新增 offense、断点回归 Failed、A11y Failed、写死宽高 | **直接回实现 skill 返修**，生成新 `ChangeSetId`。**不进 triage** —— 这里没有"是缺陷还是变更"可判，规则是矩阵自己定的 |
+> | **运营 / PM 的验收反馈** | 与 Figma 不一致、觉得间距小、要加动效 | **走 `plaud-theme-feedback-triage`**，由 PM 判缺陷还是变更 |
+>
+> 把机械 QA 失败也塞进 triage 会让 PM 去审批一件本来就该修的技术问题，白白多一道人工门。
+
+运营验收或线上反馈回来时，归因走 `plaud-theme-feedback-triage`（handoff-schema §9.1.3）。orchestrator 的台账要跟住这条回流：
+
+- 判为 `DeliveryDefect` 且 PM 确认 → **新开一个 ChangeSet 块**加进 `ChangeSetPlan`，从 Assess 重新进入。**不得**复用原块的 `ChangeSetId` 打补丁（原 QA 已失效，§1.4）
+- 判为 `RequirementEvolution` → 进排期，**不进 `ChangeSetPlan`**，不计返工轮次
+- `PMDecision: Pending` 的条目挂起，不预先建块
+
+新块与原块在台账里要能看出关联（记 `TriageId` 与被返工的原 `ChangeSetId`），否则返工轮次算不出来。
 
 禁止措辞（与实现 skill 同）：「交付完成」「上线可用」「全部通过」「可以发布」「已验收」。
 
@@ -200,8 +227,11 @@ orchestrator 维护一张跨块台账，每次输出都完整重列（不要只�
 | 依赖关系 | 必须先完成哪个 ChangeSet（串行依赖） |
 | `AssessmentRef` | `plaud-theme-impact` 产出（`ASMT-<YYYYMMDD>-<NN>`） |
 | 当前阶段 | **只能是** `Assess` / `Implement` / `Verify`（handoff-schema §9.2） |
-| `QAStatus` | 原样抄录 QA 的值，只能是 `NotRun` / `Skipped(UserWaived)` |
+| `QAStatus` | 🔴 **抄 Implement 工件（§4）的值**，只能是 `NotRun` / `Skipped(UserWaived)`。**QA 的 §5 工件里没有这个字段**——别去 QA 那里找 |
+| `SubmissionId` | 抄 `plaud-theme-qa-intake` 的 §9.1.2 工件；免提测包时 `N/A` |
+| `QAAdmissionStatus` | 抄 QA 的值：`Accepted` / `Blocked` |
 | 该 ChangeSet 的 `ReadyForDelivery` | 原样抄录 QA 的值。orchestrator 不得自行赋值 |
+| `TriageId` / `OriginChangeSetId` | 若该块由反馈回流产生（`plaud-theme-feedback-triage` 的 §9.1.3），记来源；否则 `N/A` |
 
 > **枚举纪律（handoff-schema §9.2）**：`Done` / `Invalidated` / `Partial` 这类枚举外取值一律视为契约违规。
 > 需要表达"这块已经验完了""这块的 QA 已失效"时，用阶段值 + QA 的 `ReadyForDelivery` 原文描述，
@@ -238,7 +268,7 @@ orchestrator 维护一张跨块台账，每次输出都完整重列（不要只�
 
 ```yaml
 Mode: SingleSkill
-RecommendedSkill:        # plaud-theme-dev | plaud-theme-section-build | plaud-theme-ux-migration | plaud-theme-impact | plaud-theme-qa | plaud-theme-shared
+RecommendedSkill:        # plaud-theme-dev | plaud-theme-section-build | plaud-theme-ux-migration | plaud-theme-impact | plaud-theme-qa-intake | plaud-theme-qa | plaud-theme-feedback-triage | plaud-theme-release-ops | plaud-theme-shared
 Reason:                  # 为什么不需要编排
 RequiredInputs:          # 该 skill 开工需要什么
 ```

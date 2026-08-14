@@ -297,6 +297,7 @@ BaseHeadSha:             # 交付工件时的 git rev-parse HEAD；零改动填 
 ChangeSetFingerprint:    # 见 §2，交付工件时当场生成；零改动填 N/A
 ReadOnlyProof:           # 仅零改动任务：审计前后两次快照的 HEAD + hash，必须一致；其余填 N/A
 AssessmentRef:           # ASMT-<YYYYMMDD>-<NN>；InlineLite 时填 InlineLite；只读填 N/A(ReadOnly)
+OriginTriageRef:          # 本块若由反馈返工产生：TriageId + ItemId；否则 N/A
 Path: A
 ReconMode:               # LegacyImpact | InlineLite（须附豁免理由 + 判定命令原文）；只读填 N/A(ReadOnly)
 ModifiedFiles:           # 逐个文件路径 + 一句话改动；必须与工作树一致；只读任务填 [] （不要留空 scalar）
@@ -308,12 +309,12 @@ VisualRegressionRequired: # Yes | No
 BuildRequired:           # Yes | No
 BlockingGaps:
 QAStatus: NotRun
-NextRequiredSkill: plaud-theme-qa   # 零改动任务填 None
+NextRequiredSkill: plaud-theme-qa-intake   # 零改动任务填 None
 ReadyForDelivery: No     # 恒为 No；零改动任务填 N/A(ReadOnly)
 ```
 
 > ⚠️ 每个 `key:` 与注释之间**必须有空格**。YAML 里 `Key:# 注释` 是解析错误，照抄时不要压掉那个空格。
 
 `ChangeSetId` 格式 `CS-<YYYYMMDD>-A<NN>`，`<NN>` 为当日 Path A 的序号，从 `01` 起。
-`QAStatus` / `Path` 为常量，任何情况下不得改写（`QAStatus` 的唯一其它合法取值是用户明确弃检时的 `Skipped(UserWaived)`）。`NextRequiredSkill` / `ReadyForDelivery` 只在**零改动只读任务**下取 `None` / `N/A(ReadOnly)`，其余情况恒为 `plaud-theme-qa` / `No`。
+`QAStatus` / `Path` 为常量，任何情况下不得改写（`QAStatus` 的唯一其它合法取值是用户明确弃检时的 `Skipped(UserWaived)`）。`NextRequiredSkill` / `ReadyForDelivery` 只在**零改动只读任务**下取 `None` / `N/A(ReadOnly)`，其余情况恒为 `plaud-theme-qa-intake` / `No`。
 交出这个块之后，你这一轮的话到此为止——下一句该由 `plaud-theme-qa` 说。

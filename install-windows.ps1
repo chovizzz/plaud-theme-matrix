@@ -23,7 +23,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $PackageName = "plaud-shopify-theme-matrix"
-$PackageVersion = "v0.1.0"
+$PackageVersion = "v0.2.0"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 # Skills this matrix supersedes.

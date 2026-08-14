@@ -145,14 +145,14 @@ WW 的 `text` / `title` 子块**不走 spec `fs-*` 类**：
 
 #### A. 给 WW 文本上 spec 灰，必须先看字段类型
 
-- `description` 是 **textarea** 字段 → 允许任意 HTML，可直接 `<span class="text-secondary/-tertiary">…</span>` 上色（**生效**）
+- `description` 是 **textarea** 字段 → 允许任意 HTML，可直接 `<span class="text-secondary">…</span>`（🪦 `-tertiary` 档已废止，见 shared `colors-and-schemes.md` §2.1） 上色（**生效**）
 - 🔴 `rich_description` 是 **richtext** 字段 → **`<p>` 禁带 `class` / `style`**，加了 **Shopify 校验拒绝、整模板上传失败**（报"`<p>` 标签上不允许使用属性"）。
   即便绕过，richtext 里 `<p>` 还有**更高特异性**的着色规则会盖过 `.text-*` 类
 - **解法**：要上色的内容放 `description`（textarea）字段、**清空 `rich_description`**，用 `<span class="text-…">` 包裹（span 子元素能盖过 `<p>` 着色规则）；颜色仍引规范 token 类
 
 #### B. 大数字 / 装饰字号
 
-legacy 内联类（`fs__50` / `fs__30` 这类）要对 spec：直接把内联类换成 **spec 字号类**，并**去掉 `fwb`**（§1.1 全站 Regular）。
+legacy 内联类（`fs__50` / `fs__30` 这类）要对 spec：直接把内联类换成 **spec 字号类**，并**去掉 `fwb`**（`.fwb` 是 700，不在 400/600 两档内。§1.1 现为 Regular 400 默认 + Semibold 600 仅局部强调，见 shared `typography.md` §1）。
 
 #### C. 叠图 banner（`image_with_text_overlay`）/ 标题块曾走流式 clamp、非 spec
 

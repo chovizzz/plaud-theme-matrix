@@ -43,11 +43,11 @@
 | 维度 | 对照什么 | 判定要点 |
 |---|---|---|
 | 字号 | §1.2 `text-*` token | **PC / MB 双档**；不在档时先判断是"PC/MB 跨档"还是"Figma 自定"，再走 §3 |
-| 字重 | §1.1 全站 Regular | admin 字段值 `subheading_weight` 解析为 500、`body_weight` 解析为 400——**改字重会改 class 名**，注意 §4.12.1 的渐变失配坑 |
+| 字重 | §1.1 **Regular 400 默认 + Semibold 600 仅局部强调**（不用于标题、不可大面积；2026-08-11 基线放开，落地前须核字体资源，见 shared `typography.md` §1） | admin 字段值 `subheading_weight` 解析为 **500 —— 500 仍不是合法字重，迁移归 400**，不得借 600 放开为由保留；`body_weight` 解析为 400。**改字重会改 class 名**，注意 §4.12.1 的渐变失配坑 |
 | 颜色 | §2.1 brand / §2.2 highlight / §2.3 label / §2.4 background / §2.5 separator | 走 token / utility 类，不写死 hex（例外见 `pitfalls-shared-scope.md` §4.6） |
 | 间距 | §3.1 `--space-N`（N = 1/2/4/6/8/10/14）；模块间间距走 V1.1 `--section-space` | utility 类为 `.pad-*` / `.mar-*-*` / `.gap-sp-*` |
 | 圆角 | §4 `radius-base` / `-lg` / `-xl` | utility 类 `.radius-*` |
-| 按钮 | §6.1 Primary-Dark / -Light / **-white** / Secondary-Outline；§3.2 padding 档 | 尺寸选档按 §1 第 3 条：**LG 只 Banner / 其它 MD / 特殊 SM** |
+| 按钮 | §6.1 六个变体：Primary-Dark / -Purple / -Green / -Cyan / -White / Secondary-Outline（1px `#717171` 边框）；§3.2 padding 档；四档高度走 `min-block-size` | 变体色值见 shared `colors-and-schemes.md` §3.1（**没有 `Primary-Light` 这个变体**，旧文档写过，已废）。尺寸选档按 §1 第 3 条：**LG 只 Banner / 其它 MD / 特殊 SM** |
 | 断点 | §7 精度 `.98` | 一律 `.98` 精度，杂散整数断点见 `pitfalls-components.md` §4.11 |
 | 区头 | `cs-section-header` 统一渲染，PC / MB 双档（spec large-title-2，v1.3 wave 已对齐） | 间距与对齐坑见 `pitfalls-components.md` §4.13 |
 

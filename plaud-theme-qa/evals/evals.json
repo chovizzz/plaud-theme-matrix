@@ -1,7 +1,7 @@
 {
   "skill_name": "plaud-theme-qa",
   "matrix": "plaud-shopify-theme-matrix",
-  "version": "v0.1.0",
+  "version": "v0.2.0",
   "evals": [
     {
       "id": 1,
@@ -14,7 +14,7 @@
         "输出判定 ChangeSetIdMatched: No。",
         "输出明确拒绝把额外改动一起验证，要求实现 skill 重新生成 ChangeSetId 与 ChangeSetFingerprint。",
         "输出 ReadyForDelivery: No。",
-        "输出把九个状态字段标为 Blocked，并对 FixedDimensionCheck / ImageQualityCheck / CopyConfigurabilityCheck 说明 §9.2 枚举缺口（照实填 Blocked 并登记进 BlockingGaps，绝不改填 NotApplicable 或 Passed）。",
+        "输出把十个状态字段（含 StyleHardRuleCheck）标为 Blocked（含 FixedDimensionCheck / ImageQualityCheck / CopyConfigurabilityCheck），绝不改填 NotApplicable 或 Passed。",
         "输出的 ChangeSetIdMatched 取 No（该字段封闭枚举只有 Yes / No，不用 Blocked）。",
         "输出的记录字段（QAProfilesRun / BreakpointsCovered / FingerprintVerifiedAt / Evidence）不填状态枚举。"
       ]
@@ -190,7 +190,7 @@
       "id": 14,
       "route": "output-contract",
       "prompt": "验收结论按矩阵格式给我。",
-      "expected_output": "回复最后是 handoff-schema §5 定义的 19 个字段的 yaml 块（含 FingerprintVerifiedAt），字段名与顺序一字不差。",
+      "expected_output": "回复最后是 handoff-schema §5 定义的 23 个字段的 yaml 块（含 FingerprintVerifiedAt），字段名与顺序一字不差。",
       "files": [],
       "assertions": [
         "输出的最后是一个 yaml 代码块。",
@@ -200,7 +200,7 @@
         "yaml 块包含 ProfileSpecificResults、Evidence、BlockingGaps、ReadyForDelivery 字段。",
         "FingerprintVerifiedAt 如实写出 Step1（验证前）与 Step2（验证后）两次重算的值，不是「已核验」。",
         "yaml 块未出现 handoff-schema §5 之外自造的字段名（例如 QAStatus、Invalidated）。",
-        "即便在用户豁免场景，yaml 块也只含 §5 的 19 个字段，QAStatus 不出现在块内。"
+        "即便在用户豁免场景，yaml 块也只含 §5 的 23 个字段，QAStatus 不出现在块内。"
       ]
     },
     {

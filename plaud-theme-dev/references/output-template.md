@@ -103,7 +103,7 @@
 | 已验收 | `QAStatus: NotRun` |
 | 我测过了 / 验证无误 | 本 skill 不执行验证 |
 | 已具备上线条件 / 生产就绪 / 达到发布标准 | 交付资格由 `plaud-theme-qa` 判定 |
-| 可以合并 / 可以部署 / 剩下只需发布 | `NextRequiredSkill: plaud-theme-qa` |
+| 可以合并 / 可以部署 / 剩下只需发布 | `NextRequiredSkill: plaud-theme-qa-intake` |
 | 风险已清零 / 无需进一步检查 | 待验项已列出，风险由 QA 评估 |
 
 用户催"到底行不行"时，正确回答是：**改动已就位，根因是 X，待 QA 按 QA-A 验证（QA-Global 由 QA 恒执行，不写进 `RequiredQAProfile`）；我无权判定可交付。**

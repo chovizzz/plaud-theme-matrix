@@ -17,11 +17,13 @@
 
 ## 下游
 
+> 🔴 **v0.2.0 起下游是 `plaud-theme-qa-intake`（提测准入），不是 `plaud-theme-qa`。** 交出 ChangeSet 后先过提测包校验（DTC §四「缺一不进验收」），材料齐了 QA 才启动。见 handoff-schema §0.1 / §9.1.2。
+
 | 去向 | 传出 | 约束 |
 |---|---|---|
 | `plaud-theme-qa`（Verify） | `handoff-schema.md` §4 的 Implement 工件 | 绑定凭据是 `ChangeSetId` + `BaseHeadSha` + `ChangeSetFingerprint` 三者：`ModifiedFiles` 必须与工作树一致，且指纹必须由**交付当刻**生成。QA 在任何检查之前重算比对，任一不符 → `ChangeSetIdMatched: No` 并停机 |
 
-`NextRequiredSkill` 恒为 `plaud-theme-qa`（唯一例外是零改动只读任务，填 `None`——§2 明文规定零改动免 QA）。**有改动的任务任何情况下不得跳过 Verify。**
+`NextRequiredSkill` 恒为 `plaud-theme-qa-intake`（唯一例外是零改动只读任务，填 `None`——§2 明文规定零改动免 QA）。**有改动的任务任何情况下不得跳过 Verify。**
 
 ---
 
@@ -52,7 +54,7 @@
 ```yaml
 Path: A
 QAStatus: NotRun            # 唯一其它合法值：Skipped(UserWaived)，仍配 ReadyForDelivery: No
-NextRequiredSkill: plaud-theme-qa
+NextRequiredSkill: plaud-theme-qa-intake
 ReadyForDelivery: No
 ```
 

@@ -44,7 +44,7 @@
 | spec token | 重绑到（方案字段） | 说明 |
 |---|---|---|
 | label-secondary（副标题 / 正文） | `secondary_text_color` | — |
-| label-tertiary（三级 / 小字 / 划线价） | `tertiary_text_color` | **不再塌成黑** |
+| 🪦 ~~label-tertiary~~ | **重绑立即移除** | 该档已废止（shared `colors-and-schemes.md` §2.1）。加兼容 alias 的**同一步**就要删掉这条重绑，否则方案一开启 alias 就失效 |
 | bg-card / bg-soft（卡片 / 浅起面） | `surface_color` | **不再塌成区块底** |
 | separator（分隔线） | `separator_color` | 已与 `border_color` **脱钩** |
 | label-disabled（禁用） | **不重绑** | 固定 spec 值，不随方案 |

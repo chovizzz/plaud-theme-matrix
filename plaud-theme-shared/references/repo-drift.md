@@ -117,7 +117,7 @@ grep -c '\-\-color-purple' "$F"
 | `--space-N` | 4 / 8 / 16 / 24 / 32 / 40 / 56 |
 | `--radius-base` / `-lg` / `-xl` | 5 / 10 / 15px |
 | `--container-max-*` 7 阶 | 1600 / 1440 / 1280 / 1140 / 960 / 720 / 540 |
-| label 色阶 | primary #000000、secondary #7A7A7A、tertiary #A3A3A3、disabled #C7C7C7、inverse-primary #FFFFFF、inverse-secondary #ABABAB |
+| ~~label 色阶~~ | 🔴 **已移出本表**：2026-08-11 基线把 secondary 改为 `#717171`、**废止 tertiary 档**。实测中见到的 `#7A7A7A` / `#A3A3A3` 现在是**漂移**（build 早于新基线），不再是"与规范一致"。现行值见 `colors-and-schemes.md` §2.1，动它之前必须 grep 核对 |
 | separator 色 | default #EBEBEB、emphasized #CCCCCC |
 | 行高 | `--head-line-height` 1.2 / `--body-line-height` 1.5 |
 | 字阶 9 档 | 48/40、40/32、32/28、28/24、24/20、20/18、16/16、14/14、12/12 |

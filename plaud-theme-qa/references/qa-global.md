@@ -95,10 +95,34 @@ grep -rn "<asset-file>" <theme-root>/{layout,sections,snippets}/
 
 红线：禁止无理由写死组件宽高（shared 红线 2，例外范围以 shared 为准）。
 
+**扫描分两步：先把所有尺寸声明捞全，再逐条裁定。不要用整行 `grep -v` 过滤。**
+
 ```bash
-git diff HEAD -U0 -- <ModifiedFiles> | grep -nE '^\+.*(width|height)[[:space:]]*:[[:space:]]*[0-9]+(px|rem|%)'
-git diff HEAD -U0 -- <ModifiedFiles> | grep -nE '^\+.*(width|height)="[0-9]+"'
+# 第 1 步：捞全所有尺寸属性声明（含逻辑属性、含 var()/calc()、含内联 style）
+#          -o 只输出命中的声明本身，避免一行里有合法+非法两条时被整行过滤掉
+git diff HEAD -U0 -- <ModifiedFiles> | grep -E '^\+' \
+  | grep -oE '(^|[^-a-z])(min-|max-)?(width|height|inline-size|block-size)[[:space:]]*:[^;"}]*'
+
+# HTML 属性形式
+git diff HEAD -U0 -- <ModifiedFiles> | grep -nE '^\+.*(width|height)="[^"]*"'
 ```
+
+**第 2 步：对捞出的每一条声明逐条裁定**（不能靠模式一刀切）：
+
+| 声明形态 | 裁定 |
+|---|---|
+| `min-width` / `min-height` / `min-inline-size` / `min-block-size` | ✅ 允许（红线只禁固定尺寸） |
+| `width: auto` / `height: auto` / `…-size: auto` | ✅ 允许 |
+| `max-height` / `max-block-size` + 固定值 | ⚠️ **不自动放行** —— 它会裁掉超长文案，与红线的多语言意图冲突。要么确认内容不可能溢出，要么判 `Failed` |
+| `width` / `height` / `inline-size` / `block-size` + 字面量（`40px` / `2rem` / `50vh`…） | 属 shared 红线 2 的允许例外 → 记豁免 + 引用哪条；实现工件已说明理由 → 引用；否则 **`Failed`** |
+| `height: var(--x)` / `block-size: calc(...)` | **同样要查** —— 变量/计算式里可能就是个固定值。追到定义处看它是不是固定 px；追不到 → `Blocked` + 说明 |
+| 内联 `style="height: …"` | **高危**，媒体查询盖不住。除非是技术例外，一律 `Failed` |
+
+> 🔴 **三个常见的漏检姿势：**
+>
+> 1. **只 grep `width|height`** —— `block-size: 40px` / `inline-size: 200px` 与它们等效，会直接漏过。
+> 2. **整行 `grep -v '(min|max)-'`** —— 一行里同时有 `min-height: 40px; height: 40px` 时，整行被过滤，非法的那条跟着一起漏了。所以第 1 步用 `-o` 逐声明输出。
+> 3. **只匹配数字字面量** —— `height: var(--card-h)` / `block-size: calc(100% - 20px)` 匹配不到，但它们照样可能是写死的固定高。
 
 对每条命中做**三选一**裁定，逐条写进证据：
 
@@ -107,6 +131,19 @@ git diff HEAD -U0 -- <ModifiedFiles> | grep -nE '^\+.*(width|height)="[0-9]+"'
 - 两者都没有 → `FixedDimensionCheck: Failed`，列出文件:行号。
 
 **注意 `<img width height>` 属性是防 CLS 必需，不属于本项违规**（那是第 6 项的范畴）。
+
+### 5.1 按钮高度的特殊口径（2026-08-11 基线）
+
+新基线给出了按钮四档高度（LG 40 / MD 35 / SM 25 / Outline PC 35·MB 32）。**这不是写死 `height` 的许可**：
+
+| 写法 | 判定 |
+|---|---|
+| `min-block-size: 40px` + `height: auto` + padding 撑开 | `Passed` —— 这是正确落地方式 |
+| `height: 40px` / `min-height` 之外的固定高 | **`Failed`** —— 长语言换行会溢出或被裁 |
+| 任何固定 `width` | `Failed` —— 本次基线未放开宽度 |
+
+数值现读 `plaud-theme-shared/references/responsive-and-spacing.md` §3.3.1，不要凭记忆。
+校验手法与 `LocalizationCheck` 共用一组素材：换德语长文案后按钮**变高**而不是文字溢出。
 
 ---
 
@@ -214,3 +251,52 @@ git diff --name-only HEAD | grep -nE '(dist/|design-system\.liquid|\.min\.(js|cs
 - 命中且源文件未同步改 → `Failed`（手改产物，下次 build 即被覆盖）。
 - 命中且源已改 → 确认跑过 `npm run build`、产物与源一致；未跑 → `Failed`（同时会让 `ThemeCheck` 失真，见 `theme-check-gate.md` §1）。
 - 无命中 → `NotApplicable`。
+
+---
+
+## 9. StyleHardRuleCheck —— DTC §2.1 硬性 10 条
+
+来源：《DTC 开发交付标准 v1.0》§2.1「硬性（不符合即不合格）」，落在 handoff-schema §5 的 `StyleHardRuleCheck` 字段。
+
+**判定原则（DTC 原文）**：硬性项**逐条可查**；不符合即不合格。任一条 `Failed` → `StyleHardRuleCheck: Failed` → `ReadyForDelivery: No`。
+
+| # | 要求 | 怎么查 |
+|---|---|---|
+| 1 | **同一页面内左右上下边距一致**，不同 section 间不得有无理由的边距差 | 逐 section 量 `.container` 内边距与 section 上下间距；差异要能指向 schema 存值或 spec 条款 |
+| 2 | **同一页面内背景色成体系**，不得无理由色块跳变 | 逐 section 记背景 token；出现非 spec 色或无理由跳变即 `Failed` |
+| 3 | **字号层级不得倒置** —— 描述不能比标题大、子标题不能比主标题大 | 量同一区块内标题 / 子标题 / 描述的 computed font-size，逐级递减 |
+| 4 | **圆角只用 5 / 10 / 15px，默认 5px** | grep 改动文件里的 `border-radius`；例外只有倒计时 2px、极细装饰线 1px、头像 50%（见 `responsive-and-spacing.md` §3.2） |
+| 5 | **不得加粗** —— 仅 Regular 400 / Semibold 600，Semibold 只用于局部强调、不用于标题 | grep `font-weight`；出现 700/`bold`/`.fwb` 即 `Failed`；600 用在标题或大段文字上同样 `Failed`（见 `typography.md` §1） |
+| 6 | **不得使用文字渐变（AI 相关除外）、单词局部放大**等装饰效果 | grep `background-clip: text` / `-webkit-text-fill-color` / 单词级 `font-size` 覆盖 |
+| 7 | **文字色用规范色值**，深色底禁用灰字 | 逐条比对 `colors-and-schemes.md` §2.1；深底必须用 inverse token，用 `.text-secondary` 压深底即 `Failed` |
+| 8 | **移动端**不遮挡、不裁切、不溢出，文字不被固定高度截断 | 375 / 767 两档实测；与 `RegressionMatrix` 共用截图 |
+| 9 | **按钮不硬设 height / width**，尺寸落在规范四档内 | 见 §5.1 |
+| 10 | **含模块标题的 section 必须提供独立于 PC 的移动端对齐配置** | 查 schema 是否有移动端对齐字段（`header_align_mb` 等），且 Liquid 把它传进 `section-header` snippet |
+
+> ⚠️ 第 10 条查的是**能力**（有没有这个配置项），不是**存值**（某个实例是否已设为左对齐）。逐实例存值属 QA-C 的范畴。
+
+`NotApplicable` 的合法情形：本次改动完全不涉及样式（如纯 JS 逻辑、纯 locale 文案）——须给出适用性证据。
+
+---
+
+## 10. Advisories —— DTC §2.2 软性项（非阻断）
+
+软性项写进 §5 的 `Advisories` 字段，**不影响 `ReadyForDelivery`**。
+
+DTC 原文判定原则：「软性项**只在同页面内部明显不自洽时才提**。」
+
+| 软性项 | 何时提 |
+|---|---|
+| 字号尽量落在字阶表内 | 同页面同类元素字号不一致时才提；规范未覆盖的场景以同页一致为准 |
+| 模块上下间距尽量走全局变量 | 硬编码间距且与同页其它模块不一致时才提 |
+| sandbox 与线上环境差异 | 已知差异如实记录；线上配置差异导致的未测出**免责** |
+
+**A11y 的 🔴 待裁决项也进 `Advisories`**，但**只限 `a11y.md` §5.1 那张封闭 allowlist 里的配对**（`#717171` 压 `#F2EFEB` 4.26 / 压 `#F7F5F3` 4.49、`#8F53ED` 压 `#F2EFEB` 3.96、角标 Hot `#FF0000` on `#FCDEDE` 3.17）。色值是设计方给的、矩阵无权改，如实记录并标待裁决，不判 `A11yCheck: Failed`。
+
+> 🔴 **Advisories 不是降级通道，三条闸门：**
+>
+> 1. **`< 3.0` 一律 `Failed`**，spec 给的也不行 —— 包括角标 Pre Order（`#39F672` on `#D7FDE3` = **1.30**）。3.0 以下不是"略差"，是看不见。
+> 2. **不在 allowlist 里的配对一律按常规判定**（`< 4.5` → `Failed`）。allowlist 是封闭表，QA 无权扩充。
+> 3. **每条 Advisory 必须带「已知偏差批准引用」**（设计方 / PM 的确认链接）。**批准引用为空 → 该条降级为 `Failed`**。
+>
+> 硬性 10 条（§9）任何情况下都判 `Failed`，不进 Advisories。

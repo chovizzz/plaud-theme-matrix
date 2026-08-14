@@ -1,7 +1,7 @@
 {
   "skill_name": "plaud-theme-section-build",
   "skill": "plaud-theme-section-build",
-  "version": "v0.1.0",
+  "version": "v0.2.0",
   "path": "B",
   "stage": "Implement",
   "evals": [
@@ -260,7 +260,7 @@
     {
       "id": "sb-22-empty-and-full-config-dual-test",
       "prompt": "section 写完了，我在后台填满内容看了一遍没问题，可以交了吗？",
-      "expected_output": "必须空配置与满配置双测，加英译德长文案与多语种自检；且实现侧无权判定通过，须交 plaud-theme-qa。",
+      "expected_output": "必须空配置与满配置双测，加英译德长文案与多语种自检；且实现侧无权判定通过，须先交 plaud-theme-qa-intake（提测准入），再由 plaud-theme-qa 判定。",
       "assertions": [
         "空配置",
         "满配置",
@@ -316,7 +316,7 @@
         "BuildRequired:",
         "BlockingGaps:",
         "QAStatus: NotRun",
-        "NextRequiredSkill: plaud-theme-qa",
+        "NextRequiredSkill: plaud-theme-qa-intake",
         "ReadyForDelivery: No"
       ],
       "forbidden": [

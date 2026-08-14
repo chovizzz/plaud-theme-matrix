@@ -38,7 +38,9 @@ plaud-theme-qa (Verify, QA-B + QA 恒执行的 QA-Global)
 
 ---
 
-## 2. 下游：`plaud-theme-qa`
+## 2. 下游：`plaud-theme-qa-intake` → `plaud-theme-qa`
+
+> 🔴 **v0.2.0 起先过 `plaud-theme-qa-intake`。** `NextRequiredSkill` 填 `plaud-theme-qa-intake`；提测包 `SubmissionPackageStatus: Complete` 之后 QA 才启动（handoff-schema §9.1.2）。下文关于 QA 的内容仍然成立，只是多了一道前置关口。
 
 交出 `handoff-schema.md` §4 的 yaml 块，其中：
 

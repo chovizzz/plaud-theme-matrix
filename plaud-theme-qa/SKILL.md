@@ -1,9 +1,10 @@
 ---
 name: plaud-theme-qa
 description: >
-  PLAUD Shopify 主题矩阵的 Verify 阶段（order 6）——矩阵唯一有权宣布可交付的 skill。
+  PLAUD Shopify 主题矩阵的 Verify 阶段（order 7）——矩阵唯一有权宣布可交付的 skill。
   触发前提二选一，缺一不得路由到本 skill：已存在 ChangeSetId / HandoffContract，
-  或用户明确要求最终交付判定。该前提之外的 review / 审计请求都不属于本 skill。
+  或用户明确要求最终交付判定。进入前还须先过 plaud-theme-qa-intake 的提测准入
+  （SubmissionPackageStatus: Complete），材料不齐则 QAAdmissionStatus: Blocked、零验证项执行。该前提之外的 review / 审计请求都不属于本 skill。
   在此前提下覆盖：验收、验证、回归、上线前检查、发布前 review、能不能发了、可以上线吗、
   QA、质检、theme check、lint、静态检查、断点回归、5 断点、PC/1599/1279/767/375、视觉回归、
   德语长文案测试、英译德溢出、多语言验收，以及同样以该前提为限的 A11y 审计、无障碍、对比度、
@@ -11,7 +12,10 @@ description: >
   schema 完整性、disabled 实例核对、同族 bug 扫描、依赖树回归、Swiper effect 约束；
   实现 skill 交出 ChangeSetId + BaseHeadSha + ChangeSetFingerprint 时必须调用本 skill。
   只有本 skill 能输出 ReadyForDelivery: Yes；别的 skill 说「改完了」都不算交付许可。
-  不要路由到本 skill：没有 ChangeSetId、用户也没要交付判定的只读 code review / A11y 审计 /
+  不要路由到本 skill：提测材料齐不齐、预览链接、配置/测试文档、断点截图、推送站点清单 →
+  plaud-theme-qa-intake；反馈算缺陷还是变更、要不要计返工、Linear 状态 → plaud-theme-feedback-triage；
+  发版推站、上线后 bug 时效、回归用例入库 → plaud-theme-release-ops。
+  没有 ChangeSetId、用户也没要交付判定的只读 code review / A11y 审计 /
   无障碍 / 对比度检查归 plaud-theme-dev（走零改动通道出 ReadOnlyProof，不进 Verify）；
   没有 ChangeSet 的找 bug / 性能优化 / 写代码 → plaud-theme-dev；
   改前影响面评估、blast radius、依赖树测绘 → plaud-theme-impact；
@@ -48,7 +52,9 @@ description: >
 
 ```
 Step 0  取上游工件（ChangeSetId / BaseHeadSha / ChangeSetFingerprint / ModifiedFiles /
-        RequiredQAProfile / ThemeCheckRequired…）
+        RequiredQAProfile / ThemeCheckRequired…）+ 提测包工件（SubmissionId /
+        SubmissionPackageStatus，来自 plaud-theme-qa-intake）
+        → 判 QAAdmissionStatus  ← 准入门，比指纹校验更早
 Step 1  三重绑定校验（文件集合 + ChangeSetFingerprint + BaseHeadSha）
         ← 前置门，先于任何检查；不过就停机，后面一步都不做
 Step 2  登记「收尾必须重算指纹」这项义务（真正的重算发生在 Step 5 之前，不是现在）
@@ -59,6 +65,67 @@ Step 6  输出 §5 契约 yaml 块
 ```
 
 > ⚠️ **Step 2 不是"在 Step 3 之前再算一次"。** 它在这里只是登记义务；重算的时点是**所有检查跑完之后、写 changeset-log 之前**（Step 5 的第一件事）。提前算等于没算。
+
+---
+
+## Step 0 — 提测准入门（`QAAdmissionStatus`）
+
+**这道门比指纹校验还早。** 依据 DTC《开发交付标准 v1.0》§四：「提测时必须同时提供，**缺一不进验收**」——材料不齐，验收根本不开始。
+
+取 `plaud-theme-qa-intake` 的 `ArtifactKind: QAIntake` 工件（handoff-schema §9.1.2）。
+
+**三项都要查，缺一即 `Blocked`：**
+
+```bash
+# (1) 提测包绑的是不是本次这个 ChangeSet —— 防重放
+#     intake.ChangeSetId          == implement.ChangeSetId
+#     intake.ChangeSetFingerprint == implement.ChangeSetFingerprint   # 逐字比对
+
+# (2) 材料在 intake 之后有没有被换过 —— 防替换
+#     进 intake.PackageRootRef 指的位置，用 §9.1.2 的 plaud_package_fingerprint 重算，
+#     与 intake.PackageFingerprint 精确比对
+#     🔴 云端材料还要**重新查远端当前 revision / digest**，与 manifest 记录值比对——
+#        只比本地 manifest 的话，manifest 没更新而云文档内容变了照样通过
+#     拿到 PACKAGE_FINGERPRINT_FAILED / 空值 / 取不到远端 revision → Blocked，不得放行
+
+# (3) SubmissionPackageStatus
+```
+
+| 情形 | `QAAdmissionStatus` | 后续 |
+|---|---|---|
+| 情形 | `QAAdmissionStatus` / `QAAdmissionReason` | 后续 |
+|---|---|---|
+| 三项全对且 `SubmissionPackageStatus: Complete` | `Accepted` / `Normal` | 继续 Step 1 |
+| 零改动只读任务 | `Accepted` / `ZeroChangeReadOnly` | —— |
+| intake 绑的 `ChangeSetId` / `ChangeSetFingerprint` 与 Implement 工件对不上 | `Blocked` / **`BindingMismatch`** | 停机 —— **这是一份别的任务的提测包**，不得复用 |
+| `PackageFingerprint` 或云端 revision 重算不一致 | `Blocked` / **`BindingMismatch`** | 停机 —— 材料在准入之后被改过 |
+| `SubmissionPackageStatus: Incomplete` | `Blocked` / `PackageIncomplete` | 停机，零执行 |
+| 压根没有提测包工件 | `Blocked` / `MissingArtifact` | 停机，零执行 |
+| 用户主动弃提测材料 | `Blocked` / `UserWaivedMaterials` | **照跑技术检查项**，`Evidence` 记弃流程的出处 |
+| `Incomplete` | **`Blocked`** | 停机，**零验证项执行** |
+| 压根没有提测包工件 | **`Blocked`** | 停机，要求先过 `plaud-theme-qa-intake` |
+
+**`Blocked` 之后跑不跑检查，取决于是哪种 Blocked：**
+
+| Blocked 的原因 | 跑不跑检查 | 为什么 |
+|---|---|---|
+| 绑定失配（intake 的 `ChangeSetId` / `ChangeSetFingerprint` 对不上，或 `PackageFingerprint` 重算不符） | **零执行** | 根本不知道在验什么——验了也不能归属到任何 ChangeSet |
+| `SubmissionPackageStatus: Incomplete`（材料不齐） | **零执行** | 这是准入门本身的强制效果。DTC：「缺一不进验收」——验收就是不开始 |
+| **用户明确弃提测流程** | **照常执行技术检查项** | 绑定是有效的，只是用户主动放弃了材料这道门。此时验证本身有意义，只是不产生许可 |
+
+前两种的输出：`ReadyForDelivery: No`、十个状态字段与 `ProfileSpecificResults` 一律 `Blocked`（原因写"提测包不全/绑定失配，未执行"）、把 qa-intake 的 `BlockingGaps` **原样带出**（不要改写成自己的话，运营要按它去补材料）。
+
+第三种的输出：`QAAdmissionStatus: Blocked` + 各检查项照实填实际结果（`Passed`/`Failed`/...），但 `ReadyForDelivery` **恒为 `No`**（判定条件第 0 条不满足），`BlockingGaps` 写"用户弃提测流程，未经完整交付流程"。
+
+> 🔴 **三种都不产生 `Accepted`。** 区别只在"验不验"，不在"给不给许可"。
+
+**唯一免提测包的情形**：零改动只读任务（handoff-schema §2）——此时 `SubmissionId: N/A` + `QAAdmissionStatus: Accepted`。
+
+> 🔴 **用户说"不走提测流程"不产生 `Accepted`。** 此时 `QAAdmissionStatus` 仍为 `Blocked`，走上表第三行：照常执行技术检查项，`ReadyForDelivery` 恒为 `No`，正文一句话说明风险由用户承担。用户可以决定不交材料，但不能因此拿到一张"准入通过"的记录。
+
+> 🔴 **「改动很小」不是免除理由。** 那是 `ReconMode: InlineLite` 的判据（Assess 豁免），与提测材料无关。QA **不得**自行免除提测包。
+
+> 🔴 **提测包里的 8 张断点截图不能顶替本 skill 的断点回归。** 前者是交付材料，后者是 QA 实跑（`BreakpointsCovered`，Path C 为 `PC / 1599 / 1279 / 767 / 375`）。看到提测包有截图就跳过回归 = 谎报。记 `PC` 时写出实际像素宽度。
 
 ---
 
@@ -97,8 +164,9 @@ git rev-parse HEAD
 
 失配时输出的 yaml：
 
-- **九个状态字段**（`ThemeCheck` / `ThemeRuntimePreview` / `AdminSchemaSave` / `RegressionMatrix` / `LocalizationCheck` / `A11yCheck` / `FixedDimensionCheck` / `ImageQualityCheck` / `CopyConfigurabilityCheck`）与 `ProfileSpecificResults` 一律 `Blocked`（原因：ChangeSet 失配，未执行）。
-  > ⚠️ **三项枚举缺口**：`FixedDimensionCheck` / `ImageQualityCheck` / `CopyConfigurabilityCheck` 被 shared 规定了两次且不一致——**§5 开头**说每项只能取 `Passed`/`Failed`/`Blocked`/`NotApplicable`（含 `Blocked`），**§9.2 枚举表**里这三项却没有 `Blocked`。本 skill **按 §5 执行**（§5 更具体，与 `NotApplicable` 那条歧义的收口方式一致）：照实填 `Blocked` + 在 `BlockingGaps` 显式登记该歧义。**绝不**改填 `NotApplicable`（未执行伪装成"不需要验"）、`Passed`、或 `Failed`（`Failed` 意为"验了且发现缺陷"，会让实现 skill 去追不存在的缺陷）。收口须由 shared 统一做。详见 `references/evidence-and-invalidation.md` §4。
+- **十个状态字段**（`ThemeCheck` / `ThemeRuntimePreview` / `AdminSchemaSave` / `RegressionMatrix` / `LocalizationCheck` / `A11yCheck` / `FixedDimensionCheck` / `ImageQualityCheck` / `CopyConfigurabilityCheck` / `StyleHardRuleCheck`）与 `ProfileSpecificResults` 一律 `Blocked`（原因：ChangeSet 失配，未执行）。
+  > 🟢 **v0.2.0 已收口**：`FixedDimensionCheck` / `ImageQualityCheck` / `CopyConfigurabilityCheck` 三项在 handoff-schema §5 与 §9.2 枚举表里**现已一致**，四值（`Passed`/`Failed`/`Blocked`/`NotApplicable`）都合法。v0.1.0 那条"枚举缺口"提示已废止，不必再在 `BlockingGaps` 登记该歧义。
+  > 判定纪律不变：未执行填 `Blocked`，**绝不**改填 `NotApplicable`（未执行伪装成"不需要验"）、`Passed`、或 `Failed`（`Failed` 意为"验了且发现缺陷"，会让实现 skill 去追不存在的缺陷）。
 - **记录字段不填状态枚举**：`QAProfilesRun: None`、`BreakpointsCovered: None`、`FingerprintVerifiedAt` 写 `Step1` 的重算结果与失配说明、`ThemeCheckEvidence` / `Evidence` 写一句"ChangeSet 失配，未执行"，`BlockingGaps` 写需要用户/上游做什么。往记录字段里塞 `Blocked` 是类型错误。
 - `ChangeSetIdMatched: No`（该字段封闭枚举只有 `Yes` / `No`，**没有 `Blocked`**；未校验一律填 `No`）、`ReadyForDelivery: No`。
 
@@ -179,11 +247,12 @@ git ls-files -s | awk '$1=="160000"{print $4}'    # submodule gitlink：内部�
 `ReadyForDelivery: Yes` 当且仅当以下**全部**成立（`ChangeSetId` / `ThemeCheckEvidence` / `BreakpointsCovered` / `Evidence` / `BlockingGaps` / `QAProfilesRun` 是记录字段，不参与取值判定）：
 
 ```
+0. QAAdmissionStatus == Accepted（提测准入门，Step 0）
 1. ChangeSetIdMatched == Yes（文件集合 + ChangeSetFingerprint + BaseHeadSha 三样全对）
-2. 九个状态字段 ∈ {Passed, NotApplicable}：
+2. 十个状态字段 ∈ {Passed, NotApplicable}：
      ThemeCheck / ThemeRuntimePreview / AdminSchemaSave / RegressionMatrix /
      LocalizationCheck / A11yCheck / FixedDimensionCheck /
-     ImageQualityCheck / CopyConfigurabilityCheck
+     ImageQualityCheck / CopyConfigurabilityCheck / StyleHardRuleCheck
 3. ProfileSpecificResults 中每一项 ∈ {Passed, NotApplicable}（含上面三条附加触发式检查）
 4. BreakpointsCovered 含全部五档（除非 RegressionMatrix 为 NotApplicable）
 5. Evidence 对每个 Passed 项都有对应条目；BlockingGaps 为空
@@ -217,7 +286,7 @@ log 里的 `Status`（对应 §9.2 的 `memory/` 记录字段 `QAStatus`）取�
 
 正确做法（完整模板见 `references/evidence-and-invalidation.md` §4）：
 
-- §5 yaml 块**保持纯净**——只含 §5 定义的 19 个字段（含 `FingerprintVerifiedAt`）。`QAProfilesRun: None`，未执行项一律 `Blocked`，`BlockingGaps` 写 `全部验证项未执行（UserWaived）`，`ReadyForDelivery: No`。
+- §5 yaml 块**保持纯净**——只含 §5 定义的 24 个字段（含 `SubmissionId` / `QAAdmissionStatus` / `StyleHardRuleCheck` / `Advisories`）。`QAProfilesRun: None`，未执行项一律 `Blocked`，`BlockingGaps` 写 `全部验证项未执行（UserWaived）`，`ReadyForDelivery: No`。
 - `QAStatus: Skipped(UserWaived)` 写在**正文**里，**不写进 yaml 块**——handoff-schema §5 没有这个字段，§4 才有；往 §5 块里塞它就是自造字段，违反契约首条。
 - 正文用**一句话**说明：已按用户要求跳过验证，未经验证的改动上线风险由用户承担。不劝说、不重复、不长篇解释。
 
@@ -233,7 +302,7 @@ log 里的 `Status`（对应 §9.2 的 `memory/` 记录字段 `QAStatus`）取�
 
 **(b) 真正的零改动任务**（只读审计 / code review / A11y 审计）—— **本 skill 没有零改动分支。**
 
-handoff-schema §2 规定零改动任务**免 QA**（`NextRequiredSkill: None`、`ReadyForDelivery: N/A(ReadOnly)`），工件由实现 skill 按 §4 输出并登记 `ReadOnlyProof`。而 §5 的 19 个字段里既没有 `ModifiedFiles` 也没有 `ReadOnlyProof`——本 skill 在结构上就无法为零改动任务输出完整契约。
+handoff-schema §2 规定零改动任务**免 QA**（`NextRequiredSkill: None`、`ReadyForDelivery: N/A(ReadOnly)`），工件由实现 skill 按 §4 输出并登记 `ReadOnlyProof`。而 §5 的 24 个字段里既没有 `ModifiedFiles` 也没有 `ReadOnlyProof`——本 skill 在结构上就无法为零改动任务输出完整契约。
 
 所以遇到零改动请求：**说明归属并转给 `plaud-theme-dev`**（Path A 的只读通道），不要自己接、不要输出 §5 块、更不要给 `ReadyForDelivery`。
 
@@ -249,7 +318,7 @@ handoff-schema §2 规定零改动任务**免 QA**（`NextRequiredSkill: None`�
 |---|---|
 | **每次 QA 必读** | `plaud-theme-shared/references/handoff-schema.md` |
 | 跑 Theme Check（`ThemeCheckRequired: Yes`） | `references/theme-check-gate.md` |
-| QA-Global 七项的可执行步骤 | `references/qa-global.md` |
+| QA-Global 各项 + DTC 硬性 10 条 + Advisories | `references/qa-global.md` |
 | 本次含 QA-A | `references/qa-profile-a.md` |
 | 本次含 QA-B | `references/qa-profile-b.md` |
 | 本次含 QA-C | `references/qa-profile-c.md` |
@@ -264,6 +333,9 @@ handoff-schema §2 规定零改动任务**免 QA**（`NextRequiredSkill: None`�
 
 ```yaml
 ChangeSetId:
+SubmissionId:
+QAAdmissionStatus:
+QAAdmissionReason:
 ChangeSetIdMatched:
 FingerprintVerifiedAt:
 QAProfilesRun:
@@ -278,7 +350,9 @@ A11yCheck:
 FixedDimensionCheck:
 ImageQualityCheck:
 CopyConfigurabilityCheck:
+StyleHardRuleCheck:
 ProfileSpecificResults:
+Advisories:
 Evidence:
 BlockingGaps:
 ReadyForDelivery:

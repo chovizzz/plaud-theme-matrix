@@ -18,7 +18,7 @@
 | 紫色 | `#8F53ED` | `#7B35EB` | `--color-purple` / `--hover-color-purple` |
 | 蓝色 | `#00D0FF` | `#07AFD5` | `--color-blue` / `--hover-color-blue` |
 | 绿色 | `#39F672` | `#30D462` | `--color-green` / `--hover-color-green` |
-| 白色 | `#FFFFFF` | `#E9E6E6` | `--color-white` / `--hover-color-white` |
+| 白色 | `#FFFFFF` | `#EEEEEE` | `--color-white` / `--hover-color-white` |
 
 > 🔴 **上表的变量名有两套并存，用前必须 grep 确认目标仓库有哪一套。** 实测中出现过**只有** `--color-black` / `--color-white`、紫/青/绿全走 highlight 系的仓库；此时写 `var(--color-purple)` 会解析失败、整条声明直接作废。色值本身两套一致。
 
@@ -34,6 +34,8 @@ Highlight / brand 系（实测中更普遍存在）：
 
 > 插件 / 旧代码里"看着像品牌色"的裸 hex，**先查是不是 spec token**再动——如 Selleasy CTA 的 `#00D0FF` 就是 `--color-highlight-cyan`，直接 token 化即可，不必改色。
 
+> 🔴 **白色 hover 由 `#E9E6E6` 改为 `#EEEEEE`**（2026-08-11 基线 §6.1 Hover 表）。v0.1.0 里这个值本身就自相矛盾——本表写 `#E9E6E6`、`responsive-and-spacing.md` 的 `.btn-white` 写 `#EEEEEE`。现已统一为 **`#EEEEEE`**，两处同源。遇到仓库里的 `#E9E6E6` 按 `repo-drift.md` 流程核对后再改，不要见一个改一个。
+
 **hex 字面量大小写**：新写 spec 字符串统一**大写**（`#FFFFFF` / `#413D3B`）；老代码 hex 小写**不连动改**（用户硬规则：hex case 不动模板）。
 
 ---
@@ -42,32 +44,57 @@ Highlight / brand 系（实测中更普遍存在）：
 
 ### 2.1 文字色（label）
 
+#### 现行档（2026-08-11 基线）
+
 | token 语义 | 工具类 | hex | 说明 |
 |---|---|---|---|
-| label-primary | `.text-primary` | `#000000` | 标题 / 主文字 |
-| label-secondary | `.text-secondary` | `#7A7A7A` | 副标题 / 正文 |
-| label-tertiary | `.text-tertiary` | `#A3A3A3` | 三级 / 小字 / 划线价 / 脚注 |
-| label-disabled | `.text-disabled` | `#C7C7C7` | 禁用态 |
-| label-inverse-primary | `.text-inverse-primary` | `#FFFFFF` | 深底反色主文字 |
-| label-inverse-secondary | `.text-inverse-secondary` | `#ABABAB` | 深底反色副文字 |
+| label-primary | `.text-primary` | `#000000` | 主文字、标题、主要图标 |
+| label-secondary | `.text-secondary` | **`#717171`** | 次级文字、副标题、未点击状态、说明文字 |
+| label-disabled | `.text-disabled` | `#C7C7C7` | 禁用状态、不可点击、表单禁用项 |
+| label-inverse-primary | `.text-inverse-primary` | `#FFFFFF` | 深色底主文字、深色卡片、深色 banner 主标题 |
+| label-inverse-secondary | `.text-inverse-secondary` | `#ABABAB` | 深色底次级文字、深色背景说明文字 |
+| **label-purple** | `.text-purple` | `#8F53ED` | 高亮紫文字；白色 / 米色背景下高亮突出 |
+| **label-cyan** | `.text-cyan` | `#00D0FF` | 高亮青文字、New 角标 |
+| **label-green** | `.text-green` | `#39F672` | 高亮绿文字；**深色背景**下高亮突出 |
 
-**被 v1.3 覆盖的旧值（label 色阶重组）**：
+🔴 三个彩色 label 有严格的背景配对限制（白底对比度远不达标），**用前必读 `a11y.md` §5.1 的配对表**。
 
-| 旧值（已废） | 现值 |
-|---|---|
-| secondary `#3D3D3D` | **`#7A7A7A`** |
-| tertiary `#7A7A7A` | **`#A3A3A3`** |
-| `.text-quaternary` / `--color-label-quaternary` | **已删除**，并入 tertiary（同 hex `#A3A3A3`） |
+#### 🪦 `label-tertiary` 已废止（墓碑）
 
-遇到 `--color-label-quaternary` 残留引用 → 改为 tertiary（同 hex，零视觉影响）。
+`label-tertiary` / `.text-tertiary` / `--color-label-quaternary` **全部退出现行规范**：2026-08-11 基线的 label 色阶只有上表八档，没有 tertiary 这一层。
+
+| 时期 | secondary | tertiary | quaternary |
+|---|---|---|---|
+| 更早 | `#3D3D3D` | `#7A7A7A` | 有 |
+| v0.1.0（2026-06-30 重组） | `#7A7A7A` | `#A3A3A3` | 已删，并入 tertiary |
+| **现行（2026-08-11）** | **`#717171`** | **已废止 → 并入 secondary** | — |
+
+落地纪律（**不是"全仓一把删"**）：
+
+1. **新代码禁止使用** `.text-tertiary` / `--color-label-tertiary` / `--color-label-quaternary`。QA 对**新增**使用判 `Failed`。
+2. **存量不得盲删**。`.text-tertiary` 在真实主题里用于划线价、脚注、免责小字，直接删会让这些元素回退继承父色（多为纯黑），视觉与语义都出问题。动它之前必须走 `plaud-theme-impact`，按 **High** RiskTier 评估。
+3. **过渡期允许一个版本的兼容 alias**：`--color-label-tertiary: var(--color-label-secondary)`，即旧类继续可用但取 secondary 的值。这是迁移脚手架，不是规范档位。
+
+   > 🔴 **加 alias 的同时必须删掉 `.use-color-scheme` 里的 tertiary 重绑**（§5 那一行），两件事同一步做完。
+   > 原因：alias 定义在 `:root`，而 `.use-color-scheme` 会在更高特异性上把 `--color-label-tertiary` 重绑到 `tertiary_text_color`。**只加 alias 不删重绑，方案一开启 alias 就失效**——元素拿到的仍是方案里那个已经没人维护的 tertiary 色，比不加 alias 更难排查。
+   > 若因故必须保留该重绑，就让它也指向 secondary：`--color-label-tertiary: var(--color-label-secondary)`，两条路径同值。
+4. **零引用之后**才删除 alias 与 `.text-tertiary` utility。（`.use-color-scheme` 里的 tertiary 重绑**不等到这一步**——它在第 3 步加 alias 时就必须一起删掉，见 §5 与第 3 步的红框。）
+5. 历史记录（`memory-seed` 里写着 tertiary 的迁移日志）**不改写历史**，只标注「被 2026-08-11 基线 supersede，需重新评估」。
+
+> 🟢 **顺带说明：这次改动是 A11y 的净改善，不是倒退。** 实测对比度——旧 secondary `#7A7A7A` 在白底 4.29、在暖白底 `#F2EFEB` 仅 3.74，**本来就不达标**；新值 `#717171` 白底 4.88 ✅、暖白底 4.26（仍差一点，见 `a11y.md` §5.1）。旧 tertiary `#A3A3A3` 白底只有 **2.52**，删掉它等于拿掉一个长期不合规的档位。
 
 ### 2.2 背景色（spec §2.4）
 
-| 工具类 | 消费变量 | 实测默认值 | 说明 |
+| 工具类 | 消费变量 | 值 | 说明 |
 |---|---|---|---|
-| `.bg-page` | `--color-bg-primary` | `#F2EFEB` | 页面大底 |
-| `.bg-card` | `--color-bg-secondary` | `#F7F5F3` | 卡片面 |
-| `.bg-soft` | `--color-bg-tertiary` | `#F7F7F7` | 浅起面 |
+| — | **`--color-bg-white`** | `#FFFFFF` | **纯白页面背景色**（2026-08-11 新增 token） |
+| `.bg-page` | `--color-bg-primary` | `#F2EFEB` | 暖白底页面背景 |
+| **—** | **`--color-bg-dark`** | `#413D3B` | **深色底页面背景**（2026-08-11 新增 token） |
+| `.bg-card` | `--color-bg-secondary` | `#F7F5F3` | 卡片、页面背景底色 |
+| `.bg-soft` | `--color-bg-tertiary` | `#F7F7F7` | 白色底下的灰底区分 |
+
+> 🔴 **`--color-bg-white` 的加入改变了 `.bg-white` 的定性。** v0.1.0 写的是「`.bg-white` 不在 spec 工具类里——那是 Tailwind 自带的」；现在 spec **有**了纯白背景 token。
+> 但**这两者仍不是一回事**：Tailwind 的 `.bg-white` 写死 `#FFFFFF` 且会跟随方案背景（见 §5 残留陷阱），spec 的 `--color-bg-white` 是一个语义 token。需要"纯白页面底"时消费 token，不要因为 spec 认了白色就默认 `.bg-white` 合规了。目标仓库是否已 build 出 `--color-bg-white` / `--color-bg-dark`，**用前 grep 核对**（`repo-drift.md`）。
 
 > ⚠️ **`.bg-card` 与 `.bg-soft` 不是同一个值**。ux-spec 文档笼统说"bg-card / bg-soft 重绑到 surface `#F7F7F7`"，但编译产物实测两者消费**不同变量**、默认色也不同（`#F7F5F3` vs `#F7F7F7`）。
 > 需要两层浅色面拉开层次时，这个 2 点色差是可用的；但**不要假设两者可互换**。上表以实测为准。
@@ -93,6 +120,41 @@ Highlight / brand 系（实测中更普遍存在）：
 
 **默认配色方案 border**：`#E5E5E5` → **`#EBEBEB`**（已修）。
 
+### 2.4 角标色板（2026-08-11 新增，spec §2.6）
+
+七种商品角标的固定配色。**这是一张封闭表，不得自造角标配色，也不得开放后台调色**（角标颜色已于 2026-06-30 锁死为规范色板，见 ux-migration 的全局已知偏差）。
+
+| 角标 | 背景色 | 文字色 | 实测对比度 |
+|---|---|---|---|
+| New | `#00D0FF` | `#000000` | 11.47 ✅ |
+| Hot | `#FCDEDE` | `#FF0000` | 3.17 🔴 |
+| -X% off | `#FCDEDE` | `#FF0000` | 3.17 🔴 |
+| Out of Stock | `#F0F0F0` | `#000000` | 18.43 ✅ |
+| Pre Order | `#D7FDE3` | `#39F672` | **1.30 🔴🔴** |
+| Subscription | `#8F53ED` | `#FFFFFF` | 4.54 ✅ |
+| Best Value | `#39F672` | `#000000` | 14.60 ✅ |
+
+> 🔴 **三组配对不满足 4.5:1 红线，但处理方式不同**（判定口径见 `a11y.md` §5.1）：
+>
+> | 配对 | 比值 | QA 怎么判 |
+> |---|---|---|
+> | Hot / -X% off | 3.17 | 在 allowlist 内 → 记 `Advisories`，**须带偏差批准引用**，引用为空则降级 `Failed` |
+> | **Pre Order** | **1.30** | **`A11yCheck: Failed`** —— `< 3.0` 无豁免。`BlockingGaps` 写明需设计方裁决该角标配色 |
+>
+> 色值**按 spec 照录**（设计方给的固定资产），**不得**自行调整去凑对比度——那是改规范。判 `Failed` 指向的是**规范缺口**，不是开发的实现错误。
+
+### 2.5 透明度叠加（2026-08-11 新增，spec §2.7）
+
+| token | 值 | 用途 |
+|---|---|---|
+| `--color-white-60` | `rgba(255,255,255,0.6)` | 玻璃卡片文字层 |
+| `--color-white-40` | `rgba(255,255,255,0.4)` | 浮动卡片玻璃背景 |
+| `--color-white-20` | `rgba(254,251,248,0.2)` | 倒计时数字背景格 |
+| `--color-bg-frosted` | `rgba(235,235,235,0.93)` | 半透明浅背景 |
+
+⚠️ `--color-white-20` 的底色是 `254,251,248`（暖白）而**不是**纯白 `255,255,255`——照抄时别顺手改成 255。
+⚠️ 半透明层上的文字对比度**取决于它压着什么**，无法静态判定。玻璃卡片上放文字时必须实测最坏情况（最亮背景图）下的对比度。
+
 ---
 
 ## 3. AI 专属渐变（设计系统固定资产）
@@ -112,7 +174,41 @@ background: linear-gradient(
 
 > 🟢 **这是设计系统固定渐变资产，不是组件配色配方。** 其中 `#2ca3ff` 是该渐变的专用常量——它**不算违反**「禁写死 hex」红线（`handoff-schema.md` §8.4 括号里的"设计系统固定渐变资产等已文档化例外"指的就是这一项）。QA 不得把它判为 `FixedColorCheck: Failed`。
 
-**Announcement 渐变**：仅公告栏场景，不泛化到其它 section。
+**Announcement 渐变（spec §2.8，2026-08-11 给出色标）**：公告栏装饰用**径向**渐变，弧形背景装饰，五个色停：
+
+`#DAFFE7` → `#74D9D2` → `#3B95DF` → `#7272C3` → `#413D3B`
+
+> 🔴 **只有色标，没有几何参数——不足以直接写 CSS。** spec 说明是"径向渐变、弧形背景装饰"，但**未给出**圆心位置、半径、形状（circle / ellipse）、以及五个 stop 的百分比位置。凭这五个色值硬写一条 `radial-gradient()` 出来的效果与设计稿不会一致。
+> 需要落地这条渐变时：**停机**，向用户要 Figma 节点或原始 CSS。不得自行编造 stop position。
+> 用途边界：**仅 Announcement Bar 装饰背景**，不泛化到其它 section。
+
+> 🟢 **本条不推翻上面的 AI 专属渐变。** spec §2.8 的原文是「渐变仅用于 Announcement Bar 装饰背景，不用于其他场景」，字面上会读成"AI 渐变也不许用了"——但该基线文档通篇未提 AI 渐变，属于**未覆盖**而非**废止**。AI 渐变是已文档化的设计系统固定资产，本版**原样保留**，同时标记 🔴 **待设计方确认二者关系**。不得据 §2.8 的措辞自行删除 AI 渐变。
+
+---
+
+## 3.1 按钮变体配色（spec §6.1，2026-08-11 补全）
+
+尺寸档（padding / 字号 / 高度）在 `responsive-and-spacing.md` §3.3；**本表只管颜色**。
+
+| VARIANT | 背景 | 文字 | 边框 | 典型用途 |
+|---|---|---|---|---|
+| Primary-Dark | `#413D3B` | `#FFFFFF` | 无 | "Get Started"、"Shop Devices"（默认主按钮） |
+| Primary-Purple | `#8F53ED` | `#FFFFFF` | 无 | Subscription CTA |
+| Primary-Green | `#39F672` | `#000000` | 无 | Best Value 按钮、Pre Order CTA |
+| Primary-Cyan | `#00D0FF` | `#000000` | 无 | "Shop Now"（公告栏紧凑按钮） |
+| Primary-White | `#FFFFFF` | `#000000` | 无 | 白色按钮 |
+| Secondary-Outline | `transparent` | `#000000` | **1px `#717171`** | "Compare"（PC & MB 通用） |
+
+Hover（**仅 PC**）：见 §1 的品牌色 hover 表（黑 `#635F5D` / 蓝 `#07AFD5` / 紫 `#7B35EB` / 绿 `#30D462` / 白 `#EEEEEE`）。
+过渡统一 `transition: background-color 0.2s ease`，**过渡时长不单独 token 化**。
+
+- 颜色一律走变量，不写死 hex（红线④）。需要局部微调时覆盖 `--btn-primary-bg-color` / `--btn-primary-hover-bg-color`，见 §7。
+- Secondary-Outline 的边框色 `#717171` 与 `label-secondary` 同值，但**语义不同**——写边框时用边框变量，别借 `--color-label-secondary`（label 变量在 `.use-color-scheme` 下会被重绑，边框会跟着变色）。
+  🔴 **spec 未给这个边框定义语义 token**。落地方式二选一，两种都要在改动说明里写清：
+  | 做法 | 何时用 |
+  |---|---|
+  | 复用既有按钮变量 `--btn-outline-border-color`（先 grep 目标仓库是否已有） | 优先 |
+  | 新增 `--color-border-outline: #717171` 到 `design-utilities.scss` 再 build | 仓库没有对应变量时；**不得内联硬编码 hex** |
 
 ---
 
@@ -178,13 +274,14 @@ background: linear-gradient(
 
 | spec token | 开方案时重绑到 | 默认值 | 说明 |
 |---|---|---|---|
-| label-secondary（副标题 / 正文） | `secondary_text_color` | `#7A7A7A` | — |
-| label-tertiary（三级 / 小字 / 划线价） | `tertiary_text_color` | `#A3A3A3` | **不再塌成黑** |
+| label-secondary（副标题 / 正文） | `secondary_text_color` | `#717171` | — |
+| 🪦 ~~label-tertiary~~（已废止，见 §2.1） | **重绑立即移除** | — | 🔴 过渡期**第一步**就删掉这条重绑，不能等零引用；否则 scheme 开启时 `tertiary_text_color` 会盖掉 root 上的 alias |
 | bg-card / bg-soft（卡片 / 浅起面） | `surface_color` | `#F7F7F7` | **不再塌成区块底** |
 | separator（分隔线） | `separator_color` | `#EBEBEB` | 已与 `border_color` 脱钩 |
 | label-primary / bg-white / bg-primary | `heading_color` / `background` | — | 仍跟随方案 |
 | **label-disabled（禁用）** | **不重绑** | `#C7C7C7` | 固定 spec 值，不随方案 |
 | **label-inverse-primary / -inverse-secondary（深底反色）** | **不重绑** | `#FFFFFF` / `#ABABAB` | 固定 spec 值 |
+| **label-purple / -cyan / -green（彩色高亮）** | **不重绑** | `#8F53ED` / `#00D0FF` / `#39F672` | 固定 spec 值；背景配对受限，见 `a11y.md` §5.1 |
 
 **关于 inverse 不重绑**：方案系统没有"深底 / 反色"档。早期错误重绑到 heading/text 会让深底元素（页脚深底、深色促销条、图上白字 caption）在方案下变深字、对比度失效。已从 `.use-color-scheme` 移除该重绑（改的是 shopify-common 源 `design-utilities.scss`，**需 build**）。
 
@@ -200,7 +297,8 @@ background: linear-gradient(
 理论 blast radius ≠ 真实视觉影响，按三点收敛：
 
 1. **只有用了 spec 颜色类的元素才会被重绑**。`use-color-scheme` 只改 `--color-label-*` / `--color-bg-*` / `--color-separator-*` 这些**变量**，不直接设 `color`。写死 hex（含 `<style>` 注入块）、内联 `style="color:…"`、或只用 `py-*` / `fs-*` / `text-center` 等非颜色类的元素**完全不受影响**；只有挂了 `.text-*` / `.bg-*` / `.separator-*` 的元素才跟随。
-2. **方案默认态 ≈ 零变化**。v1.3 已把方案默认色设成 spec 值（heading #000 / secondary #7A7A7A / tertiary #A3A3A3 / separator #EBEBEB / surface #F7F7F7）。商家没自定义过方案色 → 重绑前后同值。
+2. **方案默认态 ≈ 零变化**。方案默认色已设成 spec 值（heading #000 / secondary **#717171** / separator #EBEBEB / surface #F7F7F7）。商家没自定义过方案色 → 重绑前后同值。
+   ⚠️ secondary 由 `#7A7A7A` 改为 `#717171` 后，这条「零变化」在**未重新 build 的仓库里不再成立**：方案默认值可能仍是旧 hex。动 secondary 前按 `repo-drift.md` 核对编译产物。
 3. **空 `color_scheme: ""` → 跟随 default 方案**（见 §4.3）。
 
 → "改的是共享文件"不等于"全站都会变"。这与 `handoff-schema.md` §3 的 `TheoreticalReferences` vs `ActualAffectedInstances` 是同一条纪律。
@@ -263,7 +361,7 @@ background: linear-gradient(
 
 ## 8. 无对应工具类时（richtext `<p>` 等）的退路
 
-要上色的元素若是 richtext 渲染的 `<p>`（加不了 class）：退回 section 的 `custom_css` 设选择器（Shopify 自动按 `#shopify-section-…` 限定本 section），但**颜色仍走 token**（`var(--color-label-secondary)` = `#7A7A7A`），不写死 hex。
+要上色的元素若是 richtext 渲染的 `<p>`（加不了 class）：退回 section 的 `custom_css` 设选择器（Shopify 自动按 `#shopify-section-…` 限定本 section），但**颜色仍走 token**（`var(--color-label-secondary)` = `#717171`），不写死 hex。
 
 用 token 本身合规；此处的受控例外只是"richtext `<p>` 加不了工具类才退回 template-scoped `custom_css`"——一般情况下禁止在组件 CSS 重写字号 / 色。
 

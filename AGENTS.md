@@ -8,7 +8,7 @@ and retire the superseded single skill it replaces.
 This package root is **not** a skill. Each root-level directory containing `SKILL.md`
 is one independent skill. Never copy the package root itself into a skills directory.
 
-Package version: `v0.1.0`.
+Package version: `v0.2.0`.
 
 ## Supported Targets
 
@@ -158,7 +158,10 @@ After installation, verify these directories exist under each target:
 - `plaud-theme-dev/SKILL.md`
 - `plaud-theme-section-build/SKILL.md`
 - `plaud-theme-ux-migration/SKILL.md`
+- `plaud-theme-qa-intake/SKILL.md`
 - `plaud-theme-qa/SKILL.md`
+- `plaud-theme-feedback-triage/SKILL.md`
+- `plaud-theme-release-ops/SKILL.md`
 
 The installer prints a declared-version table per client at the end. **A declared
 version is only a declaration.** The real proof the copy landed is a tree diff — run
@@ -170,11 +173,11 @@ for c in cursor claude codex agents; do
   for s in $(ls -d plaud-theme-*/ | xargs -n1 basename); do
     diff -rq "$s" "$HOME/.$c/skills/$s" >/dev/null 2>&1 || d=$((d+1))
   done
-  echo "$c : $d/7 mismatched"
+  echo "$c : $d/10 mismatched"
 done
 ```
 
-Every client must print `0/7`. A release that only lands on some clients leaves two
+Every client must print `0/10`. A release that only lands on some clients leaves two
 specs running at once against one project.
 
 ## Routing Cheat Sheet
@@ -253,5 +256,5 @@ missed migrations.
   or `-CreateMissing cursor,claude,codex,agents`.
 - The IDE still routes to the old `plaud-shopify-theme` → it was not retired; rerun
   with `--retire-legacy`, or check for a workspace-level copy shadowing the global one.
-- The IDE still uses an old matrix version → run the `0/7` tree diff above; a declared
+- The IDE still uses an old matrix version → run the `0/10` tree diff above; a declared
   version match is not proof.

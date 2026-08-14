@@ -136,7 +136,7 @@ git diff HEAD -- <theme-root>/sections/<x>.liquid | grep -n '"options"'  # 是�
 
 ## C4. 20 条踩坑规则中的适用项
 
-`ux-spec-v13-migration.md` §4.1–§4.20 是实战踩坑库。**只查本次改动实际命中的条目**，逐条给结论；未命中的写 `NotApplicable` 并说明为什么不命中（不必逐条罗列 20 项，但要说明筛选依据）。
+踩坑库来自旧单 skill 的 `ux-spec-v13-migration.md` §4.1–§4.20，**现已收敛进 `plaud-theme-ux-migration/references/pitfalls-css.md` / `pitfalls-components.md` / `pitfalls-migration.md` / `pitfalls-shared-scope.md`**（下表编号沿用原 §4.x 以便对照）。**只查本次改动实际命中的条目**，逐条给结论；未命中的写 `NotApplicable` 并说明为什么不命中（不必逐条罗列 20 项，但要说明筛选依据）。
 
 先做**触发面筛选**，再逐条核：
 

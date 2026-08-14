@@ -1,7 +1,7 @@
 {
   "skill_name": "plaud-theme-orchestrator",
   "skill": "plaud-theme-orchestrator",
-  "version": "v0.1.0",
+  "version": "v0.2.0",
   "description": "plaud-theme-orchestrator（编排层，order 1）的行为 eval。本 skill 最大的风险是**过度触发**——它的入口门槛只有一条「这项工作必须拆成 ≥2 个可独立验收的 ChangeSet」，任何把普通 bugfix、多文件单 ChangeSet、Cross(B+C) 吸进编排的行为都是不合格。因此负向用例（应输出 Mode: SingleSkill 并停手）占比过半。\n\n断言体系（与 plaud-theme-impact 一致；harness 需支持三者，只实现 assertions 时后两者按未验证处理，不得记为通过）：\n- assertions：必须出现的字符串（string-contains）\n- forbidden：必须不出现的字符串（反向鉴别力，防止反向答案蒙混过关）\n- validator：结构化校验（orch-14 使用 yaml-block-exact-keys，锁 handoff-schema §9.1 的字段集）\n\n全部为 rule 类，不需要挂载真实 Plaud theme 仓库：考的是路由门槛、串并行判定、阶段门、交付权归属与 §9.2 封闭枚举，不考真实文件数字。",
   "evals": [
     {

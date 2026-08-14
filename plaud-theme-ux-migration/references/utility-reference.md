@@ -38,10 +38,12 @@
 
 ### 2.2 文字色（v1.3 重组）
 
-`.text-primary` / `-secondary` / `-tertiary` / `-disabled` / `-inverse-primary` / `-inverse-secondary`
+`.text-primary` / `-secondary` / `-disabled` / `-inverse-primary` / `-inverse-secondary` / `-purple` / `-cyan` / `-green`
 
-- ⚠️ v1.2 的 `.text-quaternary` 已**删除**（spec quaternary 已并入 tertiary，同色）
-- 迁移旧模块时遇到 `--color-label-quaternary` 引用，扫描并改为 tertiary
+- 🪦 **`.text-tertiary` 已废止**（2026-08-11 基线的 label 色阶无此档，见 shared `colors-and-schemes.md` §2.1）。**新代码禁止使用**，QA 对新增使用判 `Failed`
+- 存量 `.text-tertiary` **不得盲删**（划线价 / 脚注 / 免责小字靠它，删了会回退继承父色）：走墓碑迁移流程，过渡期 alias 指向 secondary
+- ⚠️ 更早的 `.text-quaternary` / `--color-label-quaternary` 也已删除；遇到残留引用一并迁到 **secondary**（不要再迁到 tertiary，那一档也没了）
+- 🔴 三个彩色 label（`-purple` / `-cyan` / `-green`）**背景配对受限**，用前必读 shared `a11y.md` §5.1 —— cyan / green 压浅底判 `Failed`
 
 ### 2.3 背景色（spec §2.4）
 

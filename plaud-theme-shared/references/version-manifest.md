@@ -8,18 +8,19 @@
 
 | 项 | 值 |
 |---|---|
-| 矩阵包版本 | **v0.1.0** |
-| 包名 | `plaud-shopify-theme-matrix-v0.1.0` |
-| 契约版本（`ContractVersion`） | **v0.1.0** |
-| 对应 UX Spec 版本 | **v1.3**（源文档 `PLAUD_UX_规范基准_v1.3.md`，含 2026-07 的「📌 v1.3 spec 补充修订」4 条） |
-| 前身 | 单 skill 包 `plaud-shopify-theme-skill`（`plaud-shopify-theme`） |
-| skill 数 | 7 |
+| 矩阵包版本 | **v0.2.0** |
+| 包名 | `plaud-shopify-theme-matrix-v0.2.0` |
+| 契约版本（`ContractVersion`） | **v0.2.0** |
+| 对应 UX Spec 版本 | **v1.3 · 2026-08-11 设计 Token 基线**（源文档 `Plaud-UX-v1.3`「设计 Token 与组件规范文档」，8 页 PDF）。它取代了 v0.1.0 依据的 `PLAUD_UX_规范基准_v1.3.md`（含 2026-07 补充修订 4 条）——版本号同为 v1.3，但内容是重新整理过的一版，差异见 CHANGELOG |
+| 对应交付标准 | **《DTC 开发交付标准 v1.0》**（2026-08-06，运营与产研共同维护，双周会可审议修订） |
+| 前身 | v0.1.0（7 skill）；再前身是单 skill 包 `plaud-shopify-theme-skill` |
+| skill 数 | **10** |
 
 **`ContractVersion` 与包版本同步递增。** 任一 skill 输出的 `ContractVersion` 与本文件不符 → 视为版本漂移，停机并要求重装。
 
 ---
 
-## 2. 7 个 skill 的 order 与职责
+## 2. 10 个 skill 的 order 与职责
 
 | order | skill | 一句话职责 | 阶段 / 路径 |
 |---|---|---|---|
@@ -29,13 +30,17 @@
 | **3** | `plaud-theme-dev` | Path A 实现：bug 修复、性能、新功能、UX 微调、review、A11y | Implement / A |
 | **4** | `plaud-theme-section-build` | Path B 实现：Figma → `sa-*` section（`SA:` schema、BEM 根类、vendor 交付约束） | Implement / B |
 | **5** | `plaud-theme-ux-migration` | Path C 实现：按 UX Spec v1.3 刷模块 / 迁移、三层入口选择、迁移日志 | Implement / C |
-| **6** | `plaud-theme-qa` | Verify 阶段唯一执行者，**唯一有权输出 `ReadyForDelivery: Yes`**；跑 QA-A/B/C + QA-Global | Verify / A·B·C |
+| **6** | `plaud-theme-qa-intake` | **提测准入关口**（不占阶段轴）：按 DTC §四 校验六项交付物、站点清单与包指纹；材料不齐 QA 不启动 | Implement→Verify 过渡 |
+| **7** | `plaud-theme-qa` | Verify 阶段唯一执行者，**唯一有权输出 `ReadyForDelivery: Yes`**；跑 QA-A/B/C + QA-Global | Verify / A·B·C |
+| **8** | `plaud-theme-feedback-triage` | **反馈归因入口**（不占阶段轴）：按 DTC §六 判交付缺陷 vs 需求演进，给依据与去向；判定人是 PM | 事件入口 |
+| **9** | `plaud-theme-release-ops` | **发版与上线后**（不占阶段轴，Verify 之后）：按 DTC §五 做推站二次确认、PR 汇总、线上 bug 时效与回归用例入库 | 发版 |
 
-入口暴露分层（不是七个平级入口）：
+入口暴露分层（不是十个平级入口）：
 
 - **正常用户入口**：`dev` / `section-build` / `ux-migration`
 - **全流程入口**：`orchestrator`
 - **阶段能力 / 专家入口**：`shared` / `impact` / `qa`
+- **运营协作入口**（v0.2.0 新增，均不占阶段轴）：`qa-intake`（提测）/ `feedback-triage`（反馈归因）/ `release-ops`（发版与上线后）
 
 ---
 
@@ -53,6 +58,10 @@
 | `a11y.md` | 7 条 A11y 底线的**判定方法** | A11y 判定细则 |
 | **`repo-drift.md`** | 规范值 vs 目标仓库编译产物：为什么会滞后、开工前核对命令、5 类已知漂移案例 | build 产物滞后 |
 | `version-manifest.md` | 本文件 | 版本与职责 |
+
+> v0.2.0 的 `handoff-schema.md` 新增：§0.1 四个非阶段 skill、§1.1 `ReadyForDelivery` 的边界、
+> §8.1 运营协作红线（DTC §三）、§8.2 公共文件改动注释、§9.1.2–§9.1.4 三类新工件、§9.2 对应枚举。
+> `a11y.md` 新增 §5.1 新色板的实测对比度与允许配对表（🔴 待设计方裁决项进 QA 的 `Advisories`，不判 Failed）。
 
 > 🔴 `repo-drift.md` 是**后加的第 9 个 reference**，`SKILL.md` 的 Reference 索引表（本版不可改）里没有它。
 > 加载规则：**任何要落地 spec 数值 / 依赖某个 token 或工具类的任务都应读**（build 产物滞后与仓库无关）；`typography.md` / `colors-and-schemes.md` / `responsive-and-spacing.md` 三处已在正文交叉指向它。下次可改 `SKILL.md` 时应补进索引表。
@@ -88,7 +97,7 @@ vendor 对外版为早期基线；凡与 v1.3 不一致处**一律以 v1.3 为�
 
 | # | v1.3 覆盖规则 | 旧值（已废） | 落实位置 |
 |---|---|---|---|
-| ① | 字重全站 Regular 400 | 标题加粗 / 多字重；`subheading_weight`=500 | `typography.md` §1 |
+| ① | 字重 **Regular 400 默认 + Semibold 600 局部强调**（2026-08-11 基线放开；v0.1.0 的「全站仅 400」已废止） | 标题加粗 / 700+ / `.fwb`；`subheading_weight`=500 | `typography.md` §1 |
 | ② | 区头 Heading PC = 40px（large-title-2） | 42px | `typography.md` §3、§5 |
 | ③ | `.container` XS/Mobile 内边距 = 24px | 15px | `responsive-and-spacing.md` §4.2 |
 | ④ | 容器最大宽度 1600/1440/1280/1140/960/720/540 | 1480 / 1200 | `responsive-and-spacing.md` §4.1 |

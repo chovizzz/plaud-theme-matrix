@@ -303,6 +303,7 @@ BaseHeadSha:              # 交付工件时的 git rev-parse HEAD；零改动填
 ChangeSetFingerprint:     # 见上，交付工件时当场生成；零改动填 N/A
 ReadOnlyProof:            # 仅零改动任务：审计前后两次快照的 HEAD + hash，必须一致；其余填 N/A
 AssessmentRef:            # 引用 Assess 工件；InlineLite 时填 InlineLite；只读填 N/A(ReadOnly)
+OriginTriageRef:          # 本块若由反馈返工产生：TriageId + ItemId；否则 N/A
 Path: C
 ReconMode:                # 与 Assess 一致；InlineLite 需附豁免理由；只读填 N/A(ReadOnly)
 ModifiedFiles:            # 逐个文件路径 + 一句话改动；必须与工作树一致；零改动填 []
@@ -314,7 +315,7 @@ VisualRegressionRequired: # Yes | No
 BuildRequired:            # Yes | No（是否动了 shopify-common/src 需 npm run build）
 BlockingGaps:             # 实现中发现但无权处理的（如需模板存值编辑授权）
 QAStatus: NotRun          # 恒为 NotRun；唯一例外见 handoff-schema.md §1.5
-NextRequiredSkill: plaud-theme-qa   # 零改动任务填 None
+NextRequiredSkill: plaud-theme-qa-intake   # 零改动任务填 None
 ReadyForDelivery: No      # 恒为 No，见 §1；零改动任务填 N/A(ReadOnly)
 ```
 

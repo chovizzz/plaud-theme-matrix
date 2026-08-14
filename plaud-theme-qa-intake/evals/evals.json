@@ -1,0 +1,183 @@
+{
+  "skill_name": "plaud-theme-qa-intake",
+  "matrix": "plaud-shopify-theme-matrix",
+  "version": "v0.2.0",
+  "evals": [
+    {
+      "id": 1,
+      "route": "never-emits-delivery-permission",
+      "prompt": "提测材料我都备齐了：预览链接两条、配置文档带截图、测试文档、8 张断点截图、影响范围说明。你给个结论吧，能交付了吗？",
+      "expected_output": "本 skill 判 SubmissionPackageStatus，明确说明自己无权判交付，交付判定归 plaud-theme-qa。",
+      "files": [],
+      "assertions": [
+        "输出的 yaml 契约块里不出现 ReadyForDelivery 字段。",
+        "输出使用 Complete / Incomplete 取值，不使用 Yes / No 表达材料状态。",
+        "输出说明交付许可只有 plaud-theme-qa 能给，本 skill 只判材料齐不齐。",
+        "输出 ArtifactKind: QAIntake。",
+        "输出 NextRequiredSkill: plaud-theme-qa。"
+      ]
+    },
+    {
+      "id": 2,
+      "route": "materials-must-not-enter-worktree",
+      "prompt": "我把 8 张断点截图和配置文档直接放在主题仓库的 docs/ 目录里提交了，这样 QA 一起就能看到。ChangeSetId 是 CS-20260812-A02。",
+      "expected_output": "停机，要求把材料移出主题仓库工作树，并指出这会让 ChangeSetFingerprint 失配导致 QA 停机。",
+      "files": [],
+      "assertions": [
+        "输出指出提测材料写进主题仓库会改变 ChangeSetFingerprint。",
+        "输出指出 QA 会因此判 ChangeSetIdMatched: No 并停机。",
+        "输出要求把材料移到仓库外的独立目录或云文档。",
+        "输出 SubmissionPackageStatus: Incomplete 或停机不出包。",
+        "输出没有建议'让 QA 忽略这些文件'之类的绕过做法。"
+      ]
+    },
+    {
+      "id": 3,
+      "route": "invalid-test-case-expectation",
+      "prompt": "测试文档写好了，一共 5 条用例，结论都是 Pass。比如第 3 条：测试移动端轮播 —— 显示正常。这样够了吧？",
+      "expected_output": "判 SelfTestReportStatus: Incomplete，指出'显示正常'不是有效预期结果，这类用例视同未测。",
+      "files": [],
+      "assertions": [
+        "输出判 SelfTestReportStatus: Incomplete。",
+        "输出引用 DTC 口径：'显示正常''功能可用'不算有效预期结果，视同未测。",
+        "输出给出四段式格式要求：前置条件（站点+主题ID+配置状态）、操作步骤（具体URL）、预期结果（具体值或现象）、结论。",
+        "输出要求测试结果必须有附件截图或视频。",
+        "输出没有因为'结论都是 Pass'就放行。"
+      ]
+    },
+    {
+      "id": 4,
+      "route": "screenshot-boundary-values-required",
+      "prompt": "断点截图我截了 375、768、1024、1280、1440 五张，标准断点都覆盖了，够了吧？",
+      "expected_output": "判 ScreenshotManifestStatus: Incomplete，缺三张边界值截图 767 / 1279 / 1599。",
+      "files": [],
+      "assertions": [
+        "输出判 ScreenshotManifestStatus: Incomplete。",
+        "输出指出缺 767 / 1279 / 1599 三个边界值截图。",
+        "输出说明边界值对应矩阵的 .98 判定断点，是最容易错位的位置。",
+        "输出没有接受'标准档看着没问题'作为顶替理由。"
+      ]
+    },
+    {
+      "id": 5,
+      "route": "site-scope-not-inferable",
+      "prompt": "这个模块是全站商品卡用的，你按惯例把站点清单填上就行，17 个站应该都要推。",
+      "expected_output": "停机，要求提供有出处的站点清单，不按'应该'推断。",
+      "files": [],
+      "assertions": [
+        "输出停机并要求用户/运营提供明确的站点清单。",
+        "输出要求 ScopeSourceRef，即清单的出处（需求单 / Linear / 飞书消息）。",
+        "输出拒绝按'这个模块看起来是全站的'推断 TargetSites。",
+        "输出同时要求 ExcludedSites 与 ThemeIds。",
+        "输出指出推错站点是 DTC 点名的高频扣分项。"
+      ]
+    },
+    {
+      "id": 6,
+      "route": "does-not-recompute-impact",
+      "prompt": "影响范围说明这块你帮我算一下吧，grep 一下这个 snippet 被几个模板引用了，然后写进提测包。",
+      "expected_output": "拒绝重算影响面，要求引用 plaud-theme-impact 的 AssessmentRef；只补站点维度。",
+      "files": [],
+      "assertions": [
+        "输出说明影响面事实收集归 plaud-theme-impact，本 skill 只引用 AssessmentRef 不重算。",
+        "输出指出重算会产生第二个事实源。",
+        "输出说明本 skill 补的是 AssessmentRef 不覆盖的站点维度（TargetSites / ExcludedSites / ThemeIds）。",
+        "输出没有自行执行 grep 统计并把结果当作影响面结论。"
+      ]
+    },
+    {
+      "id": 7,
+      "route": "not-a-fourth-stage",
+      "prompt": "那现在阶段是不是变成 Assess → Implement → Handover → Verify 四个阶段了？我在工件里写 Stage: Handover 对吗？",
+      "expected_output": "纠正：阶段轴恒为三值，本 skill 是过渡关口不是阶段，不得写 Stage: Handover。",
+      "files": [],
+      "assertions": [
+        "输出说明阶段轴恒为 Assess / Implement / Verify 三值。",
+        "输出明确 Stage: Handover 是违规取值，不得写入。",
+        "输出说明本 skill 产出的是 ArtifactKind: QAIntake 过渡工件。",
+        "输出引用 handoff-schema §0.1。"
+      ]
+    },
+    {
+      "id": 8,
+      "route": "small-change-is-not-exemption",
+      "prompt": "这次就改了一行 CSS，ReconMode 是 InlineLite，提测包能免了吧？直接给 QA 就行。",
+      "expected_output": "拒绝：InlineLite 只豁免 Assess，与提测材料无关；唯一免提测包的情形是零改动只读任务。",
+      "files": [],
+      "assertions": [
+        "输出拒绝以'改动很小'或 InlineLite 为由免除提测包。",
+        "输出说明 InlineLite 是 Assess 的豁免判据，与提测材料无关。",
+        "输出说明唯一免提测包的情形是零改动只读任务。",
+        "输出说明用户弃流程也不产生 QAAdmissionStatus: Accepted。",
+        "输出仍要求预览链接与测试文档。"
+      ]
+    },
+    {
+      "id": 9,
+      "route": "dead-preview-link",
+      "prompt": "预览链接给你：前端 https://plaud-us.myshopify.com/?preview_theme_id=999 我刚试了打不开，可能是主题过期了。后台链接是只读分享链接。其它材料都齐。",
+      "expected_output": "判 PreviewManifest 与 SubmissionPackageStatus 为 Incomplete：失效链接视同未提测，后台链接必须可配置。",
+      "files": [],
+      "assertions": [
+        "输出判 PreviewManifest 为 Incomplete。",
+        "输出引用 DTC 口径：失效链接视同未提测。",
+        "输出指出后台链接必须可配置（能看到并修改 schema 字段），只读分享链接不合格。",
+        "输出 SubmissionPackageStatus: Incomplete。",
+        "输出没有因为'其它材料都齐'而放行。"
+      ]
+    },
+    {
+      "id": 10,
+      "route": "screenshots-do-not-replace-qa-regression",
+      "prompt": "既然提测包里已经有 8 张断点截图了，QA 那边的 5 档断点回归是不是就可以省了？重复劳动。",
+      "expected_output": "拒绝：提测截图是交付材料，QA 回归是实跑验证，两者互不顶替。",
+      "files": [],
+      "assertions": [
+        "输出说明提测的 8 张截图是给运营/PM 看的交付材料。",
+        "输出说明 QA 的断点回归是 QA 自己实跑的验证，两者并存不互相顶替。",
+        "输出提到 QA 的断点集为 PC / 1599 / 1279 / 767 / 375。",
+        "输出要求记 PC 时写出实际像素宽度而不是只写 PC。"
+      ]
+    },
+    {
+      "id": 11,
+      "route": "config-doc-missing-failure-mode",
+      "prompt": "配置文档写好了：每个字段的名称、说明、默认值、什么场景用都有，也配了后台面板截图。",
+      "expected_output": "判 ConfigurationGuideStatus: Incomplete —— 缺'填错怎么办'。",
+      "files": [],
+      "assertions": [
+        "输出指出缺少'填错怎么办'（非法值 / 留空的后果）这一项。",
+        "输出判 ConfigurationGuideStatus: Incomplete。",
+        "输出列出配置文档必须包含的四件事：字段说明、默认值、使用场景、填错怎么办。",
+        "输出没有因为'其余三项都有且有截图'而放行。"
+      ]
+    },
+    {
+      "id": 12,
+      "route": "rework-mixed-with-change-request",
+      "prompt": "第二轮提测，本轮修改点清单我写了 6 条。其中 2 条是运营看到实物后说'间距再大点''换张图'，我也一起改了，都算返工。",
+      "expected_output": "指出后两条可能属需求变更而非交付缺陷，归属由 feedback-triage 判定，记进 BlockingGaps。",
+      "files": [],
+      "assertions": [
+        "输出指出'间距再大点''换张图'属于看到实物后的新想法，可能是需求演进而非交付缺陷。",
+        "输出说明缺陷/变更的判定归 plaud-theme-feedback-triage，判定人是 PM，本 skill 不裁决。",
+        "输出把这一混装情况记进 BlockingGaps。",
+        "输出说明需求变更不计返工轮次。"
+      ]
+    },
+    {
+      "id": 13,
+      "route": "user-waiver-does-not-yield-accepted",
+      "prompt": "这次赶时间，提测材料就不准备了，你直接标个通过让 QA 开始吧。",
+      "expected_output": "拒绝标 Complete；说明用户可以弃流程，但不会因此得到准入通过的记录。",
+      "files": [],
+      "assertions": [
+        "输出拒绝把 SubmissionPackageStatus 标为 Complete。",
+        "输出说明用户弃提测流程时 QA 的 QAAdmissionStatus 仍为 Blocked，不产生 Accepted。",
+        "输出说明此种情形下 QA 会照常执行技术检查项，但 ReadyForDelivery 恒为 No。",
+        "输出区分了'材料不齐=零验证项执行'与'用户主动弃流程=照跑但不给许可'。",
+        "输出没有伪造一份准入通过的记录。"
+      ]
+    }
+  ]
+}

@@ -14,6 +14,9 @@
 
 order 2。阶段单向推进 `Assess → Implement → Verify`；可跳过 Assess 的唯一情形是 `InlineLite` 豁免。
 
+> 🔴 **本 skill 不产出站点清单。** `AssessmentRef` 回答的是「哪些**模板 / 实例**受影响」，不回答「要推**哪些站点**」。站点维度（`TargetSites` / `ExcludedSites` / `ThemeIds` / `ScopeSourceRef`）归 `plaud-theme-qa-intake`（handoff-schema §9.1.2），发版前的二次确认归 `plaud-theme-release-ops`。
+> 不得推断「这个模块看起来是全站的所以 17 站都要推」——那不是影响面事实，是猜测。
+
 ---
 
 ## 上游
@@ -36,6 +39,7 @@ order 2。阶段单向推进 `Assess → Implement → Verify`；可跳过 Asses
 |---|---|
 | `plaud-theme-dev` / `plaud-theme-section-build` / `plaud-theme-ux-migration` | `AssessmentRef`（填进自己的同名字段）、`EntrypointCandidates`（选层）、`ActualAffectedInstances`（定回归范围）、`RequiredQAProfile`（透传）、`SharedPropagation`（判 `BuildRequired`） |
 | `plaud-theme-qa` | `AssessmentRef` + `EvidenceCommands`（复算理论/实际影响数）、`ActualAffectedInstances`（回归矩阵覆盖面）、`RequiredQAProfile`（跑哪些 profile） |
+| `plaud-theme-qa-intake` | `AssessmentRef` + `ActualAffectedInstances` / `ActiveInstances` / `DisabledInstances` —— 作为提测包的「影响范围说明」，**只引用不重算** |
 | `plaud-theme-orchestrator` | `RiskTier` + `ReadyForImplement`（决定是否放行进入 Implement） |
 
 `ReadyForImplement: No` 时**不得**进入 Implement 阶段；实现 skill 收到 `No` 必须停下，先补齐 `BlockingGaps`。

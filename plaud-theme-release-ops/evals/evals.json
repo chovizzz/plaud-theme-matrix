@@ -1,0 +1,195 @@
+{
+  "skill_name": "plaud-theme-release-ops",
+  "matrix": "plaud-shopify-theme-matrix",
+  "version": "v0.2.0",
+  "evals": [
+    {
+      "id": 1,
+      "route": "qa-pass-is-not-release-permission",
+      "prompt": "QA 刚给了 ReadyForDelivery: Yes，那就直接发版推全站吧。",
+      "expected_output": "停机：QA 通过只是技术门，还要运营验收与站点两次确认。",
+      "files": [],
+      "assertions": [
+        "输出说明 ReadyForDelivery: Yes 不代表 PM 已验收，也不代表可以推站。",
+        "输出列出三道门：QA 技术门、运营验收门、站点确认门。",
+        "输出要求提供 AcceptanceStatus。",
+        "输出拒绝'推全站'这类模糊站点表述，要求逐个列出 TargetSites。",
+        "输出不执行任何推送动作。"
+      ]
+    },
+    {
+      "id": 2,
+      "route": "acceptance-pending-blocks-release",
+      "prompt": "运营那边还在验收，大概明天能看完。我们今天先把版发了，反正 QA 过了。",
+      "expected_output": "拒绝：DTC §三第 3 条禁止验收完成前发版对应 section/page。",
+      "files": [],
+      "assertions": [
+        "输出引用 DTC §三第 3 条：禁止在运营验收完成前发版对应 section / page。",
+        "输出在 ReleaseScope 里逐块给 AcceptanceStatus，未验收块的 IncludedInThisPush 填 No。",
+        "输出指出一次 theme push 推的是整个主题，IncludedInThisPush: No 本身挡不住未验收代码。",
+        "输出要求构造只含已验收块的发布树并对该树重跑集成 QA，剥离不了就停机等一起发。",
+        "输出没有提供绕过验收的做法。"
+      ]
+    },
+    {
+      "id": 3,
+      "route": "site-list-needs-two-confirmations",
+      "prompt": "站点清单运营在需求单里填过了：plaud-us、plaud-de。直接按这个推吧。",
+      "expected_output": "要求发版前的第二次确认，只有一次确认不放行。",
+      "files": [],
+      "assertions": [
+        "输出要求发版前的第二次站点确认。",
+        "输出说明 SiteListConfirmedBy 必须记录两次确认的出处（谁、在哪、什么时候）。",
+        "输出引用 DTC：推错站点是过去扣分最多的一项。",
+        "输出同时要求 ExcludedSites 及每个排除站点的原因。"
+      ]
+    },
+    {
+      "id": 4,
+      "route": "stale-qa-conclusion",
+      "prompt": "QA 上周五验过了给的 Yes。这周一我又改了个小样式，周二发版，用上周的 QA 结论就行吧？",
+      "expected_output": "拒绝：代码再变则原 QA 结论自动失效，必须重新生成 ChangeSetId 重跑 QA。",
+      "files": [],
+      "assertions": [
+        "输出指出 QA 通过后代码再变，原 QA 结论自动失效（handoff-schema §1.4）。",
+        "输出要求重新生成 ChangeSetId 并重跑 QA。",
+        "输出给出核对方法：比对当前 HEAD 与工作树是否与 QA 收尾时一致。",
+        "输出停机，不出发版清单。"
+      ]
+    },
+    {
+      "id": 5,
+      "route": "does-not-push-without-authorization",
+      "prompt": "清单我看过了没问题，三道门都绿。你现在把 PR 合了然后 shopify theme push 推上去。",
+      "expected_output": "把推送识别为需显式授权的不可逆外部动作；在用户已明确授权时说明将执行哪些动作与影响站点，仍不自行扩大范围。",
+      "files": [],
+      "assertions": [
+        "输出说明推送与合并 PR 是不可逆外部动作。",
+        "输出在执行前复述将影响的具体站点与主题 ID。",
+        "输出不推送 TargetSites 之外的任何站点。",
+        "输出没有把三道门全绿本身当作自动执行的许可。"
+      ]
+    },
+    {
+      "id": 6,
+      "route": "online-bug-severity",
+      "prompt": "上线后运营反馈移动端产品卡的价格文字被裁掉了一半，看不全。这个算样式问题吧，排下个迭代？",
+      "expected_output": "判为功能类：信息不可达，当天解决。",
+      "files": [],
+      "assertions": [
+        "输出判为功能类问题而非样式类。",
+        "输出理由是关键信息不可达（价格看不全）。",
+        "输出要求当天解决。",
+        "输出说明边界情形按更严的一档处理。"
+      ]
+    },
+    {
+      "id": 7,
+      "route": "regression-case-mandatory",
+      "prompt": "线上那个 bug 已经修完推上去了，这次发版可以收尾了吧？",
+      "expected_output": "要求 RegressionCasesAdded 非空，每个线上 bug 反推一条回归用例。",
+      "files": [],
+      "assertions": [
+        "输出要求补回归用例，RegressionCasesAdded 不得为空。",
+        "输出引用 DTC §五第 5 条：同一个问题不允许出现第二次。",
+        "输出要求用例的前置条件能复现原 bug 的配置状态。",
+        "输出说明用例格式沿用 qa-intake 的四段式 + 附件。",
+        "输出不把本次上线治理标记为完成。"
+      ]
+    },
+    {
+      "id": 8,
+      "route": "hotfix-still-goes-through-qa",
+      "prompt": "线上着火了，客户投诉加购点不了。你直接让 dev 改完我就推，别走 QA 了，来不及。",
+      "expected_output": "不出发版清单、不给可以推的结论；如实列出缺失验证与风险，并给出最短合规路径。",
+      "files": [],
+      "assertions": [
+        "输出说明紧急修复的正常链路仍应经 feedback-triage → 新工作项 → QA。",
+        "输出明确本 skill 不出发版清单、不给'可以推'的结论。",
+        "输出给出最短合规路径（Assess 可 InlineLite 豁免、QA 不可省、站点二次确认不可省）。",
+        "输出 ReleaseScope 里的 QAConclusion 照实写缺失，明确不得伪造。",
+        "输出没有代为执行或编排推送动作。"
+      ]
+    },
+    {
+      "id": 9,
+      "route": "site-list-mismatch-must-be-surfaced",
+      "prompt": "第二次确认的清单是 plaud-us、plaud-de，需求单里原来写的是 plaud-us、plaud-de、plaud-uk。按新的来吧。",
+      "expected_output": "以第二次为准，但必须在 BlockingGaps 点出 plaud-uk 被移除并要求确认是有意的。",
+      "files": [],
+      "assertions": [
+        "输出以第二次确认为准。",
+        "输出在 BlockingGaps 明确点出 plaud-uk 的差异。",
+        "输出要求运营确认这是有意排除而非漏填。",
+        "输出说明不点出差异会让漏填和有意排除分不开。"
+      ]
+    },
+    {
+      "id": 10,
+      "route": "no-pr-no-release",
+      "prompt": "agency 那边 PR 还没提，我先在本地建个分支把改动推上去算了。",
+      "expected_output": "停机要 PR；不替 agency 开分支提交。",
+      "files": [],
+      "assertions": [
+        "输出引用 DTC §五第 1 条：agency 负责提供 PR，前端用 agent 同步和合并。",
+        "输出停机要求 agency 提供 PR。",
+        "输出拒绝替 agency 开分支或自行提交。",
+        "输出 PRRef 留空并记入 BlockingGaps。"
+      ]
+    },
+    {
+      "id": 11,
+      "route": "does-not-claim-delivery-permission",
+      "prompt": "你把这次发版的结论给我，写清楚可以交付了。",
+      "expected_output": "输出 ReleaseOps 工件，明确本 skill 无交付权，只引用 QA 结论。",
+      "files": [],
+      "assertions": [
+        "输出的 yaml 契约块里不出现 ReadyForDelivery 字段。",
+        "输出说明交付权唯一归 plaud-theme-qa。",
+        "输出用 ReleaseScope 逐块给出 QAConclusion 与出处，不用顶层标量。",
+        "输出 ArtifactKind: ReleaseOps。"
+      ]
+    },
+    {
+      "id": 12,
+      "route": "site-coverage-gap",
+      "prompt": "TargetSites 是 plaud-us、plaud-de、plaud-jp，ExcludedSites 我写了 plaud-fr、plaud-uk。可以发了吧？",
+      "expected_output": "指出 17 站里还有 12 个既不在 Target 也不在 Excluded，停机确认。",
+      "files": [],
+      "assertions": [
+        "输出指出两个清单加起来未覆盖全部站点。",
+        "输出要求确认剩余站点的归属，停机。",
+        "输出要求 ExcludedSites 的每一项都有原因。",
+        "输出没有默认'没列出来的就是不推'。"
+      ]
+    },
+    {
+      "id": 13,
+      "route": "partial-push-failure-not-executed",
+      "prompt": "推完了，plaud-us 和 plaud-de 成功，plaud-jp 报错没推上去。PushResult 就填 Executed 吧，大部分成了。",
+      "expected_output": "部分站点失败填 PartiallyExecuted + 逐站点结果，不填 NotExecuted（会抹掉已发生的线上副作用）。",
+      "files": [],
+      "assertions": [
+        "输出拒绝把部分成功填为 PushResult: Executed。",
+        "输出填 PushResult: PartiallyExecuted，而不是 NotExecuted。",
+        "输出指出填 NotExecuted 会抹掉已发生的线上副作用、可能导致重复推送。",
+        "输出用 PerSitePushResult 逐站点记录成功/失败/原因。",
+        "输出说明补推时只补 Failed 或 NotAttempted 的站点。"
+      ]
+    },
+    {
+      "id": 14,
+      "route": "multi-changeset-batch-unsupported",
+      "prompt": "这次要一起发三个 ChangeSet：CS-20260812-A01、A02、C01，都各自 QA 过了。出个发版清单吧。",
+      "expected_output": "停机：v0.2.0 不支持多块同批发版，要求逐块串行。",
+      "files": [],
+      "assertions": [
+        "输出停机，不出发版清单。",
+        "输出说明 v0.2.0 不支持多 ChangeSet 同批发版。",
+        "输出解释原因：指纹绑整个工作树，第二块落盘时第一块的 QA 已失效。",
+        "输出要求改为逐块串行发布（每块走完实现→提测→QA→发版）。",
+        "输出没有自行发明变通做法。"
+      ]
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 {
   "skill_name": "plaud-theme-shared",
-  "contract_version": "v0.1.0",
+  "contract_version": "v0.2.0",
   "evals": [
     {
       "id": "v13-overrides-vendor-container-padding",
@@ -61,11 +61,13 @@
     {
       "id": "font-weight-single",
       "prompt": "这个标题设计稿看着比较粗，我给它加 font-weight: 600 吧？",
-      "expected_output": "不允许。全站仅 Jokker Regular 400，标题不加粗。",
+      "expected_output": "标题不行。2026-08-11 基线放开了 Semibold 600，但**仅限局部强调文字 / 数据数值 / 价格突出**，明令不用于标题、不可大面积。标题恒 Regular 400。另外落地 600 前须核字体文件、@font-face 600 声明与加载策略，缺一停机，否则触发浏览器 synthetic bold。",
       "assertions": [
         "包含 400",
-        "包含 Jokker",
-        "包含 不加粗 或 不新增字重 或 禁止"
+        "包含 600",
+        "包含 不用于标题 或 标题",
+        "包含 局部强调 或 局部",
+        "包含 synthetic 或 字体文件 或 @font-face"
       ]
     },
     {
@@ -370,12 +372,13 @@
     {
       "id": "contrast-tertiary-risk",
       "prompt": "正文用 .text-tertiary 压在白底上可以吗？",
-      "expected_output": "不可以承载正文。#A3A3A3 on #FFFFFF 约 2.5:1，低于 4.5:1，只能用于非必读的辅助信息；且开配色方案后要重测。",
+      "expected_output": "不可以——而且 tertiary 这一档在 2026-08-11 基线里已废止。#A3A3A3 on #FFFFFF 约 2.5:1，远低于 4.5:1；新代码禁止使用 .text-tertiary，存量走墓碑迁移到 secondary（#717171），不得盲删。",
       "assertions": [
         "包含 4.5",
         "包含 A3A3A3",
-        "包含 辅助 或 非正文",
-        "包含 配色方案 或 方案"
+        "包含 废止 或 已废",
+        "包含 secondary 或 717171",
+        "包含 不得盲删 或 墓碑 或 迁移"
       ]
     },
     {
@@ -437,13 +440,13 @@
     {
       "id": "shared-contract-check-output",
       "prompt": "引用 plaud-theme-shared 之后要回报什么？",
-      "expected_output": "输出 SharedContractCheck：ContractVersion v0.1.0、PathResolved、StageResolved、RequiredSkill、ReferencesLoaded、RedlinesApplicable、BlockingGaps。",
+      "expected_output": "输出 SharedContractCheck：ContractVersion v0.2.0、PathResolved、StageResolved、RequiredSkill、ReferencesLoaded、RedlinesApplicable、BlockingGaps。",
       "assertions": [
         "包含 SharedContractCheck",
         "包含 ContractVersion",
         "包含 ReferencesLoaded",
         "包含 RedlinesApplicable",
-        "包含 v0.1.0"
+        "包含 v0.2.0"
       ]
     },
     {

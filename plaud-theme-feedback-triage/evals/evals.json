@@ -1,0 +1,182 @@
+{
+  "skill_name": "plaud-theme-feedback-triage",
+  "matrix": "plaud-shopify-theme-matrix",
+  "version": "v0.2.0",
+  "evals": [
+    {
+      "id": 1,
+      "route": "split-mixed-feedback",
+      "prompt": "运营发来一条反馈：这个订阅卡片模块间距太小了，而且移动端标题没左对齐，另外能不能加个 hover 动效。这条算返工吗？",
+      "expected_output": "拆成三条分别判定，不合并给一个结论。",
+      "files": [],
+      "assertions": [
+        "输出把反馈拆成三条独立条目分别判定，不合并成一个结论。",
+        "输出对'移动端标题没左对齐'给出缺陷倾向，并引用 UX Spec 区头对齐条款或 DTC §2.1 第 10 条。",
+        "输出对'加 hover 动效'判 RequirementEvolution。",
+        "输出对'间距太小'先要求查 Figma 与 UX Spec 依据，不凭感觉判。",
+        "输出 FeedbackItems 保留反馈原文而不是改写成自己的话。",
+        "输出的 FeedbackItems 是逐条结构，每条有自己的 ItemId 与 ClassificationRecommendation，未把分类提到顶层。"
+      ]
+    },
+    {
+      "id": 2,
+      "route": "pm-is-the-decider",
+      "prompt": "你直接给我个结论，这三条是不是都算开发的责任，我好去跟 agency 扣工时。",
+      "expected_output": "给推荐值与依据，但明确判定人是 PM，PMDecision 为 Pending 时不得当定论。",
+      "files": [],
+      "assertions": [
+        "输出说明 ClassificationRecommendation 是推荐值，判定人是 PM。",
+        "输出逐条给 PMDecision: Pending。",
+        "输出的 NextRoute 取 AwaitPMDecision（Pending 时只能取此值），不预先安排去向。",
+        "输出说明未经 PM 确认不得作为扣工时依据。",
+        "输出仍然给出每条的 EvidenceRefs。"
+      ]
+    },
+    {
+      "id": 3,
+      "route": "defect-requires-new-changeset",
+      "prompt": "这条确认是缺陷了，就改一行 CSS。你让 dev 在原来那个 ChangeSetId CS-20260812-C05 上直接改掉重新提交就行，不用重新走流程吧？",
+      "expected_output": "拒绝复用旧 ChangeSet，必须新开工作项从 Assess 重进并生成新 ChangeSetId。",
+      "files": [],
+      "assertions": [
+        "输出拒绝复用旧 ChangeSetId。",
+        "输出引用 QA 通过后代码再变则原 QA 结论自动失效（handoff-schema §1.4）。",
+        "输出说明必须新开工作项，NextRoute 为 NewWorkItem(Assess)。",
+        "输出指出'只改一行'不构成豁免，指纹一样会变。",
+        "输出在 PM 确认后才走 NewWorkItem(Assess)，并填 NewWorkItemRef 与 OriginChangeSetId。"
+      ]
+    },
+    {
+      "id": 4,
+      "route": "no-design-source-range",
+      "prompt": "运营在 1100px 宽的窗口下截图说这个模块和设计稿长得不一样，让开发返工。",
+      "expected_output": "指出 1280–769px 是无稿区间，不以还原度问责，只考核 UX Spec。",
+      "files": [],
+      "assertions": [
+        "输出指出 1100px 落在 1280–769px 无稿区间。",
+        "输出引用 DTC §八对等承诺：无稿区间不以还原度问责，只考核 UX1.3。",
+        "输出说明该区间不能引用 Figma 作为依据，只能引 UX Spec。",
+        "输出改为检查是否违反 UX Spec 明确条款，若无则判 RequirementEvolution。"
+      ]
+    },
+    {
+      "id": 5,
+      "route": "does-not-auto-update-linear",
+      "prompt": "判完了顺手把 Linear 状态点一下吧，这条改成 In Dev。",
+      "expected_output": "只给 LinearStatusAdvice，不自动执行；并给出 Feedback Revision → In Dev 的两步顺序。",
+      "files": [],
+      "assertions": [
+        "输出说明本 skill 不自动改 Linear 状态，只给建议。",
+        "输出指出正确顺序是先点 Feedback Revision，再点回 In Dev，两步不能省。",
+        "输出说明执行状态变更需用户显式授权。",
+        "输出把建议写在 LinearStatusAdvice 字段。"
+      ]
+    },
+    {
+      "id": 6,
+      "route": "spec-token-drift-is-plaud-gap",
+      "prompt": "运营说这个副标题颜色不对，规范里写的是 #717171，但页面上是 #7A7A7A。判开发缺陷吧？",
+      "expected_output": "判为 PLAUD 缺口（规范与代码 token 不一致），修好之前不打回开发。",
+      "files": [],
+      "assertions": [
+        "输出指出这是规范与代码 token 不一致的情形。",
+        "输出引用 DTC §八：规范与代码 token 不一致算 PLAUD 缺口，修好之前不打回。",
+        "输出不判为 DeliveryDefect，给 Undetermined 并写进 BlockingGaps。",
+        "输出提到应核对编译产物是否已 build（repo-drift）。"
+      ]
+    },
+    {
+      "id": 7,
+      "route": "prior-agreement-overrides-figma",
+      "prompt": "运营说这个按钮颜色和 Figma 不一致要返工。但我们上周在飞书里商量过改成紫色，Figma 一直没同步改。",
+      "expected_output": "以商议结论为准，不算缺陷，但要求提供书面/IM 记录。",
+      "files": [],
+      "assertions": [
+        "输出引用 DTC §一例外条款：事前商议过、Figma 未同步的以商议结论为准。",
+        "输出要求提供书面或 IM 记录，指出口头不生效。",
+        "输出在拿到记录前给 Undetermined，或在有记录时判非缺陷。",
+        "输出把记录链接放进 EvidenceRefs。"
+      ]
+    },
+    {
+      "id": 8,
+      "route": "undetermined-is-legal",
+      "prompt": "这条反馈说功能和 PRD 不符，但我现在拿不到 PRD，Figma 也没权限。你先判一个吧，别卡着。",
+      "expected_output": "判 Undetermined，列出需要补的材料，不硬套结论。",
+      "files": [],
+      "assertions": [
+        "输出判 ClassificationRecommendation: Undetermined。",
+        "输出在 BlockingGaps 列出需要 PM 补的具体材料（PRD 条目、Figma 访问权限）。",
+        "输出说明硬判成缺陷会让开发白背返工，硬判成变更会让真缺陷溜走。",
+        "输出没有为了给结论而猜测 PRD 内容。",
+        "输出的 NextRoute 取 AwaitPMDecision，不因为要给结论就安排去向。"
+      ]
+    },
+    {
+      "id": 9,
+      "route": "hard-style-rule-is-direct-evidence",
+      "prompt": "运营说这个页面几个 section 左右边距不一样，看着乱。这个要去 Figma 找依据吗？",
+      "expected_output": "DTC §2.1 硬性第 1 条本身即依据，直接判 DeliveryDefect。",
+      "files": [],
+      "assertions": [
+        "输出指出 DTC §2.1 第 1 条『同一页面内左右上下边距一致』本身就是依据。",
+        "输出判 DeliveryDefect。",
+        "输出说明硬性 10 条逐条可查，不需要再去 Figma 找依据。",
+        "输出 EvidenceRefs 填 DTC §2.1 对应条目。"
+      ]
+    },
+    {
+      "id": 10,
+      "route": "ai-generated-module-not-covered",
+      "prompt": "运营自己用 AI 生成了一个模块代码贴进主题，现在样式崩了，让开发修，算交付缺陷吗？",
+      "expected_output": "不算交付缺陷，开发不兜底，建议走正规提需求流程。",
+      "files": [],
+      "assertions": [
+        "输出引用 DTC §一第 2 条：运营自行使用 AI 生成的模块部分开发不兜底。",
+        "输出不判 DeliveryDefect。",
+        "输出建议走正规提需求流程。",
+        "输出在 PM 未确认时 NextRoute 取 AwaitPMDecision，并说明建议值为 NoAction（它尚不构成一条需求）。"
+      ]
+    },
+    {
+      "id": 11,
+      "route": "soft-rule-not-a-defect",
+      "prompt": "这个卡片描述字号是 15px，不在字阶表里，运营说要算缺陷计返工。",
+      "expected_output": "字号尽量落字阶属 DTC §2.2 软性项，只在同页面明显不自洽时才提，不单独构成缺陷。",
+      "files": [],
+      "assertions": [
+        "输出指出'字号尽量落在字阶表内'属 DTC §2.2 软性项。",
+        "输出引用判定原则：硬性项逐条可查，软性项只在同页面内部明显不自洽时才提。",
+        "输出不判 DeliveryDefect，不计返工。",
+        "输出说明这类问题在 QA 侧进 Advisories，非阻断。"
+      ]
+    },
+    {
+      "id": 12,
+      "route": "refuses-to-write-code",
+      "prompt": "判完顺手把那个左对齐的问题改了吧，就在 sections/multi-content-ww.liquid 里加个类的事。",
+      "expected_output": "拒绝改代码，路由到实现 skill 并说明要走完整链路。",
+      "files": [],
+      "assertions": [
+        "输出拒绝直接修改代码。",
+        "输出路由到实现 skill（plaud-theme-dev 或 plaud-theme-ux-migration）。",
+        "输出说明需新开工作项、经 Assess 与新的 ChangeSetId。",
+        "输出没有给出可直接粘贴的完整修改后文件内容。"
+      ]
+    },
+    {
+      "id": 13,
+      "route": "qa-mechanical-failure-not-triage",
+      "prompt": "QA 刚打回来，Theme Check 新增了 2 条 offense，A11y 对比度那项也 Failed。这两条你判一下算缺陷还是变更？",
+      "expected_output": "拒绝受理：QA 机械失败不进本 skill，直接回实现 skill 返修并生成新 ChangeSetId。",
+      "files": [],
+      "assertions": [
+        "输出说明 Theme Check 新增 offense 与 A11y Failed 属 QA 机械失败。",
+        "输出指出机械失败没有'是缺陷还是变更'可判，规则是矩阵自己定的。",
+        "输出路由回实现 skill 返修，并要求生成新的 ChangeSetId。",
+        "输出说明把机械失败塞进 triage 会让 PM 审批本来就该修的技术问题。",
+        "输出不为这两项产出 ClassificationRecommendation。"
+      ]
+    }
+  ]
+}

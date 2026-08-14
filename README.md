@@ -1,13 +1,13 @@
-# PLAUD Shopify Theme Matrix v0.1.0
+# PLAUD Shopify Theme Matrix v0.2.0
 
-Plaud 品牌 Shopify Online Store 主题开发的 **7 个 skill 矩阵**。它取代原来的单 skill
+Plaud 品牌 Shopify Online Store 主题开发的 **10 个 skill 矩阵**。它取代原来的单 skill
 `plaud-shopify-theme` —— 同一份规范被拆成契约层、编排层、Assess / Implement / Verify 三阶段，
 并按 Path A / B / C 三条路径分工。
 
 矩阵接线、状态机与流程图见 [`MATRIX.md`](MATRIX.md)；给 agent 看的安装导航见 [`AGENTS.md`](AGENTS.md)；
 版本变更见 [`CHANGELOG.md`](CHANGELOG.md)。
 
-## 7 个 skill
+## 10 个 skill
 
 | Order | Skill | 一句话 |
 |---:|---|---|
@@ -17,11 +17,15 @@ Plaud 品牌 Shopify Online Store 主题开发的 **7 个 skill 矩阵**。它�
 | 3 | `plaud-theme-dev` | Path A Implement：bug、性能、新功能、UX 微调、A11y、code review |
 | 4 | `plaud-theme-section-build` | Path B Implement：Figma → `sa-*` section，schema 与 vendor 规范 |
 | 5 | `plaud-theme-ux-migration` | Path C Implement：UX Spec v1.3 迁移、刷模块、迁移日志 |
-| 6 | `plaud-theme-qa` | Verify：Theme Check baseline 增量、5 断点回归、多语言、A11y、红线核查 —— **唯一有交付权** |
+| 6 | `plaud-theme-qa-intake` | 提测准入：DTC §四 六项交付物、站点清单、包指纹 —— **材料不齐 QA 不启动** |
+| 7 | `plaud-theme-qa` | Verify：Theme Check baseline 增量、5 断点回归、多语言、A11y、红线核查 —— **唯一有交付权** |
+| 8 | `plaud-theme-feedback-triage` | 反馈归因：交付缺陷 vs 需求演进、依据、去向、Linear 状态建议 —— **判定人是 PM** |
+| 9 | `plaud-theme-release-ops` | 发版与上线后：推站二次确认、PR、线上 bug 时效、回归用例入库 |
 
 **该调哪个**：单个 bug / 性能 / UX 微调 → `plaud-theme-dev`；单个 Figma 稿 → `plaud-theme-section-build`；
 单个模板或模块的 spec 迁移 → `plaud-theme-ux-migration`；只问影响面 → `plaud-theme-impact`；
-只要验收 → `plaud-theme-qa`。
+只要验收 → `plaud-theme-qa`；提测材料齐不齐 → `plaud-theme-qa-intake`；这条反馈算缺陷还是变更 →
+`plaud-theme-feedback-triage`；要发版推站 / 上线后 bug → `plaud-theme-release-ops`。
 
 **只有当这件事必须拆成 ≥2 个能各自独立验收的 ChangeSet 时**才用 `plaud-theme-orchestrator`：
 迁移 wave、多块并行/串行编排、Cross(A+C) 裂块。改共享 snippet / 全局 CSS / token
@@ -162,16 +166,80 @@ chmod +x install-macos-linux.sh
 
 缺失时 skill 会**停下问用户**，不会凭空重建一份。
 
-## v0.1.0 关键变化
+## v0.2.0 关键变化
 
-- 单 skill 拆成 **7 个**：契约层 / 编排层 / Assess / 三条路径的 Implement / Verify
-- 引入 **ChangeSet 内容绑定**：`ChangeSetId`（`CS-<YYYYMMDD>-<path><NN>`）+ **`BaseHeadSha`** + **`ChangeSetFingerprint`**。实现 skill 交付时当场生成，QA 在**执行任何检查之前**三者全部重算比对。只绑文件名挡不住"交付后偷改同一批文件"——集合没变、内容变了，校验照样通过
-- **交付权唯一**：只有 `plaud-theme-qa` 能输出 `ReadyForDelivery: Yes`；实现 skill 恒 `No` + `QAStatus: NotRun`，禁止终态措辞；orchestrator 输出的是 §9.1 协调工件，`AllChangeSetsDelivered` 只是汇总读数，不产生交付许可
-- **Theme Check 改为 baseline 增量判定**：全仓绝对 pass 不可用（实测 3334 errors 里 3254 条是仓库级 `MatchingTranslations`）。改为**全仓跑两次** + 双指标 `addedInModifiedFiles` / `addedOutsideModifiedFiles`，**两者都须为 0**。不能只扫改动文件——删掉一个被引用的 asset / locale key，offense 会报在**未修改的调用方文件**里
-- **只读任务需 `ReadOnlyProof`**：审计前后各取一次 `HEAD + git status` 快照，不一致即强制退出只读通道、生成正式 ChangeSet 走全流程。防止"先改代码再声称只是审计"
-- **理论影响 ≠ 实际影响**：`TheoreticalReferences` 与 `ActualAffectedInstances` 必须分开报
-- **项目状态移出包外**到 `memory/`
-- 安装器 **legacy 退役改为 fail-closed**：检测到旧 `plaud-shopify-theme` 即中止安装（exit 2），必须显式 `--retire-legacy`（归档→集合校验→删除）或 `--keep-legacy`（exit 3，明知故犯）。另有 `--dry-run`、跳过客户端明示、安装后版本核对
+v0.2.0 有两条主线：**接入《DTC 开发交付标准 v1.0》**（2026-08-06，运营与产研共同维护），以及**跟进 2026-08-11 的 UX Spec 设计 Token 基线**。
+
+### 1. 新增 3 个 skill（7 → 10），都不占阶段轴
+
+| skill | 管什么 | 阻断能力 |
+|---|---|---|
+| `plaud-theme-qa-intake`（order 6） | 提测准入：六项交付物、站点清单、包指纹 | **有** —— 材料不齐 QA 零验证项执行 |
+| `plaud-theme-feedback-triage`（order 8） | 反馈归因：缺陷 vs 变更、依据、去向 | 无（但会新开工作项回 Assess） |
+| `plaud-theme-release-ops`（order 9） | 发版与上线后：推站二次确认、线上 bug 时效、回归用例 | 无（前置是 QA 的 Yes） |
+
+> 🔴 **qa-intake 在 Verify 之前，不是之后。** DTC §四 原文「提测时必须同时提供，**缺一不进验收**」——交付物是进验收的**准入条件**，不是验收的产物。阶段轴仍恒为 `Assess / Implement / Verify` 三值，写 `Stage: Handover` 一律违规。
+
+### 2. 交付权边界说清楚了
+
+`ReadyForDelivery: Yes` 只代表**通过了矩阵内部的技术验证**。它不等于提测材料齐备（qa-intake）、不等于 PM 已验收（feedback-triage）、不等于可以推站（release-ops）。四者正交。
+
+新工件刻意用不同语法防误读：提测包用 `Complete/Incomplete`，交付许可用 `Yes/No`，两套不可互换。三个新 skill 的产出里**都不出现 `ReadyForDelivery` 字段**。
+
+### 3. UX Spec 跟进 2026-08-11 基线
+
+| 项 | 变化 |
+|---|---|
+| **字重** | `Semibold 600` 放开用于局部强调 / 数据数值 / 价格突出（不用于标题、不可大面积）。v0.1.0 的「全站仅 400」已废止。落地前须核字体文件、`@font-face 600`、加载策略，缺一停机——否则触发浏览器 synthetic bold |
+| **label 色阶** | `secondary` `#7A7A7A` → **`#717171`**；**`tertiary` 档废止**（走墓碑流程，不是全仓一把删）；新增 `label-purple/cyan/green` |
+| **新增整节** | 角标色板 7 种、透明度叠加 4 个 token、品牌渐变 5 停色标、组件尺寸（导航/卡片/倒计时）、布局网格每档内边距与内容宽度 |
+| **按钮** | 补全 5 个 Primary 变体 + Secondary-Outline（1px `#717171`）+ 四档高度；白色 hover 统一 `#EEEEEE`（此前 colors 表与按钮表自相矛盾） |
+| **背景 token** | 新增 `--color-bg-white` / `--color-bg-dark` |
+
+三条落地纪律：
+
+- **按钮高度是「单行目标最小高度」**，落实为 `min-block-size` + `height: auto`，**不得写死 `height`**（德/法/西/俄比英文长 30–50%，写死会溢出或被裁）。固定 `width` 仍全面禁止。
+- **组件尺寸表里的 px 要先分类**再决定写法：设计参考（不进 CSS）/ 比例约束（`aspect-ratio`）/ 最小尺寸（`min-*`）/ 技术固定例外（图标、倒计时数字格）。不得全翻译成固定宽高。
+- **品牌渐变只有色标、没有几何参数**（圆心、半径、stop 位置全缺），不足以直接写 CSS —— 要落地时**停机**要 Figma 节点，不得编造 stop position。
+
+### 4. A11y：实测对比度 + 待裁决机制
+
+新增 `a11y.md` §5.1 配对表（矩阵实算，非文档声明值）。几组 spec 直接给出的配对不达标：
+
+| 配对 | 比值 |
+|---|---|
+| `#717171` 压暖白底 `#F2EFEB` | 4.26 🔴 |
+| 角标 Hot / -X% off（`#FF0000` on `#FCDEDE`） | 3.17 🔴 |
+| 角标 Pre Order（`#39F672` on `#D7FDE3`） | **1.30 → `Failed`** |
+
+处理口径：色值**按 spec 照录**（矩阵无权改规范去凑对比度）。`3.0–4.5` 且在**封闭 allowlist** 里的四组进 `Advisories`、不判 `Failed`；**`< 3.0` 一律 `Failed`（spec 给的也不行）**——Pre Order 的 1.30 是看不见的量级，`BlockingGaps` 写明需设计方裁决，性质是规范缺口而非开发错误。cyan/green 文字压浅底（1.83 / 1.44）同样 `Failed`。
+
+防滥用还有两条：allowlist 封闭、QA 无权扩充；每条 Advisory 必须带**已知偏差批准引用**，为空则降级 `Failed`。
+
+> 🟢 **这次改动是 A11y 净改善，不是倒退**：旧 `secondary #7A7A7A` 白底 4.29、暖白底 3.74，**本来就不达标**；新值白底 4.88 ✅。旧 `tertiary #A3A3A3` 白底仅 **2.52**，废止它等于拿掉一个长期不合规的档位。
+
+### 5. 运营协作红线进契约
+
+DTC §三 的 11 条进 handoff-schema §8.1。**注意分级**：原文标题写的是「软性，尽量遵守」，本版只把其中可机械判定的 10 条提升为 🔴 红线，公共文件注释保持 🟡 建议级。「主流程必须做成开关」保留了原文「**且会修改全站默认配置**」这个前提，没有省掉。
+
+公共文件的英文注释规范（§8.2）与矩阵原有的「默认不写注释」冲突，因此限定了 allowlist（共享 snippet / 全局 CSS / theme.liquid / 共享 JS）、禁写清单（**build 产物、`templates/*.json`**）和各文件类型的合法注释语法（`.liquid` 用 `{% comment %}`，不是 `//`）。
+
+### 6. 发布前经过一轮外部评审并打回重修
+
+初版方案被指出 14 项问题，其中 **4 项能真正绕过门禁**：QA 的交付条件漏查新增的两道门、留了两条显式绕过链（用户弃流程直接得 `Accepted`、紧急上线"照做"）、多 ChangeSet 发版在指纹模型下无法闭环、提测包没有可信绑定（可重放、可在准入后替换）。全部已修，明细见 CHANGELOG §8。
+
+其中两项与 v0.1.0 那个指纹 bug 属**同一类错误**：`PackageFingerprint` 命令在命令替换里静默失败（`|| return 1` 永远不触发，指纹退化成只反映文件名），以及 `FixedDimensionCheck` 只 grep `width|height`、`block-size: 40px` 可直接绕过。这类问题静态校验和 evals 都抓不到。
+
+### 7. QA 侧
+
+- 新增 Step 0 准入门 `QAAdmissionStatus`，比指纹校验更早
+- §5 工件 19 → **24 字段**（+ `SubmissionId` / `QAAdmissionStatus` / `QAAdmissionReason` / `StyleHardRuleCheck` / `Advisories`）
+- QA-Global 新增 §9（DTC 硬性 10 条）与 §10（软性项 → Advisories）
+- **修掉一处既有契约漂移**：QA SKILL 长期声称三个状态字段存在「§9.2 枚举缺口」，复核发现 §9.2 本来就含 `Blocked`，缺口不存在，该提示已删除
+
+### 8. 沿用 v0.1.0 的机制（未变）
+
+ChangeSet 内容绑定（`ChangeSetId` + `BaseHeadSha` + `ChangeSetFingerprint`，QA 在任何检查之前三者重算比对）、Theme Check baseline 增量双指标、只读任务的 `ReadOnlyProof`、理论影响 vs 实际影响分开报、项目状态存 `memory/`、安装器 legacy 退役 fail-closed。
 
 详见 [`CHANGELOG.md`](CHANGELOG.md)。
 
@@ -185,4 +253,9 @@ chmod +x install-macos-linux.sh
 | 指纹命令对 git 版本敏感 | 必须用 §2 原文（`--no-renames --binary` + `set -o pipefail`）。**`--find-renames=false` 在 git 2.52+ 是非法参数**，且错误走 stderr、管道继续，会算出一个只反映文件集合、不反映内容的常量——指纹退化成摆设。拿到 `FINGERPRINT_FAILED` 必须停机 |
 | Path B / Path C 未做行为评测 | 6 个评测场景全在 Path A。B/C 的契约与 evals 齐备，但没有真实任务验证过 |
 | `install-windows.ps1` 未实跑 | 仅静态审查。首次在 Windows 上用前先跑 `-DryRun -RetireLegacy` |
+| 三个新 skill 未做行为评测 | `qa-intake` / `feedback-triage` / `release-ops` 的契约与 evals（各 12 条）齐备，但**没有真实任务验证过**。v0.1.0 的教训是：四轮 Codex 评审 + 205 条 eval + 全套静态校验都没抓到的指纹 bug，只有真跑才发现 |
+| UX Spec 有两处待设计方裁决 | ① A11y 项（Advisory：`#717171` 压暖白底 4.26 / 压卡片底 4.49、`#8F53ED` 压暖白底 3.96、角标 Hot 3.17；**Failed**：角标 Pre Order 1.30）；② 品牌渐变 §2.8 说「渐变仅用于 Announcement Bar」，字面上会读成 AI 渐变也不许用——本版判定为**未覆盖而非废止**，原样保留 AI 渐变并标记待确认 |
+| **不支持多 ChangeSet 同批发版** | 指纹绑整个工作树，第二块落盘时第一块的 QA 即失效；而"合并后跑集成 QA"在这个模型下也跑不通（合并提交后工作树是干净的）。需要发多块时**逐块串行**。彻底解法（指纹改绑不可变 commit / tree 对象）留 v0.3.0 |
+| 提测材料必须能内容绑定 | 放在无版本号 / 无 digest 的外链上的材料判 `Incomplete` —— 要么下载到本地参与 hash，要么换成能取版本号的载体（飞书文档 revision、Linear 附件 ID）。否则防替换链有洞 |
+| 品牌渐变无法直接落地 | 只有 5 个色标，圆心 / 半径 / 形状 / stop 位置全缺。要用时停机要 Figma，不得编造 |
 | `memory/` 四个文件需先建 | 缺失时 skill 会停机问你，不会凭空重建。首次接入可从 `plaud-theme-ux-migration/references/memory-seed/` 复制种子（那是 2026-07 快照，复制后即由项目维护） |

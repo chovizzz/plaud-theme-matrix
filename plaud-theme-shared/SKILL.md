@@ -7,7 +7,7 @@ description: >
   本 skill 不实现任何主题改动、不做 bug 修复、不写 section、不做 UX 迁移、不做验收——
   它只定义规则与交接格式。用户不需要直接调用本 skill；由 plaud-theme-orchestrator /
   plaud-theme-impact / plaud-theme-dev / plaud-theme-section-build / plaud-theme-ux-migration /
-  plaud-theme-qa 引用。若用户直接问"矩阵怎么衔接""handoff 字段是什么""为什么必须过 QA"，可直接读本 skill 回答。
+  plaud-theme-qa-intake / plaud-theme-qa / plaud-theme-feedback-triage / plaud-theme-release-ops 引用。若用户直接问"矩阵怎么衔接""handoff 字段是什么""为什么必须过 QA"，可直接读本 skill 回答。
 ---
 
 # PLAUD Theme Shared（契约层）
@@ -16,7 +16,7 @@ description: >
 
 ## 本 skill 做什么
 
-- 定义两轴状态机（阶段 × 路径）与阶段推进条件
+- 定义两轴状态机（阶段 × 路径）与阶段推进条件，以及阶段轴之外的四个非阶段 skill（§0.1）
 - 定义唯一 handoff schema 与 `ChangeSetId` 绑定机制
 - 规定交付权归属（**只有 `plaud-theme-qa` 能说可交付**）
 - 规定 Stop-don't-guess 停机点
@@ -72,7 +72,7 @@ description: >
 
 ### 入口暴露
 
-不是七个平级入口。
+不是十个平级入口。
 
 - **正常用户入口**：`plaud-theme-dev` / `plaud-theme-section-build` / `plaud-theme-ux-migration`
 - **全流程入口**：`plaud-theme-orchestrator` — 进入门槛只有一条：**这项工作必须拆成 ≥2 个可独立验收的 ChangeSet**（典型是迁移 wave、跨多个互不相干模块的批量改动）。单一 ChangeSet 能装下的工作一律直接走实现 skill，**普通 bugfix 不绕 orchestrator**。"改动涉及好几个文件"不是理由——同一个 ChangeSet 里本来就可以有多个文件。
@@ -142,6 +142,9 @@ handoff 传递的是**结构化事实和命令原文**，不是"我做过了"。
 | 无障碍审计 | `references/a11y.md` |
 | 查版本与各 skill 职责 | `references/version-manifest.md` |
 
+> 🔴 `handoff-schema.md` 在 v0.2.0 新增了三类工件（§9.1.2 提测准入 / §9.1.3 反馈分类 / §9.1.4 发版）、
+> 运营协作红线（§8.1–§8.2）与 `ReadyForDelivery` 的边界（§1.1）。涉及提测、反馈归因、发版的任务必读这几节。
+
 Path A 改一个 JS timer 时**不需要**加载完整字体字阶表。按当前任务实际需要加载，读多了就是重演单 skill 时代的注意力稀释。
 
 ### ⚠️ 规范值 ≠ 目标仓库的编译产物
@@ -206,7 +209,7 @@ Path A 改一个 JS timer 时**不需要**加载完整字体字阶表。按当�
 被其它 skill 引用时，输出：
 
 ```yaml
-ContractVersion: v0.1.0
+ContractVersion: v0.2.0
 PathResolved:            # A | B | C | Cross(B+C) | Cross(A+C)
 StageResolved:           # Assess | Implement | Verify
 RequiredSkill:           # 当前阶段应由哪个 skill 执行
@@ -220,7 +223,7 @@ BlockingGaps:
 ```yaml
 ProducerSkill: plaud-theme-shared
 ConsumerSkill:           # 引用本层的 skill
-ContractVersion: v0.1.0
+ContractVersion: v0.2.0
 BlockingGaps:
 ReadyForNextSkill:       # Yes | No
 ```

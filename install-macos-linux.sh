@@ -5,7 +5,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PACKAGE_NAME="plaud-shopify-theme-matrix"
-PACKAGE_VERSION="v0.1.0"
+PACKAGE_VERSION="v0.2.0"
 
 # Skills that this matrix supersedes and that must not stay installed alongside it.
 # Keeping the old single skill causes routing competition: two different specs
@@ -653,7 +653,7 @@ verify_versions() {
   say "    for s in \$(ls -d plaud-theme-*/ | xargs -n1 basename); do"
   say "      diff -rq \"\$s\" \"\$HOME/.\$c/skills/\$s\" >/dev/null 2>&1 || d=\$((d+1))"
   say "    done"
-  say "    echo \"\$c : \$d/7 mismatched\""
+  say "    echo \"\$c : \$d/10 mismatched\""
   say "  done"
 }
 

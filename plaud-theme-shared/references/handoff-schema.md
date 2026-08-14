@@ -16,6 +16,21 @@
 
 阶段单向推进：`Assess → Implement → Verify`。不得跳过 Assess 直接 Implement，除非满足 §3 的 `InlineLite` 豁免条件。**任何情况下不得跳过 Verify。**
 
+### 0.1 阶段轴之外的三个非阶段 skill
+
+矩阵里有四个 skill **不在阶段轴上**，它们不产出 §3 / §4 / §5 的阶段工件，只产出 §9.1 的各类工件：
+
+| skill | 位置 | 工件 | 是否阻断阶段推进 |
+|---|---|---|---|
+| `plaud-theme-orchestrator` | 阶段轴之外（编排） | `ArtifactKind: Coordination` | 否，只记台账 |
+| `plaud-theme-qa-intake` | **Implement → Verify 的过渡关口** | `ArtifactKind: QAIntake` | **是**——提测包不全，QA 不启动 |
+| `plaud-theme-feedback-triage` | 事件入口（QA 打回 / 运营验收 / 上线后均可触发） | `ArtifactKind: FeedbackTriage` | 否，但会**新开**工作项回到 Assess |
+| `plaud-theme-release-ops` | Verify 之后（发版与上线后） | `ArtifactKind: ReleaseOps` | 否，前置是 QA 的 `ReadyForDelivery: Yes` |
+
+> 🔴 **`qa-intake` 不是第四个阶段。** 阶段轴永远只有 `Assess / Implement / Verify` 三值，任何 skill 都不得把它扩成四值、不得输出 `Stage: Handover` 之类的取值。qa-intake 产出的是一份**过渡工件**，夹在 Implement 工件与 Verify 之间，语义是「提测材料齐不齐」，与「代码行不行」正交。
+>
+> 为什么必须在 Verify **之前**：《DTC 开发交付标准 v1.0》§四 原文是「提测时必须同时提供，**缺一不进验收**」——交付物是**进验收的准入条件**，不是验收通过后的产物。把它放在 QA 之后是时序错误。
+
 ---
 
 ## 1. 交付权（不可协商）
@@ -31,6 +46,18 @@
    `NotApplicable` 不同：它是**合法终态**，但必须给出适用性证据（例如"本次未改任何 `.liquid`，故 Theme Check 不适用"）。没有证据的 `NotApplicable` 一律按 `Blocked` 处理。区别在于——`Blocked` 是"该验但验不了"，`NotApplicable` 是"根本不需要验"；前者是风险，后者不是。
 4. QA 通过后代码若再次变化，该 QA 结果**自动失效**，必须重新生成 `ChangeSetId` 并重跑 QA。
 5. 用户即使明说"不用检查了直接给我"，实现 skill 仍不得输出 `ReadyForDelivery: Yes`；正确做法是照常输出 `No` + `QAStatus: Skipped(UserWaived)`，并在正文一句话说明已按用户要求跳过验证、风险由用户承担。
+
+### 1.1 `ReadyForDelivery: Yes` 的边界
+
+它的含义**只有一个**：这批改动通过了矩阵内部的技术验证。它**不**代表：
+
+| 不代表 | 归谁 |
+|---|---|
+| 运营 / PM 已验收 | PM，依据 PRD / Figma / UX Spec（见 `plaud-theme-feedback-triage`） |
+| 可以推送到线上站点 | `plaud-theme-release-ops` 的推站清单二次确认 |
+| 提测材料齐备 | `plaud-theme-qa-intake` 的 `SubmissionPackageStatus` |
+
+三者正交，任何一个都不能替代另一个。QA 通过后仍可能被 PM 判为交付缺陷（例如与 Figma 不一致——这是 QA 不检查的维度）。
 
 ---
 
@@ -66,15 +93,24 @@ plaud_fingerprint() (
     # 未跟踪文件 git diff 看不到，逐个 hash + 记权限
     git ls-files --others --exclude-standard -z | tr '\0' '\n' | sort | while IFS= read -r f; do
       [ -n "$f" ] || continue
-      printf '%s %s %s\n' "$f" "$(git hash-object -- "$f")" \
-        "$(stat -f '%Lp' "$f" 2>/dev/null || stat -c '%a' "$f")"
+      # 🔴 先赋值再判空判退出码。写成 printf "$(git hash-object …)" 时，
+      #    命令替换里的失败**不会**让 printf 失败——printf 拿到空串照样返回 0。
+      h=$(git hash-object -- "$f") || return 1
+      [ -n "$h" ] || return 1
+      m=$(stat -f '%Lp' "$f" 2>/dev/null || stat -c '%a' "$f") || return 1
+      [ -n "$m" ] || return 1
+      printf '%s %s %s\n' "$f" "$h" "$m"                           || return 1
     done                                                            || return 1
   } | shasum -a 256 | cut -d' ' -f1
 )
 plaud_fingerprint || echo "FINGERPRINT_FAILED"
 ```
 
-> 🔴 **绝不可省略 `set -o pipefail` 与各段的 `|| return 1`。** 任何一段静默失败时，管道仍会继续，`shasum` 会对残缺输入求值，算出一个**看似正常、实则与内容无关**的常量——校验因此永远通过，P0 漏洞原样复活。
+> 🔴 **三处静默失败点，缺一个指纹就废了：`set -o pipefail`、各段的 `|| return 1`、以及循环内「先赋值再判空」。**
+>
+> 第三点是 v0.1.0 遗留的同类漏洞，v0.2.0 才修：原文把 `git hash-object` / `stat` 直接写在 `printf` 的命令替换里，它们失败时 `printf` 拿到空串**照样返回 0**，`|| return 1` 永远不触发——未跟踪文件的内容就从指纹里消失了。同一个包的 `PackageFingerprint`（§9.1.2）当初也踩了这个坑。
+>
+> 通用判据：**这一段失败了，外层真的会知道吗？** 命令替换、管道中段、`while` 子 shell 都是"不会知道"的高发区。 任何一段静默失败时，管道仍会继续，`shasum` 会对残缺输入求值，算出一个**看似正常、实则与内容无关**的常量——校验因此永远通过，P0 漏洞原样复活。
 >
 > 实测踩过：早期版本写的是 `git diff HEAD --find-renames=false`，**git 2.52 起该参数非法**（正确写法是 `--no-renames` 或 `-M0`）。错误走 stderr，管道照常执行，指纹退化成"只反映文件集合、完全不反映内容"——恰好是本节要堵的那个洞。
 >
@@ -91,6 +127,28 @@ QA **在执行任何检查之前**（Step 1，早于 theme check、早于回归�
 - `BaseHeadSha` 与当前 HEAD 不一致（期间发生了 commit / rebase / checkout）
 
 QA 通过后必须**再算一次**指纹并记入 `changeset-log`；后续任何时刻指纹与记录不符，该 QA 结论即失效（§1.4）。
+
+### 🔴 v0.2.0 不支持多 ChangeSet 同批发版
+
+`ChangeSetFingerprint` 绑的是**整个 HEAD + 整个工作树**，不是"这个 ChangeSet 涉及的那几个文件"。由此推出一个必然结果：
+
+> **同一工作树里第二个 ChangeSet 落盘的那一刻，第一个 ChangeSet 的 QA 结论就失效了**（工作树变了，指纹变了，§1.4 生效）。
+
+所以「N 个块各自 QA 通过 → 一起发版」在当前模型下**不成立**：发版时不可能同时持有 N 个仍然有效的 QA 结论。
+
+**曾经考虑过、但行不通的收口**：让合并方生成一个"集成 ChangeSet"（`ModifiedFiles` = 各块并集）再跑一次 QA。它跑不通——合并提交之后工作树是**干净的**，`git status` / `git diff HEAD` 拿到的是空集，与"各块并集"必然失配；若改用未提交的合并态过 QA，之后一提交 `HEAD` 就变，QA 又自动失效。**在绑工作树的模型下，没有一个稳定对象能从"已验证"走到"实际推送"。**
+
+**v0.2.0 的处置：**
+
+| 场景 | 支持情况 |
+|---|---|
+| 单 ChangeSet 发版 | ✅ 正常。QA 结论有效期 = 工作树自 QA 收尾后未再变动 |
+| **多 ChangeSet 同批发版** | ❌ **本版不支持。** `plaud-theme-release-ops` 遇到 `ReleaseScope` 里有多于一个 `IncludedInThisPush: Yes` 的块 → **停机**，要求改为逐块串行发布（每块：实现 → 提测 → QA → 发版 → 下一块） |
+| 各块在独立分支 / worktree | 每块在自己的树里 QA 有效，但**合并到发布分支后那棵树没有被任何 QA 覆盖过** —— 仍按逐块串行处理 |
+
+> 🟢 **为什么宁可不支持也不硬撑。** 硬给一套跑不通的流程，实际效果是使用者发现走不通之后自己找绕过路径——那比明说"这版不支持"危险得多。
+>
+> **彻底解法留 v0.3.0**：把指纹从"工作树"改绑**不可变的 commit / tree 对象**（`git rev-parse HEAD^{tree}`），QA 验的是一个具体 tree oid，合并产生的新 tree 再验一次即可，"已验证对象 → 推送对象"之间就有了稳定标识。这是一次契约层改动，不适合在 v0.2.0 顺带做。
 
 ### 零改动任务（只读审计 / code review / A11y 审计）
 
@@ -134,6 +192,9 @@ BlockingGaps:            # 缺失且必须由用户补的证据；非空则不�
 ReadyForImplement:       # Yes | No
 ```
 
+> 🔴 **`AssessmentRef` 不覆盖「要推哪些站点」。** 它回答的是「哪些**模板 / 实例**受影响」，站点维度（`TargetSites` / `ExcludedSites` / `ThemeIds` / `ScopeSourceRef`）由 `plaud-theme-qa-intake` 在 §9.1.2 里补。
+> `plaud-theme-impact` **不要**自行推断站点清单——「这个模块看起来是全站的」不是证据。若在评估中确实拿到了站点信息，写进 `SharedPropagation` 的说明文字，不新造字段。
+
 **`TheoreticalReferences` 与 `ActualAffectedInstances` 必须分开报**。"改的是共享文件"不等于"全站都会变"——逐项核查后真实影响往往收敛很小。只报"可能影响 N 处"是不合格的 Assess。
 
 **`ReconMode` 选择**：
@@ -162,6 +223,8 @@ BaseHeadSha:              # 交付工件时的 git rev-parse HEAD；零改动填
 ChangeSetFingerprint:     # 见 §2，交付工件时当场生成；零改动填 N/A
 ReadOnlyProof:            # 仅零改动任务：审计前后两次快照的 HEAD + hash，必须一致；其余填 N/A
 AssessmentRef:            # 引用 §3 的工件；InlineLite 时填 InlineLite；只读填 N/A(ReadOnly)
+OriginTriageRef:          # 本块若由反馈返工产生：§9.1.3 的 TriageId + ItemId；否则 N/A
+                          #   —— 返工轮次靠它统计，单块返工不必经 orchestrator
 Path:                     # A | B | C
 ReconMode:                # 与 Assess 一致；InlineLite 需附豁免理由；只读填 N/A(ReadOnly)
 ModifiedFiles:            # 逐个文件路径 + 一句话改动；必须与工作树一致；零改动填 []
@@ -173,7 +236,7 @@ VisualRegressionRequired: # Yes | No
 BuildRequired:            # Yes | No（是否动了 shopify-common/src 需 npm run build）
 BlockingGaps:             # 实现中发现但无权处理的（如需模板存值编辑授权）
 QAStatus: NotRun          # 恒为 NotRun；唯一例外是用户明确弃检时填 Skipped(UserWaived)，见 §1.5
-NextRequiredSkill: plaud-theme-qa   # 零改动任务填 None
+NextRequiredSkill: plaud-theme-qa-intake   # 见 §9.1.2；零改动任务填 None
 ReadyForDelivery: No      # 恒为 No，见 §1；零改动任务填 N/A(ReadOnly)
 ```
 
@@ -187,25 +250,56 @@ ReadyForDelivery: No      # 恒为 No，见 §1；零改动任务填 N/A(ReadOnl
 
 ```yaml
 ChangeSetId:             # 被验的那个
+SubmissionId:            # 引用 §9.1.2 的提测包工件；无提测包要求时填 N/A
+QAAdmissionStatus:       # Accepted | Blocked —— 提测包准入判定，早于一切检查（见 §9.1.2）
+QAAdmissionReason:       # Accepted 时填 Normal / ZeroChangeReadOnly；Blocked 时填
+                         #   PackageIncomplete | BindingMismatch | MissingArtifact | UserWaivedMaterials
+                         #   —— 决定后续跑不跑检查项，见 §5「准入门在最前」
 ChangeSetIdMatched:      # Yes | No —— 必须同时校验文件集合、ChangeSetFingerprint、BaseHeadSha（见 §2）
 FingerprintVerifiedAt:   # Step1(验证前) / Step2(验证后) 两次重算的指纹，必须都与工件一致
 QAProfilesRun:           # 实际跑了哪些 profile
 ThemeCheck:              # Passed | Failed | Blocked | NotApplicable
 ThemeCheckEvidence:      # CLI 版本 / 检查目录 / exit code / baseline 增量数（见 §6）
-ThemeRuntimePreview:     # Passed | Blocked | NotApplicable
-AdminSchemaSave:         # Passed | Blocked | NotApplicable
-RegressionMatrix:        # Passed | Failed | Blocked（附覆盖的断点与状态）
+ThemeRuntimePreview:     # Passed | Failed | Blocked | NotApplicable
+AdminSchemaSave:         # Passed | Failed | Blocked | NotApplicable
+RegressionMatrix:        # Passed | Failed | Blocked | NotApplicable（附覆盖的断点与状态）
 BreakpointsCovered:      # 实际验过的断点，Path C 为 PC/1599/1279/767/375
 LocalizationCheck:       # Passed | Failed | Blocked | NotApplicable（英译德长文案）
 A11yCheck:               # Passed | Failed | Blocked | NotApplicable
 FixedDimensionCheck:     # Passed | Failed | Blocked | NotApplicable（组件写死宽高；例外须已说明理由）
 ImageQualityCheck:       # Passed | Failed | Blocked | NotApplicable（图片清晰度红线）
 CopyConfigurabilityCheck: # Passed | Failed | Blocked | NotApplicable（展示文案走 schema/locales）
+StyleHardRuleCheck:      # Passed | Failed | Blocked | NotApplicable（DTC §2.1 硬性 10 条，见 qa-global.md）
 ProfileSpecificResults:  # 各 profile 的逐项结果
+Advisories:              # DTC §2.2 软性项等**非阻断**观察；不得据此把 ReadyForDelivery 置 No
 Evidence:                # 命令原文 + 输出摘要；不接受"我看过了"
 BlockingGaps:
-ReadyForDelivery:        # Yes 仅当上述全部为 Passed 或 NotApplicable
+ReadyForDelivery:        # Yes 仅当上述全部为 Passed 或 NotApplicable，且 QAAdmissionStatus: Accepted
 ```
+
+### 准入门在最前
+
+`QAAdmissionStatus` 的判定**早于 §2 的 ChangeSet 校验**，是 QA 的 Step 0：
+
+1. 有 `SubmissionId` 且 `SubmissionPackageStatus: Complete` → `Accepted` + `QAAdmissionReason: Normal`，继续走 Step 1 指纹校验。
+2. `SubmissionPackageStatus: Incomplete`、没有提测包工件、或提测包与 Implement 工件**绑定失配** → `QAAdmissionStatus: Blocked` + `ReadyForDelivery: No`，**零验证项执行**，把 qa-intake 的 `BlockingGaps` 原样带出。
+3. **唯一免提测包的情形**是**零改动只读任务**（§2）：此时 `SubmissionId: N/A` + `Accepted` + `QAAdmissionReason: ZeroChangeReadOnly`——它本来就不走 Verify，没有可提测的改动。
+
+> 🔴 **用户弃流程不产生 `Accepted`。** 用户说"这次不走提测流程"时，`QAAdmissionStatus` 仍为 **`Blocked`**，但**执行行为与上面第 2 条不同**：
+>
+> | 情形 | `QAAdmissionReason` | 跑不跑检查 | `ReadyForDelivery` |
+> |---|---|---|---|
+> | 材料不齐 | `PackageIncomplete` | **零执行** | `No` |
+> | 绑定失配 | `BindingMismatch` | **零执行** | `No` |
+> | 没有提测包工件 | `MissingArtifact` | **零执行** | `No` |
+> | **用户主动弃提测材料** | `UserWaivedMaterials` | **照常执行技术检查项** | `No` |
+>
+> 弃材料时 `Evidence` 里要记用户弃流程的出处（谁在哪说的）。**靠字段判，不靠聊天上下文猜。**
+>
+> 区别在于：前者是"不知道该验什么 / 门本身要求不开始"，后者是"绑定有效，只是用户放弃了材料这道门，验证仍有意义"。两者都**不产生许可**。正文一句话说明"已按用户要求跳过提测材料校验，未经完整交付流程的风险由用户承担"。
+> 也就是说：用户可以决定不交材料，但**不能因此得到一张写着"准入通过"的记录**。伪造 `Accepted` 会让下游（release-ops、orchestrator 台账）读到一个不存在的事实。
+
+**不得**因为"改动很小"自行免除提测包——那是 `ReconMode: InlineLite` 的判据，与提测材料无关。
 
 ### QA Profile
 
@@ -304,10 +398,78 @@ CLI 未安装、仓库不是 theme root、`shopify-common` build 产物缺失导
 2. 禁止无理由写死组件 `width` / `height`；例外仅限图标、1px 线、明确固定的技术容器、Swiper cube/vertical 要求的固定 px height，且须说明原因
 3. 图片清晰度红线：`image_url` 的 `width:` 只用于防 CLS / 适配容器，须按容器实际显示宽度 × 高 DPI 取值，禁止用过小 width 把展示图下采样糊掉
 4. 颜色走 token / CSS 变量，不写死 hex（设计系统固定渐变资产等已文档化例外除外）
-5. A11y 底线：button 语义、aria-label、dialog trapFocus、轮播 button + aria-label、对比度 ≥ 4.5:1、skip link、focus-visible
+5. A11y 底线：button 语义、aria-label、dialog trapFocus、轮播 button + aria-label、**对比度 ≥ 4.5:1（受控偏差见下）**、skip link、focus-visible
+
+   > **对比度的唯一受控偏差**：当某组前景/背景配对**由 UX Spec 直接给出**、比值落在 **3.0 ≤ x < 4.5**、且**已取得设计方或 PM 的书面偏差批准**时，QA 记入 `Advisories` 而不判 `A11yCheck: Failed`。
+   > 可用的配对是一张**封闭 allowlist**（`a11y.md` §5.1），QA 无权扩充；**批准引用为空则降级为 `Failed`**；**比值 < 3.0 无任何豁免**，spec 给出的也判 `Failed`（此时 `BlockingGaps` 写明属规范缺口，不算开发的实现错误）。
 6. JS：null 守卫、TDZ 安全，监听 / timer / observer / subscription 在 `disconnectedCallback` 清理
 7. 生成文件（build 产物）勿手改，改动落到源 + 重新 build
 8. 最终交付必须经 `plaud-theme-qa`（§1）
+
+### 8.1 运营协作红线（源自《DTC 开发交付标准 v1.0》§三）
+
+> ⚠️ **原文的性质**：DTC §三 标题写的是「软性，尽量遵守，在开发/测试时注意这些问题」。下表把其中**可机械判定、且踩了必然出事**的几条提升为矩阵红线（标 🔴），其余保持**建议**级（标 🟡，进 QA 的 `Advisories`，不阻断交付）。这个提升是矩阵侧的收紧，**若与运营/agency 的双方共识冲突，以双周会的书面结论为准**。
+
+| # | 条款 | 级别 | 判定方式 |
+|---|---|---|---|
+| 1 | 涉及主流程（ATC 按钮、购买链路、结账等）的功能改动，**且会修改全站默认配置**时 → 必须做成开关且默认关闭，由运营自行开启 | 🔴 | 两个条件**同时**满足才触发。只改单站点存值、或不动全站默认值的主流程改动不受此约束——原文的"会修改全站默认配置"这个前提不得省略 |
+| 2 | 不得修改运营的线上配置项 | 🔴 | `templates/*.json`、`config/settings_data.json` 默认只读，改需授权（已见 §7 停机点） |
+| 3 | 运营验收完成前，禁止发版对应 section / page | 🔴 | 由 `plaud-theme-release-ops` 守；QA 通过 ≠ 可发版（§1.1） |
+| 4 | 发版前必须确认推送站点清单 | 🔴 | `TargetSites` / `ExcludedSites` 必须显式列出，见 §9.1.4 |
+| 5 | 新增文案禁止硬编码 | 🔴 | **分流判定**：固定 UI 文案（按钮、状态、报错）走 `locales`；运营可配置文案走 schema 字段。两者都不得写死在 Liquid 里。与红线①、QA-B 同一判据 |
+| 6 | metafield 的 namespace / key / type 必须与已有定义一致，不得新建未申报字段 | 🔴 | 新建前先 grep 现有定义；无对应定义 → 停机要申报 |
+| 7 | 动手前先算影响面 | 🔴 | 已由 `plaud-theme-impact` 承担（§3） |
+| 8 | 优先改模板存值，其次 schema，最后模块代码 | 🔴 | 已是三层入口规则（`EntrypointCandidates`） |
+| 9 | schema 已有的 option values 永不修改 | 🔴 | 改了会让存量实例存值失效；只在 Liquid 端做映射 |
+| 10 | 影响 UX 合规的字段，默认值必须已合规；任何字段留空都不能崩 | 🔴 | QA-B 的空配置 / 满配置双测 |
+| 11 | 公共文件修改的英文注释标记 | 🟡 | 见 §8.2 |
+
+### 8.1.1 测试集治理（DTC §一 第 3 条）
+
+DTC 把「测试集要定期更新，建立 PLAUD 专属测试规范」列为**三条总则之一**，但它跨越多个 skill，因此在契约层单列：
+
+| 条款 | 落点 | 字段 |
+|---|---|---|
+| agency 维护测试集并**随交付更新**，不是一次性文档 | `plaud-theme-qa-intake` | `SelfTestReportStatus` 的判据里含**三项可查证据**（见 `package-checklist.md` §3）：测试集引用（在哪）、基线版本 / 快照时间、本轮**新增与更新的用例清单**。三项缺任一 → `Incomplete`。没有这三项就无法区分"增量维护"和"每次现编一份" |
+| **每个线上 bug 反推一条回归用例入库** | `plaud-theme-release-ops` | `RegressionCasesAdded`（为空即本次上线治理未完成） |
+| 由 PLAUD 测试同学（Aily）**审查** agency 的测试注意文档，双方对齐后固化 | 外部流程 | 矩阵不代替这道人工审查。**不写进 `BlockingGaps`**（那是停机项，会污染语义），改记 QA 的 `Advisories`：「测试规范尚未双方固化」 |
+
+> 🔴 **矩阵不拥有测试集本身。** 测试集是项目侧长期资产（与 `memory/` 同类，不随包分发）。矩阵能做的是：提测时要求用例可复核（`test-case-format.md`）、上线后要求补回归用例、以及在两处都指向同一份测试集。
+> **不得**在包里内置一份测试集副本——那会变成第二个事实源，且下次 install 被整包覆盖。
+
+### 8.2 公共文件的改动注释（🟡 建议级，且有前置约束）
+
+DTC §三 第 11 条要求公共文件的改动加英文注释标记。这条与矩阵现有的「默认不写注释、禁止任务过程注释」（`liquid-schema-format.md`）**直接冲突**，因此按下列边界执行，不得无差别铺开：
+
+**只在这些文件生效（allowlist）**：多模块共享的 `snippets/`、全局 CSS / SCSS 源、`layout/theme.liquid`、`assets/` 里的共享 JS。
+**禁止写入**：build 产物（`snippets/design-system.liquid` 等生成文件——注释会在下次 build 被冲掉）、`templates/*.json`（JSON 不支持注释，写了直接坏）、单模块自用的 section 文件。
+
+四种格式（**内容必须英文**；注释语法按文件类型选，不得把 `//` 原样塞进 Liquid 或 CSS）：
+
+DTC 原文写的是「年月日时间」，即**日期 + 时刻**。统一用 ISO 8601：`YYYY-MM-DD HH:MM`（需要跨时区协作时用 `YYYY-MM-DDTHH:MM+08:00`）。只写日期不写时刻，同一天多次改动就分不出先后。
+
+| 类型 | 格式（**内容必须英文**） |
+|---|---|
+| 新增 | 起止都标：`<what it does> - <owner> - YYYY-MM-DD HH:MM - Begin` / `… - End` |
+| 插入式 | 旁注一行：`<why changed> - <owner> - YYYY-MM-DD HH:MM` |
+| 覆盖式 | 起止都标：`<why overridden> - <owner> - YYYY-MM-DD HH:MM - Begin` / `… - End` |
+| 删除 | 删除处留标记：`<why removed> - <owner> - YYYY-MM-DD HH:MM` |
+
+示例（`.liquid`，注意注释语法与英文内容）：
+
+```liquid
+{% comment %} Add subscription badge for SA modules - zhang.san - 2026-08-12 14:30 - Begin {% endcomment %}
+...
+{% comment %} Add subscription badge for SA modules - zhang.san - 2026-08-12 14:30 - End {% endcomment %}
+```
+
+| 文件类型 | 注释语法 |
+|---|---|
+| `.liquid` | `{% comment %} … {% endcomment %}`（**不是** `//`；`//` 在 Liquid 里会原样输出到 HTML） |
+| `.css` / `.scss` | `/* … */`（`.scss` 源里可用 `//`，但它不会进编译产物，做标记时用 `/* */`） |
+| `.js` | `//` 或 `/* */` |
+
+「负责人 / 修改人」取真实姓名或工号，**不得**填 agent 名或留空；时间用 ISO `YYYY-MM-DD HH:MM`，不用 `2026/8/12` 这类本地格式。拿不到负责人身份时**停机问用户**，不要自己编一个。
 
 ---
 
@@ -325,12 +487,190 @@ OrchestrationId:          # ORCH-<YYYYMMDD>-<NN>
 PathResolved:             # A | B | C | Cross(B+C) | Cross(A+C)
 ChangeSetPlan:            # 拆出的每个 ChangeSet：编号 / 范围 / 归属 skill / 依赖关系
 ParallelSafe:             # 哪些 ChangeSet 可并行；碰同一文件的必须串行
-ChangeSetStatus:          # 各 ChangeSet 当前阶段与 handoff 引用
+ChangeSetStatus:          # 各 ChangeSet 当前阶段与 handoff 引用；含 SubmissionId（提测准入）与 TriageId（若该块由反馈回流产生）
 BlockingGaps:
 AllChangeSetsDelivered:   # Yes | No —— 全部下辖 ChangeSet 的 QA 均为 ReadyForDelivery: Yes 时才为 Yes
 ```
 
 `AllChangeSetsDelivered` 是**汇总读数，不是交付许可**。它只能反映各 ChangeSet 的 QA 结论，orchestrator 不得据此自行宣布可交付，也不得在任一 ChangeSet 的 QA 未通过时置 Yes。交付权仍然只在 `plaud-theme-qa`（§1）。
+
+### 9.1.2 提测准入工件（`plaud-theme-qa-intake` 专用）
+
+```yaml
+ArtifactKind: QAIntake
+SubmissionId:             # SUB-<YYYYMMDD>-<NN>
+ChangeSetId:              # 本次提测对应的 ChangeSet（§2）
+ChangeSetFingerprint:     # 从 Implement 工件原样带过来，不重算、不改写
+PackageRootRef:           # 提测材料所在位置：本地目录绝对路径 / 云端根文档 URI —— QA 据此复算
+PackageFingerprint:       # 见下方「包指纹」；提测材料本身的内容绑定
+TargetSites:              # 本次要推的站点清单（显式列出，不得写"相关站点"）
+ExcludedSites:            # 明确不推的站点 + 原因
+ThemeIds:                 # 各站点对应的主题 ID（预览与验收都要定位到具体主题）
+ScopeSourceRef:           # 站点清单的来源（运营需求单 / Linear issue / 飞书消息链接）
+PreviewManifest:          # 后台链接 + 前端链接 + 各自实测可访问性与检查时间（内容）
+PreviewManifestStatus:    # Complete | Incomplete —— 上述内容的判定（状态）
+ConfigurationGuideStatus: # Complete | Incomplete | NotApplicable
+SelfTestReportStatus:     # Complete | Incomplete
+ScreenshotManifestStatus: # Complete | Incomplete
+ImpactScopeStatus:        # Complete | Incomplete
+ReworkDeltaStatus:        # Complete | Incomplete | NotApplicable（非返工轮次填 NotApplicable）
+SubmissionPackageStatus:  # Complete | Incomplete —— 上述**六项 Status** 全 Complete/NotApplicable 才为 Complete
+BlockingGaps:             # 缺哪份材料、缺什么字段，逐项写清
+NextRequiredSkill: plaud-theme-qa
+```
+
+> 🔴 **提测包必须与某个具体 ChangeSet 焊死，否则可以重放。** `ChangeSetId` + `ChangeSetFingerprint` 从 Implement 工件**原样带过来**，QA 在 Step 0 会拿它与当前 Implement 工件逐字比对——不比对的话，A 任务的 `Complete` 包可以直接拿去给 B 任务用；材料也可以在 intake 通过之后被替换（所以 QA 还要重算 `PackageFingerprint`）。
+
+**这个工件没有 `ReadyForDelivery` 字段，一个字都不许出现。** 它判的是「材料齐不齐」，不是「代码行不行」；语法上刻意与 `ReadyForDelivery` 拉开距离（`Complete/Incomplete` vs `Yes/No`），就是为了防止下游误读成第二个发布许可。
+
+**六项材料的验收标准**（对应 DTC §四）：
+
+| 字段 | Complete 的条件 |
+|---|---|
+| `PreviewManifest` | 后台链接与前端链接**都实测访问过**并记录时间；后台链接必须可配置（能看到 schema 字段），不是只读预览。失效链接 = 未提测 |
+| `ConfigurationGuideStatus` | 新 section / 新配置项必交：字段说明 + 默认值 + 使用场景 + 填错怎么办，**关键部分有截图**。本次未新增任何配置项时才可填 `NotApplicable` |
+| `SelfTestReportStatus` | ① 用例写成可复核形式：前置条件（具体站点 + 主题 ID + 配置状态）→ 操作步骤（具体 URL）→ 预期结果（**具体值或现象**）→ 结论，且**有附件截图/视频**。预期结果写"显示正常""功能可用"的用例**视同未测**；② **测试集溯源三项**（测试集引用 / 基线版本或快照时间 / 本轮新增与更新的用例 ID 清单）—— 缺一即 `Incomplete`，见 §8.1.1 |
+| `ScreenshotManifestStatus` | 8 张：`375 / 768 / 1024 / 1280 / 1440` + 边界 `767 / 1279 / 1599` |
+| `ImpactScopeStatus` | 本模块被几个模板使用、涉及哪些站点。**直接引用 `plaud-theme-impact` 的 `AssessmentRef`**，不自行重算；站点维度 `AssessmentRef` 不覆盖，须另填 `TargetSites` |
+| `ReworkDeltaStatus` | 返工轮次必交「本轮修改点」清单（逐条：反馈 → 改了什么 → 在哪个文件） |
+
+> 🔴 **提测截图不能替代 QA 自己的回归。** 这 8 张是给运营/PM 看的交付材料；QA 的 `BreakpointsCovered`（Path C 为 `PC / 1599 / 1279 / 767 / 375`）是 QA 自己实跑的，两者互不顶替。记 `PC` 时必须写出实际像素宽度，如 `PC(1920)`，光写 `PC` 无法复核。
+
+**包指纹 `PackageFingerprint`**：§2 的 `ChangeSetFingerprint` 只覆盖**主题仓库工作树**，对截图、配置文档、测试报告、预览 URL 一无所知。因此提测材料另算一份：
+
+```bash
+# 在提测材料目录（不在主题仓库内）执行
+plaud_package_fingerprint() (
+  set -o pipefail
+  {
+    find . -type f -not -path '*/.*' -print0 | tr '\0' '\n' | sort | while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      # 🔴 必须先取出再判空：$( ) 的失败不会让外层 printf 失败
+      h=$(shasum -a 256 -- "$f" | cut -d' ' -f1) || return 1
+      [ -n "$h" ] || return 1
+      printf '%s %s\n' "$f" "$h" || return 1
+    done || return 1
+    [ -n "$PLAUD_PREVIEW_URLS" ] || return 1     # 预览 URL 不得为空
+    printf 'urls:%s\n' "$PLAUD_PREVIEW_URLS"    # 逐行原文
+  } | shasum -a 256 | cut -d' ' -f1
+)
+plaud_package_fingerprint || echo "PACKAGE_FINGERPRINT_FAILED"
+```
+
+> 🔴 **为什么要把 `shasum` 的结果先赋给变量再判空。** 写成 `printf '%s %s\n' "$f" "$(shasum ...)"` 时，命令替换里的失败**不会**让 `printf` 失败——`printf` 拿到空串照样成功返回 0，`|| return 1` 永远不触发，指纹退化成"只反映文件名列表、不反映文件内容"。
+> 这与 §2 那个 `--find-renames=false` 的 bug 是**同一类**错误：管道/替换里的静默失败。写任何指纹命令时都要问一句：这一段失败了，外层真的会知道吗？
+>
+> **自检**：改一个材料文件的内容（不增删文件），指纹必须变化；还原后必须精确复原。做不到就是命令又退化了。
+
+**材料放云文档时怎么算指纹**：上面的算法只 hash 本地目录。材料在飞书云文档 / Linear 附件里时，本地目录放一份 **manifest**（一个 `materials.tsv` 之类的纯文本文件）参与 hash：
+
+```
+<材料名>\t<URI>\t<版本号或 revision>\t<内容 digest 或"人工核对时间">
+```
+
+| 材料位置 | 怎么进指纹链 |
+|---|---|
+| 本地文件（截图等） | 直接 hash 文件内容 |
+| 飞书云文档 | manifest 记 URI + **文档版本号**（飞书文档有 revision）；改了文档版本号会变 → 指纹变 |
+| Linear 附件 | manifest 记 URI + 附件 ID |
+| **无版本号 / 无 digest 可取的外链** | 🔴 **不允许** —— 该材料判 `Incomplete`。要么下载一份到本地目录参与 hash，要么换成能取版本号的载体 |
+
+> 🔴 **不能内容绑定的材料一律 `Incomplete`，不得带着"已知弱环"拿到 `Complete`。**
+> 否则整条防替换链就有一个公开的洞：把材料挂在一个无版本外链上 → 内容随便换 → 指纹照样对得上 → `SubmissionPackageStatus: Complete` → `QAAdmissionStatus: Accepted`。
+> **`BlockingGaps` 是停机项，不是"记一笔就放行"的免责栏。**
+
+**QA 复算时对云端材料要重新查远端**：不能只比对本地 manifest（那样 manifest 没更新、云文档内容变了照样通过）。对每条云端材料重新取一次当前 revision / digest，与 manifest 记录值比对，不一致 → `QAAdmissionStatus: Blocked` + `QAAdmissionReason: BindingMismatch`。取不到（无权限 / 服务不可用）→ `Blocked`，不猜。
+
+> 🔴 **提测材料不得写进主题仓库。** 截图、文档一旦落进工作树，`ChangeSetFingerprint` 立刻变化，QA 的 Step 1 会判 `ChangeSetIdMatched: No` 并停机——你会因为交了材料而过不了自己的准入门。材料放仓库外的独立目录或云文档。
+
+### 9.1.3 反馈分类工件（`plaud-theme-feedback-triage` 专用）
+
+```yaml
+ArtifactKind: FeedbackTriage
+TriageId:                     # TRI-<YYYYMMDD>-<NN>
+FeedbackSource:               # QA打回 | 运营验收 | 线上反馈 | 内部发现
+OriginChangeSetId:            # 该批反馈针对的原 ChangeSet；无对应时填 N/A
+FeedbackItems:                # 见下：每条一个条目，字段逐条填，不得只给总体结论
+LinearStatusAdvice:           # 建议的 Linear 状态操作；本 skill 不自动执行
+BlockingGaps:
+```
+
+`FeedbackItems` **每一条**都是一个完整条目，五个字段缺一不可：
+
+```yaml
+FeedbackItems:
+  - ItemId:                       # TRI-<...>-01、-02…
+    Text:                         # 反馈原文，不改写、不合并
+    ClassificationRecommendation: # DeliveryDefect | RequirementEvolution | Undetermined —— 本 skill 的建议
+    EvidenceRefs:                 # 依据：PRD 条目 / Figma 节点 / UX Spec 章节；查过没找到的也要写"未找到"
+    PMDecision:                   # Pending | Confirmed
+    PMDecisionValue:              # PM 确认的**是哪一类**（DeliveryDefect | RequirementEvolution）；Pending 时填 N/A
+    PMDecisionRef:                # PM 确认的出处（Linear 评论 / 飞书消息）；Pending 时填 N/A
+    NextRoute:                    # AwaitPMDecision | NewWorkItem(Assess) | Backlog(排期) | NoAction
+    NewWorkItemRef:               # NextRoute 为 NewWorkItem 时：**Assess 之前已创建的外部工作项**
+                                  #   （Linear issue 等）。**不得填 ChangeSetId** —— 那要到 Implement
+                                  #   才产生；新 ID 由实现 skill 在自己的 OriginTriageRef 里回指本工件
+```
+
+> 🔴 **分类是逐条的，不是整批的。** 一段反馈里常混着缺陷与新想法（见 `plaud-theme-feedback-triage/SKILL.md` Step 0），把 `ClassificationRecommendation` 放在顶层等于强制合并判定，必然判错。
+>
+> 🔴 **`PMDecision: Confirmed` 必须同时给 `PMDecisionValue`。** 只写 "Confirmed" 说不出 PM 确认的是缺陷还是变更，下游无法据此决定去向。
+>
+> 🔴 **`PMDecision: Pending` 时 `NextRoute` 只能是 `AwaitPMDecision`。** 否则下游会拿着一个未经确认的建议直接开工——PM 判定权就形同虚设了。
+
+三条硬规则：
+
+1. **本 skill 只给建议，判定人是 PM。** `ClassificationRecommendation` 是推荐值，`PMDecision` 未 `Confirmed` 前不得当作定论往下走。DTC §六 原文：「判定人是 PM」「未标类型的按变更处理」。
+2. **判为缺陷 ≠ 直接回实现 skill 打补丁。** 必须开**新工作项**，从 Assess 重新进入，生成新的 `ChangeSetId`——旧 ChangeSet 的 QA 结论在代码再次变化时已自动失效（§1.4）。复用旧 ChangeSet 是契约违规。
+3. **Linear 状态不自动改。** `LinearStatusAdvice` 只是建议；实际点状态是外部动作，需用户显式授权。顺序严格按 DTC §七：收到反馈或 QA 打回 → 先 `Feedback Revision` → 再回 `In Dev`；需求变更点 `Requirement Change`；紧急打断点 `Requirement Interruption`；提测 `Ready for QA`；被阻塞**不改状态**，在评论区写阻塞项与阻塞方。
+
+**判定口径**（DTC §六）：能在 PRD、Figma 或 UX Spec 里找到依据 = `DeliveryDefect`（计返工）；找不到依据 = `RequirementEvolution`（算变更，不计返工）。依据不明时填 `Undetermined` 并列出需要 PM 补的信息，**不要**为了给个结论而硬套。
+
+### 9.1.4 发版工件（`plaud-theme-release-ops` 专用）
+
+```yaml
+ArtifactKind: ReleaseOps
+ReleaseId:                # REL-<YYYYMMDD>-<NN>
+ReleaseScope:             # 见下：逐个 ChangeSet 的 QA 结论 + 验收状态，不用单个标量表达
+TargetSites:              # 二次确认后的推送站点清单，逐个显式列出
+ExcludedSites:            # 本次不推的站点 + 每个的原因
+ThemeIds:                 # 各目标站点对应的主题 ID
+SiteListConfirmedBy:      # 两次确认的出处（需求时 + 发版前），谁/在哪/什么时候
+PRRef:                    # agency 提供的 PR 链接
+AuthorizationRef:         # 用户显式授权执行推送的出处；未授权填 NotAuthorized
+PushResult:               # NotExecuted | Executed | PartiallyExecuted —— 实际推送结果
+PerSitePushResult:        # 逐站点：站点 / Succeeded|Failed|NotAttempted / 时间 / 失败原因
+PushedAt:                 # 实际推送时间；NotExecuted 时填 N/A
+PostReleaseWatch:         # 上线后跟踪项：谁/在什么时间窗/看什么
+RegressionCasesAdded:     # 每个线上 bug 反推的回归用例
+BlockingGaps:
+```
+
+`ReleaseScope` **逐个 ChangeSet 填**，因为验收是**按 section / page 分别发生**的，一个标量表达不了"部分验收"：
+
+```yaml
+ReleaseScope:
+  - ChangeSetId:
+    QAConclusion:       # QA 的 ReadyForDelivery 取值 + 出处；任一不是 Yes 则该块不得发版
+    AcceptanceStatus:   # Accepted | Pending —— 该块对应 section/page 的运营验收状态
+    AcceptanceRef:      # 验收出处；Pending 时填 N/A
+    IncludedInThisPush: # Yes | No —— Pending 的块填 No，留到下次
+```
+
+> 🔴 **v0.2.0 只支持单块发布**（§2）：`IncludedInThisPush: Yes` 的块**至多一个**。多于一个 → `plaud-theme-release-ops` 停机，要求逐块串行发布。`ReleaseScope` 仍是列表结构，是为了让"这次发哪块、哪些块留到下次"能一起记清楚。
+
+> 🔴 **`AcceptanceStatus` 必须逐块给。** 顶层一个 `Accepted` 表达不了"A 验收了、B 还没"，而 DTC 要求的正是**只发已验收的部分**。用单标量时，要么把没验收的一起发了，要么把验收了的一起压住——两种都错。
+
+**这个工件同样没有 `ReadyForDelivery` 字段。** 它消费 QA 的结论，不生产结论。
+
+四条硬规则（DTC §五）：
+
+1. **`AcceptanceStatus: Pending` 时不得发版对应 section / page。** QA 通过只是技术门，运营验收是另一道（§1.1）。
+2. **推送站点清单要确认两次**：运营提需求时填一次，发版前二次确认。`SiteListConfirmedBy` 两次都要有出处。推错站点是 DTC 原文点名"过去扣分最多的一项"。
+3. **上线后功能类 bug（非样式）当天解决**；样式类进最近一次迭代修复。
+4. **每个线上 bug 必须反推一条回归用例入库**——同一个问题不允许出现第二次。修完不补用例，`RegressionCasesAdded` 判空即视为未完成。
+
+发版本身（`git push` / Shopify theme push / 合并 PR）是**外部动作**，本 skill 只产出清单与判定，执行需用户显式授权。
 
 ### 9.2 字段取值枚举
 
@@ -349,8 +689,24 @@ AllChangeSetsDelivered:   # Yes | No —— 全部下辖 ChangeSet 的 QA 均为
 | `RequiredQAProfile` | `QA-A` \| `QA-B` \| `QA-C`（可多选）。**不含 `QA-Global`**——它由 QA 恒执行并记入 `QAProfilesRun`，任何上游工件写它都是违规 |
 | `ThemeCheck` / `RegressionMatrix` / `LocalizationCheck` / `A11yCheck` / `ThemeRuntimePreview` / `AdminSchemaSave` | `Passed` \| `Failed` \| `Blocked` \| `NotApplicable` |
 | `FixedDimensionCheck` / `ImageQualityCheck` / `CopyConfigurabilityCheck` | `Passed` \| `Failed` \| `Blocked` \| `NotApplicable` |
-| `ArtifactKind` | `Coordination`（仅 orchestrator；阶段 skill 不填此字段） |
+| `ArtifactKind` | `Coordination`（orchestrator）\| `QAIntake`（qa-intake）\| `FeedbackTriage`（feedback-triage）\| `ReleaseOps`（release-ops）。**阶段 skill 不填此字段** |
 | `AllChangeSetsDelivered` | `Yes` \| `No` |
+| `QAAdmissionStatus` | `Accepted` \| `Blocked`（仅 QA 填） |
+| `QAAdmissionReason` | `Normal` \| `ZeroChangeReadOnly` \| `PackageIncomplete` \| `BindingMismatch` \| `MissingArtifact` \| `UserWaivedMaterials` |
+| `ConfigurationGuideStatus` / `ReworkDeltaStatus` | `Complete` \| `Incomplete` \| `NotApplicable` |
+| `SelfTestReportStatus` / `ScreenshotManifestStatus` / `ImpactScopeStatus` / `SubmissionPackageStatus` | `Complete` \| `Incomplete` |
+| `AcceptanceStatus` | `Accepted` \| `Pending`（**逐 ChangeSet 填**，不是整批一个值） |
+| `StyleHardRuleCheck` | `Passed` \| `Failed` \| `Blocked` \| `NotApplicable` |
+| `ClassificationRecommendation` / `PMDecisionValue` | `DeliveryDefect` \| `RequirementEvolution` \| `Undetermined`（`PMDecisionValue` 不取 `Undetermined`；未定就是 `Pending`） |
+| `PMDecision` | `Pending` \| `Confirmed` |
+| `NextRoute` | `AwaitPMDecision`（`PMDecision: Pending` 时**只能**取此值）\| `NewWorkItem(Assess)` \| `Backlog(排期)` \| `NoAction` |
+| `PreviewManifestStatus` | `Complete` \| `Incomplete` |
+| `IncludedInThisPush` | `Yes` \| `No` |
+| `PushResult` | `NotExecuted` \| `Executed` \| `PartiallyExecuted`（部分站点失败时**必须**用它，填 `NotExecuted` 会抹掉已发生的线上副作用、导致重复推送） |
+| `PerSitePushResult[].Status` | `Succeeded` \| `Failed` \| `NotAttempted` |
+| `FeedbackSource` | `QA打回` \| `运营验收` \| `线上反馈` \| `内部发现` |
+
+> 🔴 **`Complete/Incomplete` 与 `Yes/No` 不可互换。** 提测包用前者、交付许可用后者，这是刻意的语法隔离（§9.1.2）。在提测工件里写 `Yes`、或在 QA 工件里写 `Complete`，都视为契约违规。
 
 > **`Blocked` 与 `Failed` 不可混用。** `Failed` = 验了、发现缺陷（实现 skill 应去修）；`Blocked` = 该验但没验成（用户豁免、ChangeSet 失配、工具不可用）。把未执行填成 `Failed` 会让下游去追不存在的缺陷；填成 `Passed` 或无证据的 `NotApplicable` 则是谎报。两者都不允许。
 
