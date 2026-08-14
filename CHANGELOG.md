@@ -5,6 +5,41 @@
 
 ---
 
+## v0.3.1 — 2026-08-14 · 路由口径修正（patch）
+
+**`plaud-theme-dev` 的直接下游写错了：契约早在 v0.2.0 就定为 `plaud-theme-qa-intake`（提测准入），但 dev 里有三处仍写着直接交 `plaud-theme-qa`。** 外部评审报了其中两处，第三处（frontmatter 的路由触发文本）与后续四处包级/编排层残留是顺着扫出来的。字段、枚举、指纹模型一字未改，纯接线修正。
+
+### 修正清单
+
+| # | 位置 | 原文 | 问题 |
+|---|---|---|---|
+| 1 | `plaud-theme-dev/SKILL.md` 交付段收尾句 | 「下一句该由 `plaud-theme-qa` 说」 | 与同段 `NextRequiredSkill: plaud-theme-qa-intake` **直接矛盾**，实现工件可能绕过提测准入 |
+| 2 | `plaud-theme-dev/SKILL.md` frontmatter `description` | 「已有 ChangeSetId（即有改动）→ 走 plaud-theme-qa」 | 这是 agent 读的**路由触发文本**，同一矛盾 |
+| 3 | `plaud-theme-dev/matrix-contract.md` 下游表 | 唯一去向 `plaud-theme-qa`（Verify） | 与紧邻的 🔴 提示和下一行的 `NextRequiredSkill` 说明冲突；现改成两行：① qa-intake 是直接下游、② qa 标注「经 intake 转交，不直接对接」 |
+| 4 | `plaud-theme-orchestrator/SKILL.md` | 「走 `impact` → `dev` → `qa`」 | 与 orchestrator 自身的阶段表/contract 冲突 |
+| 5 | `plaud-theme-orchestrator/evals/evals.json` `orch-05` | 同上链条写进 expected_output 与 assertions | eval 在**固化错误口径** |
+| 6 | `MATRIX.md` order 表 | 三个实现 skill 的「主要消费者」都填 `plaud-theme-qa` | 同上；现填 `plaud-theme-qa-intake` |
+| 7 | `AGENTS.md` | 「the three implementation skills … hand off to `plaud-theme-qa` on their own」 | 同上 |
+
+> 只改**路由口径**（该交给谁），不动**权限口径**（验证由 QA 执行、只有 QA 能给 `ReadyForDelivery: Yes`）——后者本来就是对的。
+
+### eval 补一条
+
+`plaud-theme-dev` 原有 15 条 eval **一条都没覆盖 intake 路由**，这正是这个矛盾能活下来的原因。新增 `dev-16-next-required-skill-is-intake`。
+
+两处 eval 写法上的坑（Codex 评审逐条纠正，值得记住）：
+
+- fixture 里的 `AssessmentRef` 一开始写成 `AS-20260814-A03`，canonical 的格式是 `ASMT-<YYYYMMDD>-<NN>`；而且只给了 3 个字段，按契约缺 `BlockingGaps` / `ReadyForImplement` / `RequiredQAProfile` 时**应当停机**，那条 eval 期望的「直接 Implement」本身就违约。已补成完整的 §3 工件。
+- `SubmissionPackageStatus` 只断言字段名的话，`Incomplete` 也能通过，已收紧成 `SubmissionPackageStatus: Complete`。
+- `forbidden` 一度写成 `"NextRequiredSkill: plaud-theme-qa\n"`。它**不是**真前缀误伤（匹配不到正确值 `...qa-intake`），真正的毛病是覆盖不到行内注释 / 空白 / CRLF / 无末尾换行这些错误形态——包里模板该字段后面恰好就带行内注释。已移除。
+  🔴 **纯 substring 无法可靠验证这个字段**：可靠做法是解析最终 YAML、要求唯一的 `NextRequiredSkill: plaud-theme-qa-intake` 并拒绝重复 key，而 eval 断言目前只有 string-contains。这条记在这里，等有 runner 时补。
+
+### `ContractVersion` 一并递增到 v0.3.1
+
+按 `version-manifest.md` §1 的约定（`ContractVersion` 与包版本同步递增）。**字段与枚举一字未改**，但在途工件若仍写 `ContractVersion: v0.3.0` 会被判版本漂移而停机——这是版本门的既定行为，四端同时升级即可。
+
+---
+
 ## v0.3.0 — 2026-08-14 · 契约层破坏性变更（canonical + 其余九个 skill 全部落地，已过跨 skill 一致性验收）
 
 **ChangeSet 指纹从「工作树状态文本的 SHA-256」改绑「不可变 git tree 对象的 oid」。** 这是 v0.2.3 §2 里那条「彻底解法留 v0.3.0」的兑现，也是一次**跨版本不兼容**的契约改动。

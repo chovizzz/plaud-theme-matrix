@@ -1,4 +1,4 @@
-# PLAUD Shopify Theme Matrix v0.3.0
+# PLAUD Shopify Theme Matrix v0.3.1
 
 Plaud 品牌 Shopify Online Store 主题开发的 **10 个 skill 矩阵**。它取代原来的单 skill
 `plaud-shopify-theme` —— 同一份规范被拆成契约层、编排层、Assess / Implement / Verify 三阶段，
@@ -55,11 +55,11 @@ curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/in
 **钉一个版本**（复现某次交付时用这个，别用「最新」）：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh | sh -s -- --ref v0.3.0
+curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh | sh -s -- --ref v0.3.1
 ```
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.ps1))) -Ref v0.3.0
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.ps1))) -Ref v0.3.1
 ```
 
 **自检**（装了什么版本、树是否逐文件一致、有没有陈旧残留）：
@@ -89,7 +89,7 @@ sh 与 PowerShell 两边**同名同义**：
 
 | sh | PowerShell | 含义 |
 |---|---|---|
-| `--ref v0.3.0` | `-Ref v0.3.0` | 装哪个发布 tag。缺省 = 最新 tag；**解析不出来就报错，绝不静默装 `main`** |
+| `--ref v0.3.1` | `-Ref v0.3.1` | 装哪个发布 tag。缺省 = 最新 tag；**解析不出来就报错，绝不静默装 `main`** |
 | `--check` | `-Check` | 自检，不安装 |
 | `--dry-run` | `-DryRun` | 只报告要做什么，不碰任何安装目标 |
 | `--clients cursor,claude` | `-Clients cursor,claude` | 只装子集（**不推荐**，见下） |
@@ -152,7 +152,7 @@ marker 里的 `commit:` 也会跟该 tag **当前实际指向的 commit** 比对
 ```bash
 curl -fsSL -o /tmp/plaud-install.sh https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh
 less /tmp/plaud-install.sh          # 看一眼
-sh /tmp/plaud-install.sh --ref v0.3.0
+sh /tmp/plaud-install.sh --ref v0.3.1
 ```
 
 ### WSL / Git Bash 与 PowerShell 不要互相污染
@@ -178,7 +178,7 @@ sh /tmp/plaud-install.sh --ref v0.3.0
 - **客户端 skills 目录不存在时会被跳过**，除非 `--create-missing` 点名它（或 `all`）。安装器会在结尾
   明确列出被跳过的客户端 —— 这是「我以为装好了」的主要来源。
 - **`--ref` 缺省依赖 GitHub API**。离线、被限流、或仓库还没有 tag 时，安装器**报错退出**，
-  不会退回去装 `main`（未评审的 `main` 不是一个发布）。这时显式给 `--ref v0.3.0`。
+  不会退回去装 `main`（未评审的 `main` 不是一个发布）。这时显式给 `--ref v0.3.1`。
 
 ## 从单 skill `plaud-shopify-theme` 迁移
 
@@ -263,6 +263,20 @@ curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/in
 - `memory/changeset-log.md`
 
 缺失时 skill 会**停下问用户**，不会凭空重建一份。
+
+## v0.3.1 关键变化
+
+纯**路由口径修正**（patch），字段、枚举、指纹模型一字未改。
+
+`plaud-theme-dev` 的直接下游在契约里早就是 `plaud-theme-qa-intake`（提测准入，v0.2.0 起），
+但包里有七处仍写着实现工件直接交 `plaud-theme-qa` —— dev 的收尾句、dev 的 frontmatter 路由文本、
+dev 的下游表、orchestrator 正文与它的 `orch-05` eval、`MATRIX.md` 的消费者列、`AGENTS.md`。
+矛盾的后果是实现工件可能**绕过提测准入**直接进验收。全部改为 `dev → qa-intake → qa`。
+
+只改路由口径，不动权限口径：验证仍由 QA 执行，`ReadyForDelivery: Yes` 仍然只有 QA 能给。
+
+另新增 `dev-16-next-required-skill-is-intake` —— dev 原有 15 条 eval 一条都没覆盖 intake 路由，
+这正是这个矛盾能活下来的原因。`ContractVersion` 按约定同步递增到 v0.3.1。
 
 ## v0.3.0 关键变化
 

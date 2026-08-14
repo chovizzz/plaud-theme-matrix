@@ -1,6 +1,6 @@
 # PLAUD Shopify Theme Matrix — one-command installer (Windows PowerShell)
 #
-#   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.ps1))) -Ref v0.3.0
+#   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.ps1))) -Ref v0.3.1
 #
 # `irm ... | iex` CANNOT pass parameters. Use the scriptblock form above.
 #
@@ -54,7 +54,7 @@ function Show-Usage {
   @"
 $PackageName installer $InstallerVersion (Windows)
 
-  & ([scriptblock]::Create((irm https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.ps1))) -Ref v0.3.0
+  & ([scriptblock]::Create((irm https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.ps1))) -Ref v0.3.1
 
 NOTE: this port is UNVERIFIED on Windows — run -DryRun first, then -Check, before any
 real install. Separately: v0.3.0 ChangeSet identity forensics are NOT supported on
@@ -755,7 +755,7 @@ try {
       Say "Resolving the newest release tag of $Repo ..."
       $Ref = Resolve-LatestTag -RepoUrl $Repo
       if (-not $Ref) {
-        Die "could not resolve the newest release tag (offline, rate-limited, or no tags).`n       Pass an explicit tag, e.g.:  -Ref v0.3.0`n       Tags: $Repo/tags"
+        Die "could not resolve the newest release tag (offline, rate-limited, or no tags).`n       Pass an explicit tag, e.g.:  -Ref v0.3.1`n       Tags: $Repo/tags"
       }
       Say "Newest release tag: $Ref"
     }

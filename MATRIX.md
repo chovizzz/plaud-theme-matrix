@@ -2,7 +2,7 @@
 
 All listed skills live directly under the repository root. The repository root itself
 is the package, **not** an installable skill — never copy the repo root into a skills
-directory. A version is a git tag; `v0.3.0` is the current release.
+directory. A version is a git tag; `v0.3.1` is the current release.
 
 ## Order
 
@@ -11,9 +11,9 @@ directory. A version is a git tag; `v0.3.0` is the current release.
 | 0 | `plaud-theme-shared` | 契约层：两轴状态机、handoff schema、ChangeSetId 绑定、交付权归属、全路径红线、视觉/UX 基线索引、版本清单 | 矩阵内全部 skill |
 | 1 | `plaud-theme-orchestrator` | 全流程编排：路径判定、阶段推进、多块拆分与串并行、工件台账 | 用户（仅大/跨块任务） |
 | 2 | `plaud-theme-impact` | Assess 阶段：影响面侦察，理论引用 vs 实际实例、依赖树、共享传播链、RiskTier | 三个实现 skill / orchestrator |
-| 3 | `plaud-theme-dev` | Path A Implement：bug、性能、新功能、UX 微调、A11y、code review | `plaud-theme-qa` |
-| 4 | `plaud-theme-section-build` | Path B Implement：Figma → `sa-*` section，schema、vendor 规范 | `plaud-theme-qa` |
-| 5 | `plaud-theme-ux-migration` | Path C Implement：UX Spec v1.3 迁移、刷模块、迁移日志 | `plaud-theme-qa` |
+| 3 | `plaud-theme-dev` | Path A Implement：bug、性能、新功能、UX 微调、A11y、code review | `plaud-theme-qa-intake` |
+| 4 | `plaud-theme-section-build` | Path B Implement：Figma → `sa-*` section，schema、vendor 规范 | `plaud-theme-qa-intake` |
+| 5 | `plaud-theme-ux-migration` | Path C Implement：UX Spec v1.3 迁移、刷模块、迁移日志 | `plaud-theme-qa-intake` |
 | 6 | `plaud-theme-qa-intake` | 提测准入：DTC §四 六项交付物、站点清单、包指纹；**材料不齐 QA 不启动** | `plaud-theme-qa` |
 | 7 | `plaud-theme-qa` | Verify 阶段：Theme Check baseline 增量、5 断点回归、多语言、A11y、红线核查 —— **唯一交付权** | 用户 / `release-ops` |
 | 8 | `plaud-theme-feedback-triage` | 反馈归因：DTC §六 交付缺陷 vs 需求演进、依据、去向、Linear 状态建议 | 用户 / PM |

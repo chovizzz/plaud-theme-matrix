@@ -63,7 +63,7 @@ description: >
 以下**都不是**进入条件，逐条记住：
 
 - **「改动涉及好几个文件」不是理由** —— 同一个 ChangeSet 里本来就可以有多个文件。一个 section 连带它的 snippet + CSS + schema，是一个 ChangeSet。
-- **「触及共享 snippet / 全局 CSS / token / build 产物」不是理由** —— 改一个全局 CSS 的 bug 仍然是一个 ChangeSet，走 `plaud-theme-impact` → `plaud-theme-dev` → `plaud-theme-qa`。只有当它**还要连带协调多个下游模块的独立改动**、从而产生第二个第三个 ChangeSet 时才进本 skill。
+- **「触及共享 snippet / 全局 CSS / token / build 产物」不是理由** —— 改一个全局 CSS 的 bug 仍然是一个 ChangeSet，走 `plaud-theme-impact` → `plaud-theme-dev` → `plaud-theme-qa-intake` → `plaud-theme-qa`。只有当它**还要连带协调多个下游模块的独立改动**、从而产生第二个第三个 ChangeSet 时才进本 skill。
 - **「需要走完 Assess → Implement → Verify」不是理由** —— 那是每一块的正常链路。
 - **「影响面大 / RiskTier: High」不是理由** —— 风险高只说明 Assess 要做得细，不说明要拆块。
 

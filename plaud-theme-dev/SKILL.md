@@ -13,7 +13,7 @@ description: >
   **用户要不要"最终交付判定"都不改变归属**：零改动没有 ChangeSet 可绑，
   plaud-theme-qa 结构上接不了、会原样转回来（v0.2.2 第八轮修掉的 dev↔QA 回环）；
   此时按 §2 只读通道出 ReadOnlyProof，ReadyForDelivery 填 N/A(ReadOnly) 并说明
-  "零改动不存在交付判定"。已有 ChangeSetId（即有改动）→ 走 plaud-theme-qa。
+  "零改动不存在交付判定"。已有 ChangeSetId（即有改动）→ 走 plaud-theme-qa-intake（提测准入），由它放行到 plaud-theme-qa。
   只要是 Plaud 主题（plaudRelease、plaudAsen、
   PLAUD SG、shopify-plaud-sg-test 等仓库）的 sections/snippets/assets/Liquid/CSS/JS
   改动且不属于 Path B / Path C，就用本 skill。
@@ -361,4 +361,4 @@ ReadyForDelivery: No     # 恒为 No；零改动任务填 N/A(ReadOnly)
 
 `ChangeSetId` 格式 `CS-<YYYYMMDD>-A<NN>`，`<NN>` 为当日 Path A 的序号，从 `01` 起。
 `QAStatus` / `Path` 为常量，任何情况下不得改写（`QAStatus` 的唯一其它合法取值是用户明确弃检时的 `Skipped(UserWaived)`）。`NextRequiredSkill` / `ReadyForDelivery` 只在**零改动只读任务**下取 `None` / `N/A(ReadOnly)`，其余情况恒为 `plaud-theme-qa-intake` / `No`。
-交出这个块之后，你这一轮的话到此为止——下一句该由 `plaud-theme-qa` 说。
+交出这个块之后，你这一轮的话到此为止——下一句该由 `plaud-theme-qa-intake` 说（提测准入先于验收；材料齐了 QA 才启动）。

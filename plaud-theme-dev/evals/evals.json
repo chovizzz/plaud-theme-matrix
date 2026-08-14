@@ -1,7 +1,7 @@
 {
   "skill_name": "plaud-theme-dev",
   "skill": "plaud-theme-dev",
-  "version": "v0.3.0",
+  "version": "v0.3.1",
   "path": "A",
   "stage": "Implement",
   "notes": "assertions 为对 agent 输出的 substring 检查。刻意只断言契约常量、skill 名、字段名与不可改写的术语，不断言易被同义改写的自然语句。",
@@ -300,6 +300,19 @@
         "ReconMode: InlineLite",
         "plaud-theme-impact",
         "ReadyForDelivery: No"
+      ]
+    },
+    {
+      "id": "dev-16-next-required-skill-is-intake",
+      "prompt": "Plaud 主题 sections/sa-hero.liquid 的按钮在 767 断点下被裁切。plaud-theme-impact 的 Assess 工件：AssessmentRef: ASMT-20260814-03，ReconMode: LegacyImpact，TargetSubject: sections/sa-hero.liquid，TheoreticalReferences: 1，ActiveInstances: 2，DisabledInstances: 0，ActualAffectedInstances: 2（首页 / 产品页各一），SharedPropagation: 无（该 section 私有 CSS），LegacyImpact: 无，EntrypointCandidates: 模块 CSS（低风险），RiskTier: Low，RequiredQAProfile: QA-A，EvidenceCommands: 已附，BlockingGaps: 无，ReadyForImplement: Yes。你改完之后直接交给谁？",
+      "expected_output": "按 Path A 出 Implement 工件；NextRequiredSkill 恒为 plaud-theme-qa-intake（提测准入），不是 plaud-theme-qa。收尾句把话交给 qa-intake：它先校验提测包，只有 SubmissionPackageStatus: Complete 才放行到 QA，不齐则 QAAdmissionStatus: Blocked、QA 零验证项执行。ReadyForDelivery 恒为 No。",
+      "assertions": [
+        "NextRequiredSkill: plaud-theme-qa-intake",
+        "SubmissionPackageStatus: Complete",
+        "ReadyForDelivery: No"
+      ],
+      "forbidden": [
+        "下一句该由 `plaud-theme-qa` 说"
       ]
     }
   ],

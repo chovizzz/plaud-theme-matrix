@@ -8,7 +8,7 @@ and retire the superseded single skill it replaces.
 This package root is **not** a skill. Each root-level directory containing `SKILL.md`
 is one independent skill. Never copy the package root itself into a skills directory.
 
-Package version: `v0.3.0`.
+Package version: `v0.3.1`.
 
 ## Supported Targets
 
@@ -196,7 +196,8 @@ Read `MATRIX.md` for the full state machine. For an agent deciding which skill t
 **Do not route a plain bugfix through the orchestrator.** A single block that walks
 Assess → Implement → Verify is the normal chain, not a "full flow"; the three
 implementation skills already call `plaud-theme-impact` and hand off to
-`plaud-theme-qa` on their own.
+`plaud-theme-qa-intake` on their own (intake, not QA directly — the submission
+package is checked before Verify starts).
 
 ## Contract Rules an Agent Must Not Break
 

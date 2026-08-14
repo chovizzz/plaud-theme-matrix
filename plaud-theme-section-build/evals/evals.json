@@ -1,7 +1,7 @@
 {
   "skill_name": "plaud-theme-section-build",
   "skill": "plaud-theme-section-build",
-  "version": "v0.3.0",
+  "version": "v0.3.1",
   "path": "B",
   "stage": "Implement",
   "evals": [
