@@ -50,11 +50,11 @@ disabled 实例命令是**交叉验证**手段（目的是审计与日志资格�
 产出 `handoff-schema.md` §4 的 yaml 块。QA 侧的对接点：
 
 - `ChangeSetId` 格式 **`CS-<YYYYMMDD>-C<NN>`**；QA 回填 `ChangeSetIdMatched`
-- `BaseHeadSha` / `ChangeSetFingerprint` **在交付工件那一刻现场生成**（命令见 `handoff-schema.md` §2）。
-  QA 在**任何检查之前**重算比对——这是堵"交付后、QA 前偷改同一批文件"的唯一手段，只绑文件名挡不住它。算完指纹不要再动工作树
-- `ModifiedFiles` **必须与工作树一致（`memory/` 除外）** —— 不一致 QA 停机，不得"顺便一起验了"。交付前自查：
-  `git status --porcelain --untracked-files=all -- . ':(exclude)memory/'` / `git diff --name-only HEAD -- . ':(exclude)memory/'`。
-  🔴 **迁移日志与 `memory/*.md` 的更新不列进 `ModifiedFiles`**（它们不属于 ChangeSet，也已排除在指纹与 QA 集合比对之外），要交代就写在正文
+- 身份三元组（`ObjectFormat` + `ThemeTreeOid` + `ChangeSetScopeFingerprint`）**在交付工件那一刻现场生成**（函数见 `handoff-schema.md` §2.5，整段原样复制）；`BaseHeadSha` 相反，**在开工前取**（写成交付时 HEAD 会让所有声明路径落进 `DECLARED_DIFF_UNCHANGED`、QA 恒阻断），required 且必须可解析。
+  QA 在**任何检查之前**重算三元组并逐字比对——这是堵"交付后、QA 前偷改同一批文件"的唯一手段，只绑文件名挡不住它。算完不要再改可发布面的内容
+- `ModifiedFiles` **必须与工作树一致（`memory/` 除外）、且逐字精确**（路径用双引号包住，不 trim、不 glob、不写目录——它是 `ChangeSetScopeFingerprint` 与 `DeclaredDiffCheck` 的机器输入）—— 不一致 QA 停机，不得"顺便一起验了"。交付前自查用 `plaud_changeset_scope <逐字路径清单>`（每行一条，见 `handoff-schema.md` §2.5）；独占工作树时还可以跑 `plaud_declared_diff <BaseHeadSha> <清单>` 做归属自检。🔴 **不要用 `git status` / `git diff HEAD` 扫整棵工作树**：同树并行 Implement 下它会把兄弟块的改动误报成本块的文件；而且 v0.3.0 起主题改动 commit 掉不再让身份失效，commit 之后 `git diff HEAD` 会是空的。
+  🔴 **迁移日志与 `memory/*.md` 的更新不列进 `ModifiedFiles`**（它们不属于 ChangeSet，也**不在可发布面内**——因此改它们不会改变 `ThemeTreeOid`），要交代就写在正文。
+  📎 **v0.3.0 起解除**：v0.2.2 那条「`memory/` 的更新留在工作树、不单独 commit」的硬规则没有了——新模型的身份里没有 HEAD，改 / `git add` / `git commit` `memory/` 之后三元组逐字不变（实测）。**这一条与「不列进 `ModifiedFiles`」是两条不同的规则，后者照旧**
 - `RequiredQAProfile` 恒含 `QA-C`，其覆盖内容（disabled 实例已跳过 / 空 heading 未进总览 / 三层入口选择正确 /
   20 条踩坑适用项 / 日志时机）**正是本 skill 必须在正文交代清楚的部分**
 - `ThemeCheckRequired` / `VisualRegressionRequired` / `BuildRequired` 由本 skill 判定，**实跑归 QA**
@@ -97,5 +97,5 @@ disabled 实例命令是**交叉验证**手段（目的是审计与日志资格�
 
 「**用户视觉验收通过**」（`VisualAcceptance: Accepted`，可以写日志的条件）与「**可交付**」（QA 的判定）是两件**正交**的事，不得互相折算。
 
-🔴 **`memory/` 里的完成态（`✅ DONE` / `已迁` / `已修`）也需要 QA 背书**：changeset-log 中存在对应 `ChangeSetId`、`ReadyForDelivery: Yes` 且指纹未失效。
+🔴 **`memory/` 里的完成态（`✅ DONE` / `已迁` / `已修`）也需要 QA 背书**：changeset-log 中存在对应 `ChangeSetId`、该块 QA 的 `ReadyForIntegration: Yes`、存在覆盖它的 `ReadyForDelivery: Yes` 工件，且身份三元组未失效。
 只有视觉验收时，状态只能写 `视觉已确认，待 QA（<ChangeSetId>）`。规则源是 `plaud-theme-shared/SKILL.md`。

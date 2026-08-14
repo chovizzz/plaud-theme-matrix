@@ -317,10 +317,10 @@ RiskTier High 时，至少追加 `QA-A`（同族 bug 扫描 + 依赖树回归 + 
 - 仓库不是 theme root，或 `templates/` / `shopify-common/` 不可读 → 要正确的仓库路径
 - 同名文件多份且无法确定 `layout/theme.liquid` 加载哪份 → 要确认
 - 依赖 `memory/模板清单.md` / `memory/模块清单.md` 但文件缺失 → 停下问用户，**不得凭空重建**（会与真实迁移进度脱节）
-- 🔴 **指纹盲区里出现了不该有的东西**（v0.2.2）：`ChangeSetFingerprint` 排除了 `memory/`（理由见 `plaud-theme-shared/references/handoff-schema.md` §2），所以那个路径是指纹盲区。开工前跑这两条，**任一有输出即停机**，不要自行判断"应该没事"：
+- 🔴 **`memory/` 下出现了不该有的东西**：`memory/` **不在可发布面**（可发布面只有 `assets` / `blocks` / `config` / `layout` / `locales` / `sections` / `snippets` / `templates` + `.shopifyignore`，见 `plaud-theme-shared/references/handoff-schema.md` §2），所以那里的文件**不会上线**、也不进 `ThemeTreeOid`。判据因此不是"指纹看不见所以危险"，而是：**不在可发布面 = 不会上线；如果它真的会上线，说明这个文件目录放错了。** 📎 v0.2.2 这里写的是"指纹盲区"，v0.3.0 改成可发布面口径——**核对命令与停机结论一个字都没变**。开工前跑这两条，**任一有输出即停机**，不要自行判断"应该没事"：
 
   ```bash
-  # ① memory/ 下只应有记录类 .md。有非 .md 文件 → 盲区里藏了东西
+  # ① memory/ 下只应有记录类 .md。有非 .md 文件 → 多半是目录放错了（它不会上线）
   find memory -type f ! -name '*.md' 2>/dev/null
   # ② 主题可发布目录不应引用 memory/ 下的任何东西
   grep -rn "memory/" assets blocks config layout locales sections snippets templates 2>/dev/null | grep -v '\.md'

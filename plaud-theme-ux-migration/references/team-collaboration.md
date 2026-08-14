@@ -40,7 +40,7 @@
 2. 选一个 `状态 = 待办` 的模块，把**自己的名字 + 日期**填进去
 3. 开干前在 PR 或群里同步一句"我接 XXX"
 4. 完成并**用户视觉验收通过后** → 把对应日志条目 append 到该模板的 wave 段，认领表与 `memory/模块清单.md` 状态写 `视觉已确认，待 QA（<ChangeSetId>）`；
-   **`已迁` 这个完成态要等 `plaud-theme-qa` 给出 `ReadyForDelivery: Yes` 且指纹未失效才能写**（见 `project-state-schema.md`「完成态必须由 QA 背书」）
+   **`已迁` 这个完成态要等 `plaud-theme-qa` 给出该块 `ReadyForIntegration: Yes`、存在覆盖它的 `ReadyForDelivery: Yes` 工件、且身份三元组未失效才能写**（见 `project-state-schema.md`「完成态必须由 QA 背书」）
 5. 阻塞 → 状态改 `卡住 + 原因`，让 lead 协调
 
 ---

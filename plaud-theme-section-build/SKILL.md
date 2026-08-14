@@ -88,104 +88,191 @@ Path B 的常态是 **`ReconMode: IntegrationSurface`**——纯新建，无存�
 | 写入 `locales/*.json` 的既有 key | 改 / 删 / 移动 / 覆盖既有 key 一律升级。**唯一不升级的情形**：只新增本模块独立 namespace 下的全新 key，且与既有 key 无同名碰撞（须用 grep 证明） |
 | 新增文件但被存量机制自动消费 | 新 CSS/JS 被全局 bundle、manifest、约定式 loader 自动打包或自动加载——文件状态是 `A`，传播面却已存在，同样升级 |
 
-**判定命令**。**开工前先存 baseline，收尾时只判定"本 ChangeSet 新产生的"变化**——工作树里开工前就存在的无关改动，既不吸收进 `ModifiedFiles`，也不单独导致本任务升级。
+**判定命令**。**开工前先取 baseline，收尾时只判定"本 ChangeSet 新产生的"变化**——工作树里开工前就存在的、属于**别的块**的改动，既不吸收进 `ModifiedFiles`，也不单独导致本任务升级。
+
+📎 **v0.3.0 起这一整段换了机制。** v0.2.3 那套 `sb_worktree_set()` + `mktemp` + `comm` 的 86 行 shell 已**整体废弃**：ChangeSet 身份从「工作树状态文本的 SHA-256」改绑「不可变 git tree 对象的 oid」之后，「本轮改了什么」由 `plaud_declared_diff` 拿两棵 tree 的 raw diff 直接给出，不再需要采两次名字集合再做差集。**逐条去向见本节末尾的对照表**——那里同时说明每一条守卫是被谁接手了、还是因为洞被构造性堵上而不再需要。
 
 ```bash
-# 🔴 baseline 与收尾必须用**同一个**采集函数（v0.2.2 第六轮修）。
-#    旧写法 baseline = git diff + git status、收尾只用 git diff：
-#      · 仓库里本来就有未跟踪文件 → baseline 多出 `?? …` 行，即使什么都没做也产生假 delta；
-#      · 新建的 sa-* section 是未跟踪的 → 根本不在收尾集合里，本轮真正的新文件被漏掉。
-#    两头都必须同时含「相对 HEAD 的改动」+「未跟踪文件」，且排除 memory/。
-sb_worktree_set() (
-  set -o pipefail
-  # 🔴 与 §2 同一条守卫：子目录下 `-- .` 会把范围收到该子目录，静默给出子集
-  _top=$(git rev-parse --show-toplevel 2>/dev/null)                              || return 1
-  [ -n "$_top" ] || return 1
-  [ "$(cd "$_top" && pwd -P)" = "$(pwd -P)" ] || {
-    printf 'NOT_REPO_ROOT: must run at repo root. cwd=%s toplevel=%s\n' "$(pwd -P)" "$_top" >&2
-    return 1; }
-  # 🔴 换行路径必须 fail closed（v0.2.2 第十轮实测补）：下面把 NUL 转成换行后逐行输出，
-  #    路径里本身带 \n 的会被拆成**两行**，`ModifiedFiles` 集合当场损坏而 rc 仍是 0。
-  #    §2 的 plaud_fingerprint 为这个场景专门加了 NEWLINE_IN_PATH，本函数一直没有配套 ——
-  #    同一个仓库、同一个文件，一个门停机、另一个门给出一份坏数据还说自己成功。
-  _nl=$(git ls-files --others --exclude-standard -z -- . ':(exclude)memory/' \
-    | tr -d '\0' | tr -cd '\n' | wc -c | tr -d ' ')                             || return 1
-  [ "$_nl" = "0" ] || {
-    printf 'NEWLINE_IN_PATH: 路径含换行，ModifiedFiles 集合无法可靠表达，先重命名\n' >&2
-    return 1; }
-  git diff --name-status HEAD -- . ':(exclude)memory/'                         || return 1
-  git ls-files --others --exclude-standard -z -- . ':(exclude)memory/' \
-    | tr '\0' '\n' | sed '/^$/d' | sed 's/^/?\t/'                            || return 1
-)
+# 前提（缺一不可，缺了就是 Blocked 不是 Passed）：
+#   · 先把 `plaud-theme-shared/references/handoff-schema.md` §2.5 的函数**原样复制**进来
+#     （含全部 `_plaud_*` 内部函数与注释），在**仓库根**执行；
+#   · shell 是 bash(≥3.2) 或 zsh —— 这几段用了 `set -o pipefail`，`dash` 不支持；
+#   · git ≥ 2.25、可写 TMPDIR、macOS / Linux（Windows 不支持取证）。
 
-# ① 开工前：记录 baseline（用 mktemp，避免并行任务互相覆盖）
-# 🔴 **不要写成 `sb_worktree_set | sort > "$BASE" || echo BASELINE_FAILED`**（v0.2.2 第八轮实测修）：
-#    管道的退出码是**最后一个命令**（`sort`）的，函数失败时 sort 照样返回 0 —— `|| echo` 永不触发，
-#    下面那条「拿到 BASELINE_FAILED → 停机」的守卫是**死的**。调用方这里没有 `set -o pipefail`
-#    （pipefail 只在函数自己的 `( )` 子壳里），所以必须先落盘再排序，用 if 判函数本身的退出码。
-#    实测：在子目录跑 → 函数打出 NOT_REPO_ROOT 并返回 1，而 BASELINE_FAILED 一个字都不打，
-#    baseline 文件为 0 字节 —— 接着 ④ 的 comm 会把**整棵工作树**当成"本 ChangeSet 新产生的"。
-# 🔴 **不要写 `mktemp -t sb-baseline`**（v0.2.2 第八轮）：GNU coreutils 的模板必须含 `XXX`，
-#    Linux 上这句直接报错、`BASE` 为空，后面就会往工作目录写 `.raw`、或让 comm 拿到空路径，
-#    整个 baseline 门无法执行。写全路径模板则 BSD/GNU 通吃；并且必须判它自己的退出码。
-BASE=$(mktemp "${TMPDIR:-/tmp}/sb-baseline.XXXXXX") || { echo "BASELINE_FAILED"; BASE=""; }
-# 🔴 `sort` 自己也要守（v0.2.2 第九轮）：第八轮只判了 sb_worktree_set 的退出码，
-#    评审注入失败的 `sort` 后，两家 shell 都只在 stderr 打错误、整段仍 rc=0，
-#    于是拿着一份**空的 $BASE** 继续 comm。函数与 sort 必须都成功才算 baseline 成立。
-if [ -n "$BASE" ] && sb_worktree_set > "$BASE.raw" && LC_ALL=C sort "$BASE.raw" > "$BASE"; then :; else echo "BASELINE_FAILED"; fi
+# ---- ① 开工前（写下第一个字节之前）------------------------------------------
+# BaseHeadSha 必须在**这一刻**取，不是交付时取；理由见「输出契约」那一节。
+BASE_HEAD_SHA=$(git rev-parse HEAD) || { echo "BASE_HEAD_FAILED"; exit 1; }
+plaud_theme_tree || { echo "THEME_TREE_FAILED"; exit 1; }   # baseline 留痕 + 环境自检
 
-# ② 收尾时：同一个函数再采一次，这是主判据
-if [ -n "$BASE" ] && sb_worktree_set > "$BASE.after.raw" && LC_ALL=C sort "$BASE.after.raw" > "$BASE.after"; then :; else echo "AFTER_FAILED"; fi
+# ---- ② 开工前的归属门：本任务**将要**声明的路径，现在是不是已经脏了 -----------
+# PATHLIST = 计划声明的逐字路径清单，每行一条（= 将来的 §4 ModifiedFiles）
+sb_baseline_overlap "$BASE_HEAD_SHA" "$PATHLIST" || exit 1
 
-# ②b 🔴 baseline 已脏的文件，本轮再改一次 → ④ 的 comm 会把 M 与 M 抵消，**delta 为空**
-#     （v0.2.2 第十轮实测补）。原来只有下面那段散文写着"baseline 已脏且与本任务路径重叠 → 停机"，
-#     命令层完全看不出来：按命令走、跳过散文的 agent 会交出一个 ModifiedFiles 为空的 ChangeSet。
-#     判据不能只看 name-status（前后都是 M），要看**内容**：对 baseline 里已脏的路径存一份内容 hash，
-#     收尾时重算，变了就是本轮动过它。
-if [ -n "$BASE" ]; then
-  # 🔴 v0.2.3：正则原来只有 [MDRCTU]，第十轮演练打出三个漏：
-  #    (a) **未跟踪行 `?` 没进来** —— 而 Path B 的产出恰恰全是未跟踪文件，等于主场景没覆盖；
-  #    (b) **改名行取错列**：name-status 的 R/C 是 `R<score>\told\tnew`，$2 是 old path；
-  #    (c) **只改 mode 的改动**：hash-object 只看内容，与指纹「覆盖未跟踪文件权限位」互相矛盾。
-  #    现在：R/C 取 $3，其余取 $2，未跟踪行一并纳入，并把 mode 与内容一起记。
-  awk -F'\t' '$1 ~ /^[RC]/ { print $3; next } $1 ~ /^[MDTU?]/ { print $2 }' "$BASE" \
-    | LC_ALL=C sort -u > "$BASE.dirty"
-  # 开工前：记录这些路径的内容 + 权限位
-  if stat -c '%a' . >/dev/null 2>&1; then _SM="stat -c '%a'"; else _SM="stat -f '%Lp'"; fi
-  while IFS= read -r f; do
-    [ -n "$f" ] && [ -f "$f" ] \
-      && printf '%s %s %s\n' "$(git hash-object -- "$f")" "$(eval "$_SM \"\$f\"")" "$f"
-  done < "$BASE.dirty" | LC_ALL=C sort > "$BASE.dirtyhash"
-fi
+# ---- ③ 收尾（交付工件那一刻）--------------------------------------------------
+plaud_theme_tree                  || { echo "THEME_TREE_FAILED"; exit 1; }  # ObjectFormat + ThemeTreeOid
+plaud_changeset_scope "$PATHLIST" || { echo "SCOPE_FAILED";      exit 1; }  # ChangeSetScopeFingerprint
 
-# ②c 收尾时对同一批路径重算，差集即"本轮又动过的存量文件"
-if [ -n "$BASE" ] && [ -s "$BASE.dirty" ]; then
-  while IFS= read -r f; do
-    [ -n "$f" ] && [ -f "$f" ] \
-      && printf '%s %s %s\n' "$(git hash-object -- "$f")" "$(eval "$_SM \"\$f\"")" "$f"
-  done < "$BASE.dirty" | LC_ALL=C sort > "$BASE.dirtyhash.after"
-  if ! LC_ALL=C diff -q "$BASE.dirtyhash" "$BASE.dirtyhash.after" >/dev/null; then
-    echo "BASELINE_DIRTY_OVERLAP: 下列文件开工前就是脏的、本轮又被改动 —— ④ 的 delta 看不见它们，停机隔离后重来："
-    # 🔴 v0.2.3：原来只打 `/^>/`，**被删除的文件只出现在 `<` 侧、于是一个文件名都不列**
-    LC_ALL=C diff "$BASE.dirtyhash" "$BASE.dirtyhash.after" \
-      | awk '/^[<>]/ { print "    " $1 " " $4 }' | LC_ALL=C sort -u
-  fi
-fi
+# ---- ④ 归属自检：真正变化的可发布路径集合 == 本块声明的集合？------------------
+# 🔴 只有**独占工作树**时这条自检才成立。同树并行 Implement 时别的块的改动会被判成
+#    DECLARED_DIFF_ORPHAN，那不是你的错误，也不允许把别人的路径吸收进 ModifiedFiles ——
+#    此时跳过本条，归属核对由 QA 拿各块声明的**并集**完成（shared §2.7）。
+plaud_declared_diff "$BASE_HEAD_SHA" "$PATHLIST" || exit 1
 
-# ③ 只看存量文件的写入：排除相对 HEAD 全新的文件（A）与未跟踪新文件
-git diff --name-status --diff-filter=MDRCTU HEAD -- . ':(exclude)memory/'
-
-# ④ 本 ChangeSet 新产生的那部分 = after 减 baseline
-LC_ALL=C comm -13 "$BASE" "$BASE.after"
+# ---- ⑤ 存量写入判定（本节的主判据）------------------------------------------
+# 声明路径里，哪些在 baseline commit 里**就已经存在**。② 已经证明这些路径在开工前与
+# baseline 逐条相同，所以「baseline 里已存在」+「本轮被 ④ 判为变了」= 本 ChangeSet
+# 写入了存量文件。输出非空即升级 LegacyImpact。
+set --
+while IFS= read -r p; do [ -n "$p" ] && set -- "$@" ":(literal)$p"; done < "$PATHLIST"
+git -c core.hooksPath=/dev/null -c core.fsmonitor=false \
+    ls-tree -r --full-tree -z "$BASE_HEAD_SHA^{tree}" -- "$@" \
+  | tr '\0' '\n' | sed '/^$/d' | cut -f2-
 ```
 
-> 拿到 `BASELINE_FAILED` / `AFTER_FAILED` → **停机**，不要拿半份集合去比。新建的 `sa-*` 文件会以 `?` + 制表符 + 路径 出现在 ①② 采集里 —— 那正是 Path B 的主体产出，漏了它等于没记录本轮做了什么。
+`sb_baseline_overlap` 的定义（本 skill 自己的函数，**不在** canonical 里；它依赖 §2.5 的 `_plaud_*` 内部函数，必须先把 §2.5 整段复制进来）：
 
-> 🛑 **baseline 已脏且与本任务路径重叠 → 停机。** name-status 只给"文件是否被改"，给不出"是谁改的"：某文件在 baseline 里已经是 `M`，收尾时仍是 `M`，diff 看不出本 ChangeSet 又动过它。**只要本任务需要写入的任何文件在 baseline 里已经是脏的，就停下要求先隔离**（stash / 单独 worktree / 先提交无关改动），不要在混合工作树上继续——`ModifiedFiles` 会被污染，QA 的 `ChangeSetIdMatched` 必失配。
+```bash
+# ---- Path B 开工前：本任务声明路径的 baseline 脏重叠门 -----------------------
+# sb_baseline_overlap <BaseHeadSha> <pathlist-file>
+#   pathlist-file：本任务**将要**声明的逐字路径清单，每行一条（= 将来的 §4 ModifiedFiles）。
+# 成功输出一行： BASELINE_CLEAN <BaseHeadSha> <声明路径条数>
+#
+# 🔴 它答的是「改动归属」，不是「树里有什么」。DeclaredDiffCheck 能证明某条路径变了，
+#    答不出「是谁改的」；开工前这些路径就已经脏，本轮改完之后没有任何机械手段能把两拨
+#    改动拆开 —— 所以必须在**写下第一个字节之前**停机隔离。
+# 🔴 只判**本任务声明的路径**，不判整棵树：v0.3.0 同树并行 Implement 是主推路径，
+#    别的块的改动躺在同一棵工作树里是**合法**的，整树判会把正常并行判成停机。
+# 🔴 判法与 §2.5 同构：把声明路径按**空白临时索引**写成 tree，与 baseline commit 的
+#    同名条目逐条比 `<mode> <type> <oid> <path>`。**不用 `git diff <base> -- <paths>`**
+#    —— 那条命令读用户的 index。📎 v0.3.0 起解除：`git update-index --assume-unchanged` /
+#    `--skip-worktree` 这两个索引标志的补充门已退役，因为空白索引从磁盘重扫、标志不生效；
+#    但**那只在走 canonical 函数时成立**，`git diff <base> -- <paths>` 走的是用户 index，
+#    实测会对已改脏的文件回报「无差异」、函数照样 rc=0 说 BASELINE_CLEAN。所以这里必须
+#    用空白索引重建 tree —— 洞是被**构造性**堵上的，不需要另加一道门。
+sb_baseline_overlap() (
+  set -o pipefail
+  _base="${1-}"; _list="${2-}"
+  [ -n "$_base" ]                    || { printf 'BASELINE_BASE_MISSING\n' >&2; return 1; }
+  [ -n "$_list" ] && [ -f "$_list" ] || { printf 'BASELINE_LIST_MISSING\n' >&2; return 1; }
+  _plaud_at_root                                                                     || return 1
+  _plaud_git_capable                                                                 || return 1
+  git rev-parse -q --verify "$_base^{commit}" >/dev/null 2>&1 || {
+    printf 'BASELINE_BASE_UNREACHABLE: %s 不可达（浅克隆 / 已被 gc / 写错 / 还没有 commit）\n' "$_base" >&2
+    return 1; }
+  # 与 §2.5 同口径：清单含 NUL 或双引号一律 fail closed
+  _nul=$(tr -cd '\0' < "$_list" | wc -c | tr -d ' ')                                  || return 1
+  [ -n "$_nul" ] || return 1
+  [ "$_nul" = "0" ] || { printf 'BASELINE_LIST_HAS_NUL\n' >&2; return 1; }
+  _q=$(tr -cd '"' < "$_list" | wc -c | tr -d ' ')                                     || return 1
+  [ -n "$_q" ] || return 1
+  [ "$_q" = "0" ] || { printf 'BASELINE_LIST_HAS_QUOTE: 声明路径含双引号，先重命名\n' >&2; return 1; }
 
-- ③ 的输出**扣除 baseline 已有项后为空**，且新增文件不被任何存量机制自动消费 → 保持 `IntegrationSurface`
-- ③ 出现 `M`（修改）/ `D`（删除）/ `R`（重命名）/ `C`（复制）/ `T`（类型变更）/ `U`（冲突）中任意一种 → **停止实现，回 `plaud-theme-impact` 以 `LegacyImpact` 重评**被写入的存量文件；新建部分的复用面/冲突面检查照做，**两套都要报**
-- **不要用 `git status --porcelain` 的双状态列做判据**：`AM` 表示"新增后又有未暂存修改"，相对 `HEAD` 仍是全新文件，按 porcelain 首列过滤会把它误判成存量改动。判存量与否一律以 ③（相对 `HEAD` 的 `--diff-filter`）为准。
+  _plaud_iso_setup                                                                   || return 1
+  _T="$_PLAUD_OBJDIR"
+  # 🔴 不 trim：真实存在的 `assets/a.css ` 被剥成 `assets/a.css` 会让本门判错文件
+  sed '/^$/d' "$_list" | LC_ALL=C sort -u > "$_T/declared"                            || { rm -rf "$_T"; return 1; }
+  _n=$(_plaud_count . "$_T/declared")                                                 || { rm -rf "$_T"; return 1; }
+  [ "$_n" -gt 0 ] || { printf 'BASELINE_LIST_EMPTY\n' >&2; rm -rf "$_T"; return 1; }
+  # 🔴 `for _p in $(cat …)` 在 zsh 下不做词分割、在 bash 下又会按 IFS 切碎含空格的路径。
+  #    一律 `set --` 逐行累积；:(literal) 防止 `assets/g[1].css` 被当 glob 吸收别的文件。
+  set --
+  while IFS= read -r _p; do [ -n "$_p" ] && set -- "$@" ":(literal)$_p"; done < "$_T/declared"
+  [ "$#" -gt 0 ]                                                                     || { rm -rf "$_T"; return 1; }
+  # 字节保真门：core.autocrlf / core.fileMode / filter 等机制会让「工作树字节 ≠ tree 字节」，
+  # 那时下面的 mode / oid 比对都不可信 —— 与 §2.5 同一道门，同样 fail closed。
+  _plaud_bytes_gate "$@"                                                             || { rm -rf "$_T"; return 1; }
+
+  # ---- now：声明路径在**当前工作树**里的样子（空白临时索引，含未跟踪与被 gitignore 的）
+  : > "$_T/exists"; _dirbad=""
+  while IFS= read -r _p; do
+    [ -n "$_p" ] || continue
+    # 与 §2.5 同口径：声明清单里出现目录一律 fail closed（ModifiedFiles 必须逐个文件）
+    if [ -d "$_p" ] && [ ! -L "$_p" ]; then _dirbad="$_dirbad$_p
+"; continue; fi
+    if [ -e "$_p" ] || [ -L "$_p" ]; then printf '%s\n' "$_p" >> "$_T/exists" || { rm -rf "$_T"; return 1; }; fi
+  done < "$_T/declared"
+  [ -z "$_dirbad" ] || {
+    printf 'DECLARED_DIRECTORY: 声明清单里出现目录，ModifiedFiles 必须逐个文件：\n%s' "$_dirbad" >&2
+    rm -rf "$_T"; return 1; }
+  LC_ALL=C sort -u "$_T/exists" -o "$_T/exists"                                       || { rm -rf "$_T"; return 1; }
+  _ne=$(_plaud_count . "$_T/exists")                                                  || { rm -rf "$_T"; return 1; }
+  if [ "$_ne" -gt 0 ]; then
+    sed 's/^/:(literal)/' "$_T/exists" > "$_T/pathspec"                               || { rm -rf "$_T"; return 1; }
+    # add 失败不许吞：吞掉 "did not match any files" 会让索引为空、算出**空树**却返回 0
+    if ! GIT_INDEX_FILE="$_T/nidx" _plaud_git_iso add -A -f --pathspec-from-file="$_T/pathspec" \
+         2>"$_T/adderr"; then
+      printf 'BASELINE_ADD_FAILED:\n' >&2; cat "$_T/adderr" >&2; rm -rf "$_T"; return 1
+    fi
+    _noid=$(GIT_INDEX_FILE="$_T/nidx" _plaud_git_iso write-tree)                      || { rm -rf "$_T"; return 1; }
+    [ -n "$_noid" ]                                                                   || { rm -rf "$_T"; return 1; }
+    _plaud_git_iso ls-tree -r --full-tree -z "$_noid" > "$_T/nls"                     || { rm -rf "$_T"; return 1; }
+    # 🔴 收全性核对：磁盘上存在的声明路径**必须**逐条出现在树里。**嵌套 git 仓库里的
+    #    文件对父仓库的 `git add` 是隐形的** —— 它既不进树、`ls-files --cached --others`
+    #    也枚举不到，于是 base 与 now 双双为空、比对相等，函数会对一个真实存在的脏文件
+    #    回报 BASELINE_CLEAN（Codex 评审实测复现）。多或少都 fail closed。
+    _plaud_mode_gate "$_T/nls" "BASELINE_NOW"                                         || { rm -rf "$_T"; return 1; }
+    tr '\0' '\n' < "$_T/nls" | sed '/^$/d' | cut -f2- | LC_ALL=C sort -u > "$_T/present" \
+      || { rm -rf "$_T"; return 1; }
+    if ! LC_ALL=C diff "$_T/exists" "$_T/present" > "$_T/setdiff" 2>&1; then
+      printf 'BASELINE_SET_MISMATCH: 声明存在的路径与 tree 条目不一致（典型成因：路径落在嵌套 git 仓库里，对父仓库不可见）：\n' >&2
+      head -40 "$_T/setdiff" >&2; rm -rf "$_T"; return 1
+    fi
+  else
+    : > "$_T/nls"
+  fi
+  # ---- base：同一批路径在 baseline commit 里的样子
+  _plaud_git_iso ls-tree -r --full-tree -z "$_base^{tree}" -- "$@" > "$_T/bls"        || {
+    printf 'BASELINE_LS_TREE_FAILED\n' >&2; rm -rf "$_T"; return 1; }
+  # symlink / 嵌套 git 仓库出现在声明范围里 → 与 §2.5 同一道门，fail closed
+  _plaud_mode_gate "$_T/bls" "BASELINE_BASE"                                          || { rm -rf "$_T"; return 1; }
+
+  # 逐条比 `<mode> <type> <oid>TAB<path>`：内容变（oid）、只改 mode（mode）、新增 /
+  # 删除 / 纯大小写改名（条目有无）全都落在这一个比对里。
+  # 🔴 mode_gate 已保证两份 -z 流里没有换行，所以 tr '\0' '\n' 不会拆行。
+  tr '\0' '\n' < "$_T/nls" | sed '/^$/d' | LC_ALL=C sort > "$_T/nlines"                || { rm -rf "$_T"; return 1; }
+  tr '\0' '\n' < "$_T/bls" | sed '/^$/d' | LC_ALL=C sort > "$_T/blines"                || { rm -rf "$_T"; return 1; }
+  LC_ALL=C diff "$_T/blines" "$_T/nlines" > "$_T/delta" 2>&1; _drc=$?
+  # 🔴 `if diff …; then` 之后取 `$?` 拿到的是 if 语句的状态（没走分支时是 0），不是 diff 的
+  #    —— 必须当场落到变量里。diff 的退出码：0 = 相同，1 = 有差异，>1 = 它自己出错。
+  if [ "$_drc" -gt 1 ]; then
+    printf 'BASELINE_DIFF_FAILED(rc=%s)\n' "$_drc" >&2; rm -rf "$_T"; return 1
+  fi
+  if [ "$_drc" -eq 0 ]; then
+    rm -rf "$_T" || { printf 'BASELINE_CLEANUP_FAILED\n' >&2; return 1; }
+    printf 'BASELINE_CLEAN %s %s\n' "$_base" "$_n"
+    return 0
+  fi
+  printf 'BASELINE_DIRTY_OVERLAP: 本任务将要声明的路径在开工前就相对 %s 有差异（内容 / 权限位 / 已存在的未跟踪文件 / 已删除）——改动归属无法判定，先隔离（stash / 独立 worktree / 先提交无关改动）再开工。前 40 行：\n' "$_base" >&2
+  head -40 "$_T/delta" | sed 's/^/  /' >&2
+  rm -rf "$_T"
+  return 1
+)
+```
+
+> 🛑 **拿到 `BASELINE_DIRTY_OVERLAP` → 停机隔离，不要在混合工作树上继续。** 这条规则从 v0.2.3 原样保留，只换了实现：`plaud_declared_diff` 只能把无主改动**抓出来**，抓出来之后「是谁改的」仍然要人判。开工前隔离（stash / 独立 worktree / 先提交无关改动）是唯一能在事后仍然分得清的做法。
+>
+> 🔴 **中途要扩大声明范围时必须回到 ②。** `sb_baseline_overlap` 只守住它跑那一刻清单里的路径；实施中发现「还得改一个存量文件」时，**必须在写入那个文件之前**把它加进 `PATHLIST` 并**重跑 ②**。已经写过再补进 `ModifiedFiles` → tree diff 只能证明它变了、证明不了是谁改的，此时**停机隔离、取新的 `BaseHeadSha`、从 ① 重来**，不要事后补声明。
+>
+> 🔴 **残余风险，如实记：这不是对非合作并发的机械保证。** 从 `sb_baseline_overlap` 返回 `BASELINE_CLEAN` 到你写下第一个字节之间，别人仍然可以改这批路径（TOCTOU，Codex 评审实测可复现）。矩阵不创造原子性。要求是人层的：**这段窗口内其它写者不得动本块的声明路径**；做不到就用独立 worktree 或串行。事后怀疑重叠 → 隔离、取新的 `BaseHeadSha`、从 ① 重来。
+
+**v0.2.3 那 86 行的逐条去向**（删注释前先确认知识有落点）：
+
+| v0.2.3 的哪一段 | v0.3.0 的去向 |
+|---|---|
+| 📎 `sb_worktree_set()` 本体（`git diff --name-status HEAD` + `ls-files --others`） | **废弃**。名字集合答不了「内容变没变」；身份与改动集合都改由 tree 对象承担 |
+| `mktemp` + `comm` + 两次落盘的守卫链，`BASELINE_FAILED` / `AFTER_FAILED` | **废弃**。没有中间文件就没有这两个失败态；它们当初修的是「管道退出码是最后一个命令的」，那条教训在新代码里以 `_drc=$?` 当场落变量的形式**仍然在用** |
+| `?\t` 前缀的未跟踪土办法 | **废弃**。空白临时索引下 `git add -A -f` 自己枚举未跟踪与被 gitignore 的文件，不再有手写循环，也不再需要行数核对 |
+| 本函数自己的 `NOT_REPO_ROOT` 守卫 | 由 §2.5 的 `_plaud_at_root` 承担（`sb_baseline_overlap` 直接调它） |
+| 本函数自己的 `NEWLINE_IN_PATH` 守卫 | 由 §2.5 的 `NEWLINE_IN_PATH` / `NEWLINE_IN_PATH_*` 承担 —— 它们是**保留门**，不是被删掉的门：可发布面由 `plaud_theme_tree` 的字节保真门挡，tree 条目由 `_plaud_mode_gate` 挡。🔴 **逐行路径清单在结构上表达不了含换行的路径**（一条会被拆成两行、指向两条不存在的路径），所以**含换行的路径一律先重命名**，不要试图声明它 |
+| ②b / ②c 的 34 行 dirty-hash 差集（`$BASE.dirty` / `.dirtyhash` / `.dirtyhash.after`） | **具体 bug 消失，规则保留、换形态**。它当初修的是「`comm` 把 baseline 的 `M` 与收尾的 `M` 抵消 → delta 为空」；新模型比的是 blob oid 与 mode，不是 name-status 的字母，baseline 脏文件本轮再改照样出现在差异里，所以那 34 行不再需要。但**「baseline 已脏且与本任务路径重叠 → 停机」这条规则本身照旧**，由 ② 的 `sb_baseline_overlap` 在**开工前**执行——而且比 v0.2.3 更早、更严：它不再是收尾时才发现「delta 可疑」，而是开工前就拒绝在混合工作树上开工 |
+| ③ 存量写入判定（`--diff-filter=MDRCTU`） | 换成对 **baseline commit 的 tree 查询**（见上 ⑤）。理由：② 已保证声明路径在开工前与 baseline 逐条相同，「baseline 里已存在」就等价于「本轮写入了存量文件」，不必再去读工作树 |
+| ④ delta（`comm -13`） | 由 `plaud_declared_diff` 承担（独占工作树时可自检；同树并行时由 QA 用并集核） |
+| v0.2.3 三条 awk 修复里的知识 | **(a) 未跟踪行**：`git add -A -f` 原生覆盖，Path B 的主场景不再需要特判。**(b) `R<score>\told\tnew` 取错列**：不再解析 name-status，`--no-renames` 与逐路径 tree 条目让改名表现为「一条消失 + 一条出现」。**(c) 只改 mode**：tree 的 mode 位（`100644` / `100755`）参与 ② 的逐条比对与 `ChangeSetScopeFingerprint`，所以能看见；但 🔴 git 只记 executable **一个 bit**，其余权限位不进树——「ChangeSet 身份覆盖权限」是过度声明（v0.2.3 已更正，勿回退）；且 `core.fileMode` 归一为 false 时这个 bit 对 git 隐形，由 `CORE_FILEMODE_FALSE` 门 fail closed |
+| 「不要用 `git status --porcelain` 的双状态列做判据」 | **保留**（见下方要点） |
+
+- ⑤ 的输出为空，且新增文件不被任何存量机制自动消费 → 保持 `IntegrationSurface`
+- ⑤ 列出任何路径（即本 ChangeSet 写入了 baseline 里已存在的文件）→ **停止实现，回 `plaud-theme-impact` 以 `LegacyImpact` 重评**被写入的存量文件；新建部分的复用面/冲突面检查照做，**两套都要报**
+- **不要用 `git status --porcelain` 的双状态列做判据**：`AM` 表示"新增后又有未暂存修改"，相对 baseline 仍是全新文件，按 porcelain 首列过滤会把它误判成存量改动。判存量与否一律以 ⑤（对 baseline commit 的 tree 查询）为准。
 - 拿不准（不确定有没有调用方、不确定是否被自动打包、不确定 locale key 有无碰撞）→ 按 `LegacyImpact` 处理（**保守方向永远是升级，不是降级**）
 
 升级的连带后果，一并执行：
@@ -378,40 +465,71 @@ Figma 值 v，spec 阶梯 …a < v < b…
 
 ## 输出契约
 
-### 交付工件时**当场**生成指纹（`handoff-schema.md` §2）
+### 交付工件时**当场**生成身份三元组（`handoff-schema.md` §2）
 
-只绑 `ModifiedFiles` 的**文件名集合**挡不住"交付后偷改"：交出工件之后、QA 开始之前若同一批文件的**内容**又变了，文件集合仍一致，QA 会错判 `ChangeSetIdMatched: Yes`。所以**在写下面这个 yaml 块的那一刻**跑：
+`ChangeSetId` 只绑 `ModifiedFiles` 的**文件名集合**是不够的：交出工件之后、QA 开始之前，如果同一批文件的**内容**又被改过，文件集合仍然一致，QA 会错误地判 `ChangeSetIdMatched: Yes`，验的是一批它从未见过的代码。v0.3.0 起身份是 `ObjectFormat` + `ThemeTreeOid` + `ChangeSetScopeFingerprint` **三元组**（绑不可变 git tree 对象），三个一起才构成身份：`ThemeTreeOid` 单独表达不了声明范围，`ChangeSetScopeFingerprint` 单独表达不了整树，`ObjectFormat` 不比就会把「换了个仓库」误判成「内容变了」。
+
+🔴 **`BaseHeadSha` 是「开工前（写下第一个字节之前）捕获的 baseline commit」，不是「交付工件时的 HEAD」。**
+写成后者的实测后果：实现者只要先 commit 再交工件，基准里就已经含本次改动 → 所有声明路径落进 `DECLARED_DIFF_UNCHANGED` → QA 恒阻断，而这与「主题改动 commit 不再让身份失效」直接矛盾。所以**开工第一件事**就是 `git rev-parse HEAD` 并记下来；中途 commit / rebase / checkout **都不改这个值**，事后也不得用当时的 HEAD 覆盖它。
+它 v0.3.0 起**不再是失配判据**（不与当前 HEAD 比对），但**仍然 required、且必须是可解析的 commit-ish**：QA 的 `DeclaredDiffCheck`、theme check 的 baseline 物化、以及若干条存量偏差举证都要 `git show <BaseHeadSha>:<file>`。缺失或不可解析时那些检查一律 `Blocked`（**不是 `Advisories`、不是 `N/A`**），`Blocked` 不得折算为 pass → 该轮拿不到交付许可。零改动只读任务填 `N/A`。
+
+因此在**开工前**取 ① ，在**写下面这个 yaml 块的那一刻**（不是改动开始时、不是估算）跑 ②：
 
 ```bash
-# BaseHeadSha
+# ① 开工前 —— BaseHeadSha
 git rev-parse HEAD
+
+# ② 交付工件那一刻 —— 在**仓库根**跑（先原样复制 §2.5 的整段函数定义）
+# 🔴 原样抄这两行，**不要只抄第一行**：旧写法只有 `plaud_theme_tree || echo "..."`，
+#    它打印了错误串却让整段 rc=0 —— 任何按 `$?` 分支、或跑在 `set -e` 下的调用方都会
+#    认为这道门通过了。判定既要看输出、也要看退出码。
+# PATHLIST：本块声明的逐字路径清单，每行一条（= ModifiedFiles 双引号里的字符串）
+plaud_theme_tree                  || { echo "THEME_TREE_FAILED"; exit 1; }
+plaud_changeset_scope "$PATHLIST" || { echo "SCOPE_FAILED";      exit 1; }
 ```
 
-🔴 **`ChangeSetFingerprint` 的命令不在本文件里，只在 `plaud-theme-shared/references/handoff-schema.md` §2。**
-去那里**原样复制**那段 `plaud_fingerprint()` 执行，不要凭记忆敲、不要用任何别处看到的版本。
+`plaud_theme_tree` 输出 `<ObjectFormat> <ThemeTreeOid> <ThemeTreeDigest>`——前两段进工件，**`ThemeTreeDigest` 不进任何工件**（它只用于人读 diff 与跨 object-format 防误判，**不提供抗碰撞**）。`plaud_changeset_scope` 输出 `<ObjectFormat> <ScopeTreeOid> <ScopeDigest>`，`ChangeSetScopeFingerprint` 填**后两段合起来的 `"<ScopeTreeOid> <ScopeDigest>"`**：删除只体现在 `ScopeDigest`，两段必须一起逐字比。三元组一律**逐字原样记录**，不得缩写 oid、不得假定 `sha1`、不得自己重算或换别的命令算。
 
-> **为什么这里不再内嵌一份副本**（v0.2.2 删除）：本节以前抄了一份，附一句"冲突时以 §2 为准"——但那句话拦不住任何人：命令是**可执行**的，抄本一旦落后就会真的算出另一个指纹。这份抄本当时落后了整整两代，仍在用 `--find-renames=false`、`printf "$(git hash-object …)"`（命令替换吞错）、`{ … } | shasum`（子 shell 吞错）、且不排除 `memory/`。
-> 后果不是"多阻断"，而是**producer 算出一个假指纹、QA 用 canonical 重算必然失配**——正常交付会被永久判 `ChangeSetIdMatched: No`；反过来若两边都用旧抄本，则未跟踪文件与 `memory/` 之外的改动可能压根不进指纹。
-> 指纹类命令**只允许有一处事实源**。
+🔴 **这三个函数的定义不在本文件里，只在 `plaud-theme-shared/references/handoff-schema.md` §2.5。**
+去那里**原样复制整段**（含全部 `_plaud_*` 内部函数与全部注释）执行，不要凭记忆敲、不要用任何别处看到的版本、**不要删注释**。
 
-QA 会在**执行任何检查之前**用同一命令重算并精确比对。**生成指纹后不要再动工作树。** Path B 尤其注意：新建的 `sa-*` 文件多为 untracked，上面命令的最后一段就是为它们准备的——漏掉它等于指纹不覆盖本次主体产出。
+> **为什么这里不再内嵌一份副本**（v0.2.2 删除，v0.3.0 加重）：本节以前抄了一份，附一句"冲突时以 §2 为准"——但那句话拦不住任何人：命令是**可执行**的，抄本一旦落后就会真的算出另一个值。
+> 后果不是"多阻断"：producer 算出一个假身份、QA 用 canonical 重算必然失配，正常交付会被永久判 `ChangeSetIdMatched: No`；两边都用同一份旧抄本时，未跟踪文件、被 gitignore 的可发布文件、纯大小写改名可能压根不进身份。
+> 🔴 **v0.3.0 起后果还多一档，且严重一个量级**：这几个函数内部会跑 `git add`，而 `git add` 会触发 `post-index-change` hook（实测复现）。canonical 的每一条内部 git 调用都带 `-c core.hooksPath=/dev/null -c core.fsmonitor=false`，clean filter 这个同族入口由**字节保真门在 `git add` 之前**拦下。**一个漏掉 `-c core.hooksPath=/dev/null`、或删掉那道字节保真门的抄本，等于让取证动作执行仓库里的任意脚本**——比 v0.2.x 的「算出一个假指纹」严重一个量级。
+> 身份类命令**只允许有一处事实源**。
+
+QA 会在**执行任何检查之前**用同一段 canonical 函数重算三元组并**逐字精确比对**，任一不符即 `ChangeSetIdMatched: No` + 停机。函数本身失败（`TMPDIR` 不可写、git < 2.25、Windows、命中任一 fail-closed 门）→ 相关检查项填 `Blocked`，**不得**填 `Passed` / `NotApplicable`，也不得改用自己写的命令降级取值。**生成三元组之后不要再改可发布面的内容。**
+
+📎 **v0.3.0 起这些动作不再让身份失效**（逐条实测；旧文档里「别 `git add`，会让指纹失配」「`memory/` 的更新不要单独 commit」之类的说法**已过时，不要继续遵守**）：`git add` / `git reset`（内容不变）、`git commit`（含 commit `memory/`、含把本次主题改动 commit 掉）、仓库根的 scratch 临时文件（`tc-diff.js` / `node_modules` / `.env`）。真正会让它变的只有**可发布面的内容变化**。
+🔴 **但这不是对这些动作的授权，也不改变 `BaseHeadSha` 的取值**：它仍然是开工前那一个 commit，不得因为中途 commit 过就换成新的 HEAD。canonical 内部的 `git add` 用的是隔离的临时索引，**不动用户的 `.git/index`**。
+
+**Path B 尤其注意**：新建的 `sa-*` 文件多为 untracked。v0.2.x 需要一段专门的未跟踪文件循环来收它们，漏掉那一段就等于身份不覆盖本次主体产出；v0.3.0 由空白临时索引下的 `git add -A -f` 自己枚举（未跟踪、被 gitignore、纯大小写改名都在内），这个坑被构造性堵上了——但**前提是你真的原样复制了 canonical**。
 
 ### HandoffContract
 
 正文可自由组织（文件清单、命名合规、vendor Checklist、响应式说明、取值决策），但**回复的最后必须是一个 `yaml` 代码块**，字段名与顺序与 `handoff-schema.md` §4 一字不差，不得增删改名：
 
 ```yaml
-ChangeSetId:             # CS-<YYYYMMDD>-B<NN>，例 CS-20260806-B01
-BaseHeadSha:             # 交付工件时的 git rev-parse HEAD
-ChangeSetFingerprint:    # 见上，交付工件时当场生成
-ReadOnlyProof: N/A       # 仅零改动只读任务填写；Path B 恒为 N/A
-AssessmentRef:           # 引用 plaud-theme-impact 的 ASMT-<YYYYMMDD>-<NN>
+ChangeSetId:              # CS-<YYYYMMDD>-B<NN>，例 CS-20260806-B01
+BaseHeadSha:              # 🔴 **开工前（写下第一个字节之前）捕获的 baseline commit**，不是交付时的 HEAD；
+                          #   零改动填 N/A。v0.3.0 起不再是失配判据，但 required 且必须可解析：
+                          #   缺失 / 不可解析 → DeclaredDiffCheck 等检查填 Blocked（不是 Advisories、不是 N/A）
+ObjectFormat:             # sha1 | sha256 —— git rev-parse --show-object-format 的原样输出；零改动填 N/A
+ThemeTreeOid:             # plaud_theme_tree 输出的第 2 段；零改动填 N/A
+ChangeSetScopeFingerprint: # plaud_changeset_scope 输出的第 2、3 段，形态 "<ScopeTreeOid> <ScopeDigest>"
+                          #   —— 两段必须一起逐字比：删除只体现在 ScopeDigest；零改动填 N/A
+ReadOnlyProof: N/A        # 仅零改动只读任务填写；Path B 恒为 N/A
+AssessmentRef:            # 引用 plaud-theme-impact 的 ASMT-<YYYYMMDD>-<NN>
 OriginTriageRef:          # 本块若由反馈返工产生：TriageId + ItemId；否则 N/A
 Path: B
-ReconMode:               # IntegrationSurface（纯新建常态）｜LegacyImpact（写入了任何存量文件——含 snippet/全局 CSS/token/既有 section/templates/layout/config/locales 既有 key/build 产物，或新增文件被存量机制自动消费——须回 impact 重评）
-ModifiedFiles:           # 逐个文件路径 + 一句话改动；必须与工作树一致
-                         #   🔴 **不含 memory/ 下的文件**（不属于 ChangeSet，已排除在 §2 指纹与 QA 集合比对之外）
-RootCause: N/A           # 新建 section 填 N/A
+ReconMode:                # IntegrationSurface（纯新建常态）｜LegacyImpact（写入了任何存量文件——含 snippet/全局 CSS/token/既有 section/templates/layout/config/locales 既有 key/build 产物，或新增文件被存量机制自动消费——须回 impact 重评）
+ModifiedFiles:            # 逐条 `- "<逐字路径>": <一句话改动>`；必须与工作树一致
+                          #   🔴 **路径必须用双引号包住且逐字精确**（不 trim、不 glob、不写目录）：
+                          #   它同时是 ChangeSetScopeFingerprint 与 DeclaredDiffCheck 的**机器输入**，
+                          #   下游把引号内的字符串逐字取出、每行一条喂给那两个函数。带尾空格的真实
+                          #   路径被 trim 掉会让声明指错文件；路径含双引号 → 函数 fail closed，先重命名
+                          #   🔴 **不含 memory/ 下的文件**：memory/ 不属于 ChangeSet，也不在可发布面内
+RootCause: N/A            # 新建 section 填 N/A
 OptionsConsidered:       # 非平凡任务 ≥2 方案 + 取舍；平凡改动填 Trivial
 RequiredQAProfile:       # QA-B；升级为 LegacyImpact 时加 QA-A；B+C 交叉时加 QA-C。🔴 不得写 QA-Global——QA 按 §5 恒执行
 ThemeCheckRequired:      # Yes | No（新建 .liquid + schema 恒为 Yes）
@@ -433,6 +551,6 @@ ReadyForDelivery: No     # 恒为 No，见 handoff-schema §1
 
 > ⚠️ 每个 `key:` 与注释之间**必须有空格**。YAML 里 `Key:# 注释` 是解析错误，照抄时不要压掉那个空格。
 
-`ChangeSetId` 的 `<NN>` 是当日 Path B 的序号，从 `01` 起。`ModifiedFiles` 必须与工作树一致，`ChangeSetFingerprint` / `BaseHeadSha` 必须是交付当刻现算的——任一不符会让 `plaud-theme-qa` 输出 `ChangeSetIdMatched: No` 并停机。
+`ChangeSetId` 的 `<NN>` 是当日 Path B 的序号，从 `01` 起。`ModifiedFiles` 必须与工作树一致且逐字精确，身份三元组（`ObjectFormat` + `ThemeTreeOid` + `ChangeSetScopeFingerprint`）必须是交付当刻现算的，`BaseHeadSha` 必须是**开工前**取的那个 commit——任一不符会让 `plaud-theme-qa` 输出 `ChangeSetIdMatched: No` 并停机。
 
 **不得**在这个块里出现 `AssessmentRef` 以外的 Assess 字段（`TheoreticalReferences` / `RiskTier` / `ReadyForImplement`），也不得出现 Verify 阶段字段（`ChangeSetIdMatched` / `ThemeCheck` / 各 `*Check`）。

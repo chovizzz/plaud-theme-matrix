@@ -7,7 +7,8 @@ plaud-theme-impact (Assess, IntegrationSurface)
         │  AssessmentRef / ReconMode / SharedPropagation / RequiredQAProfile / ReadyForImplement
         ▼
 plaud-theme-section-build (Implement, Path B)      ← 本 skill
-        │  ChangeSetId (CS-<YYYYMMDD>-B<NN>) / BaseHeadSha / ChangeSetFingerprint
+        │  ChangeSetId (CS-<YYYYMMDD>-B<NN>) / BaseHeadSha(开工前) /
+        │  ObjectFormat + ThemeTreeOid + ChangeSetScopeFingerprint
         │  ModifiedFiles / RequiredQAProfile
         │  QAStatus: NotRun / ReadyForDelivery: No
         ▼
@@ -45,7 +46,7 @@ plaud-theme-qa (Verify, QA-B + QA 恒执行的 QA-Global)
 交出 `handoff-schema.md` §4 的 yaml 块，其中：
 
 - `ChangeSetId` 格式 **`CS-<YYYYMMDD>-B<NN>`**，`<NN>` 为当日 Path B 序号，从 `01` 起
-- `BaseHeadSha` / `ChangeSetFingerprint` **必须在交付工件那一刻现场生成**（命令见 `handoff-schema.md` §2）。QA 在**任何检查之前**重算比对，用来堵"交付后、QA 前偷改同一批文件"——只绑文件名挡不住它
+- 身份三元组（`ObjectFormat` + `ThemeTreeOid` + `ChangeSetScopeFingerprint`）**必须在交付工件那一刻现场生成**（函数见 `handoff-schema.md` §2.5，整段原样复制）；`BaseHeadSha` 相反，**必须在开工前取**（写成交付时 HEAD 会让所有声明路径落进 `DECLARED_DIFF_UNCHANGED`、QA 恒阻断）。QA 在**任何检查之前**重算三元组并逐字比对，用来堵"交付后、QA 前偷改同一批文件"——只绑文件名挡不住它
 - `ModifiedFiles` **必须与工作树一致**——不一致 QA 会输出 `ChangeSetIdMatched: No` 并停机，不得让 QA"顺便一起验了"
 - `RequiredQAProfile` 至少含 `QA-B`。🔴 **不含 `QA-Global`**——它由 QA 按 §5 恒执行，写进上游工件是字段越界（§9.2）
 - `QAStatus: NotRun`、`ReadyForDelivery: No` 恒定
@@ -67,11 +68,20 @@ QA-B 会验的（实现侧须自检但**无权判定**）：`sa-*` / `SA:` / BEM
 判定：
 
 ```bash
-# 🔴 用 SKILL.md 里的 sb_worktree_set()（原样复制），**不要**跑裸 git diff：
-#    裸 git diff 不含未跟踪文件（新建的 sa-* 全是未跟踪，会被整批漏掉）、也不排除 memory/
-#    （合法的 memory/ 更新会被当成存量主题修改、错误升级为 LegacyImpact）。
-sb_worktree_set                                          # 相对 HEAD 的改动 + 未跟踪文件，排除 memory/
-git diff --name-status --diff-filter=MDRCTU HEAD -- . ':(exclude)memory/'   # 只看存量文件的写入；扣除开工 baseline 后非空即升级
+# 🔴 用 SKILL.md 里的 tree diff 流程（① 开工前 plaud_theme_tree + sb_baseline_overlap，
+#    ③ 收尾 plaud_theme_tree + plaud_changeset_scope，④ plaud_declared_diff，⑤ base-tree 查询）。
+#    📎 v0.3.0 起解除：v0.2.3 那句「不要跑裸 git diff」是针对已废弃的名字集合采集法说的，
+#    新模型下判据是两棵 tree 的对象比较，`git diff <tree-oid> <tree-oid>` 正是正确写法。
+#    📎 v0.2.3 曾担心的两件事在新模型里被构造性解决：未跟踪文件由空白临时索引下的
+#    `git add -A -f` 自己枚举（新建的 sa-* 不会被漏掉）；`memory/` 不在可发布面内，
+#    合法的 memory/ 更新不会被当成存量主题修改而错误升级。
+BASE_HEAD_SHA=$(git rev-parse HEAD)                      # 开工前取
+sb_baseline_overlap "$BASE_HEAD_SHA" "$PATHLIST"         # 开工前：声明路径不得已脏
+# 收尾：声明路径里哪些在 baseline commit 里就已经存在 → 非空即升级 LegacyImpact
+set --
+while IFS= read -r p; do [ -n "$p" ] && set -- "$@" ":(literal)$p"; done < "$PATHLIST"
+git -c core.hooksPath=/dev/null -c core.fsmonitor=false \
+    ls-tree -r --full-tree -z "$BASE_HEAD_SHA^{tree}" -- "$@" | tr '\0' '\n' | sed '/^$/d' | cut -f2-
 ```
 
 开工前先存 baseline，只判定**本 ChangeSet 新产生的**变化；不要用 `git status --porcelain` 首列过滤（`AM` 会被误判为存量改动）。

@@ -8,7 +8,7 @@ and retire the superseded single skill it replaces.
 This package root is **not** a skill. Each root-level directory containing `SKILL.md`
 is one independent skill. Never copy the package root itself into a skills directory.
 
-Package version: `v0.2.3`.
+Package version: `v0.3.0`.
 
 ## Supported Targets
 
@@ -225,9 +225,11 @@ Read `plaud-theme-shared/references/handoff-schema.md` before any matrix work.
 - `NotApplicable` is a **legal terminal state**, unlike `Blocked` / `NotRun` — but it
   requires applicability evidence ("no `.liquid` changed, so Theme Check does not
   apply"). A `NotApplicable` with no evidence is treated as `Blocked`.
-- `ChangeSetId` binds **content**, not just filenames: `BaseHeadSha` +
-  `ChangeSetFingerprint` are recomputed by QA before any check runs. Same file list with
-  changed content is a mismatch and stops QA.
+- `ChangeSetId` binds **content**, not just filenames: the identity triple
+  `ObjectFormat` + `ThemeTreeOid` + `ChangeSetScopeFingerprint` (an immutable git tree
+  object, built from a blank temp index; no commit, no HEAD/ref/user-index mutation) is
+  recomputed by QA before any check runs. Same file list with changed content is a
+  mismatch and stops QA. `BaseHeadSha` is the pre-work baseline — recorded, not compared.
 - `AllChangeSetsDelivered` in the orchestrator's artifact is a **roll-up reading, not a
   delivery permission**. The coordination artifact carries no `ReadyForDelivery` field at
   all.

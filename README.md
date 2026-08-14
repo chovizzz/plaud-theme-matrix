@@ -1,4 +1,4 @@
-# PLAUD Shopify Theme Matrix v0.2.3
+# PLAUD Shopify Theme Matrix v0.3.0
 
 Plaud 品牌 Shopify Online Store 主题开发的 **10 个 skill 矩阵**。它取代原来的单 skill
 `plaud-shopify-theme` —— 同一份规范被拆成契约层、编排层、Assess / Implement / Verify 三阶段，
@@ -55,11 +55,11 @@ curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/in
 **钉一个版本**（复现某次交付时用这个，别用「最新」）：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh | sh -s -- --ref v0.2.3
+curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh | sh -s -- --ref v0.3.0
 ```
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.ps1))) -Ref v0.2.3
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.ps1))) -Ref v0.3.0
 ```
 
 **自检**（装了什么版本、树是否逐文件一致、有没有陈旧残留）：
@@ -89,7 +89,7 @@ sh 与 PowerShell 两边**同名同义**：
 
 | sh | PowerShell | 含义 |
 |---|---|---|
-| `--ref v0.2.3` | `-Ref v0.2.3` | 装哪个发布 tag。缺省 = 最新 tag；**解析不出来就报错，绝不静默装 `main`** |
+| `--ref v0.3.0` | `-Ref v0.3.0` | 装哪个发布 tag。缺省 = 最新 tag；**解析不出来就报错，绝不静默装 `main`** |
 | `--check` | `-Check` | 自检，不安装 |
 | `--dry-run` | `-DryRun` | 只报告要做什么，不碰任何安装目标 |
 | `--clients cursor,claude` | `-Clients cursor,claude` | 只装子集（**不推荐**，见下） |
@@ -152,7 +152,7 @@ marker 里的 `commit:` 也会跟该 tag **当前实际指向的 commit** 比对
 ```bash
 curl -fsSL -o /tmp/plaud-install.sh https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh
 less /tmp/plaud-install.sh          # 看一眼
-sh /tmp/plaud-install.sh --ref v0.2.3
+sh /tmp/plaud-install.sh --ref v0.3.0
 ```
 
 ### WSL / Git Bash 与 PowerShell 不要互相污染
@@ -178,7 +178,7 @@ sh /tmp/plaud-install.sh --ref v0.2.3
 - **客户端 skills 目录不存在时会被跳过**，除非 `--create-missing` 点名它（或 `all`）。安装器会在结尾
   明确列出被跳过的客户端 —— 这是「我以为装好了」的主要来源。
 - **`--ref` 缺省依赖 GitHub API**。离线、被限流、或仓库还没有 tag 时，安装器**报错退出**，
-  不会退回去装 `main`（未评审的 `main` 不是一个发布）。这时显式给 `--ref v0.2.3`。
+  不会退回去装 `main`（未评审的 `main` 不是一个发布）。这时显式给 `--ref v0.3.0`。
 
 ## 从单 skill `plaud-shopify-theme` 迁移
 
@@ -263,6 +263,34 @@ curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/in
 - `memory/changeset-log.md`
 
 缺失时 skill 会**停下问用户**，不会凭空重建一份。
+
+## v0.3.0 关键变化
+
+**契约层破坏性变更：ChangeSet 身份从「工作树状态文本的 SHA-256」改绑「不可变 git tree 对象的 oid」。**
+这是 v0.2.3 里那条「彻底解法留 v0.3.0」的兑现，跨版本**不兼容**。
+
+- **`ChangeSetFingerprint` 废止**，身份改为三元组 `ObjectFormat` + `ThemeTreeOid` + `ChangeSetScopeFingerprint`。
+  旧工件里的该字段**不可换算**成新值——在途的 ChangeSet 必须重新生成身份并重跑 QA，不得手工映射。
+- **`plaud_fingerprint()` 废止**，换成六个函数（`plaud_theme_tree` / `plaud_changeset_scope` /
+  `plaud_declared_diff` / `plaud_base_theme_tree` / `plaud_stage_workspace` / `plaud_stage_verified`）。
+- **`BaseHeadSha` 降级**为「开工前捕获的 baseline commit」，仍必填、仍须可解析，但**不再是失配判据**。
+- **指纹范围改成只收可发布面**（`assets blocks config layout locales sections snippets templates` +
+  仓库根 `.shopifyignore`）。`memory/` 天然落在范围外，不再需要显式排除。
+- **多块同批发版从「不支持」改为「支持但必须有集成 QA」**（`QAScope: Integration`）；
+  `IncludedInThisPush: Yes` 至多一个的限制删除。**并行语义随之反转**——不再是「同树一律串行」。
+- **工件字段数全变**：§4 20→22、§5 26→35、§9.1 Coordination 8→9、§9.1.2 QAIntake 23→26、
+  §9.1.4 ReleaseOps 16→28。
+- **`ModifiedFiles` 格式收紧**为逐条 `- "<逐字路径>": <一句话改动>`，它同时是
+  `ChangeSetScopeFingerprint` 与 `DeclaredDiffCheck` 的机器输入；路径含双引号 → 函数 fail closed。
+- **`memory/changeset-log.md` 的列变了**：`ChangeSetFingerprint` 一列 →
+  `ObjectFormat` + `ThemeTreeOid`（前 12 位）+ `ScopeFP` 三列。旧行不回填，按旧语义阅读。
+- **新增三条运行环境前提**：可写 `TMPDIR`、git ≥ 2.25、**取证只支持 macOS / Linux**
+  （Windows 上 Git 默认 `core.fileMode=false` + `core.autocrlf=true`，两道字节保真门必然停机）。
+
+🔴 **升级须四端同时进行**。同一棵 `memory/` 被两个版本的 spec 处理，是本项目记录在案的客户端漂移事故形态；
+v0.3.0 的 `changeset-log.md` 列结构与 v0.2.x 不同，混用会让 QA 把正常交付判成失配。
+
+完整的 13 条破坏性变更清单与迁移口径见 [`CHANGELOG.md`](CHANGELOG.md)。
 
 ## v0.2.2 关键变化
 
@@ -429,7 +457,7 @@ ChangeSet 内容绑定（`ChangeSetId` + `BaseHeadSha` + `ChangeSetFingerprint`�
 | `install.ps1` 从未在 Windows 上跑过 | **仅静态审查**（本机无 PowerShell，连语法解析都没跑过），是 `install.sh` 的静态移植。`install.sh` 则在 macOS 上实跑验证过：装最新 / 钉 `--ref v0.2.2` / `--check` / `--dry-run`、造陈旧残留、注入失败的 `tar`/`git`/`curl`/`mktemp`、`chmod 500` 使删除失败、symlink 目标、截断的管道，bash 3.2 / dash / zsh 三家。首次在 Windows 上用前先跑 `-DryRun`，再跑 `-Check` |
 | 三个新 skill 未做行为评测 | `qa-intake` / `feedback-triage` / `release-ops` 的契约与 evals（各 12 条）齐备，但**没有真实任务验证过**。v0.1.0 的教训是：四轮 Codex 评审 + 205 条 eval + 全套静态校验都没抓到的指纹 bug，只有真跑才发现 |
 | UX Spec 有两处待设计方裁决 | ① A11y 项（Advisory：`#717171` 压暖白底 4.26 / 压卡片底 4.49、`#8F53ED` 压暖白底 3.96、角标 Hot 3.17；**Failed**：角标 Pre Order 1.30）；② 品牌渐变 §2.8 说「渐变仅用于 Announcement Bar」，字面上会读成 AI 渐变也不许用——本版判定为**未覆盖而非废止**，原样保留 AI 渐变并标记待确认 |
-| **不支持多 ChangeSet 同批发版** | 指纹绑整个工作树，第二块落盘时第一块的 QA 即失效；而"合并后跑集成 QA"在这个模型下也跑不通（合并提交后工作树是干净的）。需要发多块时**逐块串行**。彻底解法（指纹改绑不可变 commit / tree 对象）留 v0.3.0 |
+| **取证只支持 macOS / Linux** | v0.3.0 的身份三元组取证需要**可写 `TMPDIR`** 与 **git ≥ 2.25**。Windows 上 Git 默认 `core.fileMode=false` + `core.autocrlf=true`，两道字节保真门必然停机 → 取证不可用（安装器本身仍可在 Windows 上跑） |
 | 提测材料必须能内容绑定 | 放在无版本号 / 无 digest 的外链上的材料判 `Incomplete` —— 要么下载到本地参与 hash，要么换成能取版本号的载体（飞书文档 revision、Linear 附件 ID）。否则防替换链有洞 |
 | 品牌渐变无法直接落地 | 只有 5 个色标，圆心 / 半径 / 形状 / stop 位置全缺。要用时停机要 Figma，不得编造 |
 | `memory/` 四个文件需先建 | 缺失时 skill 会停机问你，不会凭空重建。首次接入可从 `plaud-theme-ux-migration/references/memory-seed/` 复制种子（那是 2026-07 快照，复制后即由项目维护） |

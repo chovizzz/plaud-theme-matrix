@@ -1,7 +1,7 @@
 {
   "skill_name": "plaud-theme-section-build",
   "skill": "plaud-theme-section-build",
-  "version": "v0.2.3",
+  "version": "v0.3.0",
   "path": "B",
   "stage": "Implement",
   "evals": [
@@ -271,7 +271,8 @@
         "输出的 NextRequiredSkill 是 plaud-theme-qa-intake（提测准入），不是直接给 plaud-theme-qa；并说明实现侧无权判定通过。"
       ],
       "forbidden": [
-        "ReadyForDelivery: Yes"
+        "我判定本块可以交付上线",
+        "本块已通过验收，可以发了"
       ]
     },
     {
@@ -298,12 +299,14 @@
     {
       "id": "sb-25-handoff-contract-block",
       "prompt": "sa-shop-banner 做完了。上游评估是 ASMT-20260806-07（IntegrationSurface，ReadyForImplement: Yes，BlockingGaps 为空），git status 显示只有三个新增文件：sections/sa-shop-banner.liquid、assets/sa-shop-banner.css、snippets/sa-shop-banner-card.liquid。给我交接信息。",
-      "expected_output": "回复最后是 handoff-schema §4 的 yaml 块，含 CS-<YYYYMMDD>-B<NN> 格式的 ChangeSetId、交付当刻现算的 BaseHeadSha 与 ChangeSetFingerprint、ReadOnlyProof: N/A、Path: B、RequiredQAProfile 含 QA-B 且不含 QA-Global、QAStatus: NotRun、ReadyForDelivery: No、NextRequiredSkill: plaud-theme-qa-intake，以及 ApprovedExceptions（本块无声明则为 []）。（🔴 harness 是全局 substring：回答里**不要复述** forbidden 列出的那串错误赋值，要指代就换个说法。）",
+      "expected_output": "回复最后是 handoff-schema §4 的 yaml 块，含 CS-<YYYYMMDD>-B<NN> 格式的 ChangeSetId、开工前捕获的 BaseHeadSha、交付当刻现算的 ObjectFormat + ThemeTreeOid + ChangeSetScopeFingerprint 三元组、ReadOnlyProof: N/A、Path: B、RequiredQAProfile 含 QA-B 且不含 QA-Global、QAStatus: NotRun、ReadyForDelivery: No、NextRequiredSkill: plaud-theme-qa-intake，以及 ApprovedExceptions（本块无声明则为 []）。ModifiedFiles 三条路径必须用双引号包住、逐字精确。（🔴 harness 是全局 substring：回答里**不要复述** forbidden 列出的那串错误赋值，要指代就换个说法。）",
       "assertions": [
         "ChangeSetId:",
         "ReadOnlyProof",
-        "ChangeSetFingerprint",
         "BaseHeadSha",
+        "ObjectFormat",
+        "ThemeTreeOid",
+        "ChangeSetScopeFingerprint",
         "CS-",
         "-B",
         "Path: B",
@@ -325,8 +328,11 @@
         "NextRequiredSkill: plaud-theme-qa-intake",
         "ReadyForDelivery: No",
         "yaml 块还含这些字段：OriginTriageRef。",
-        "yaml 块的 key 集合与 handoff-schema §4（20 字段）**完全一致**：20 个、顺序一致、无自造 key、无漏字段。",
-        "yaml 块的 RequiredQAProfile 取值集合只含 QA-A / QA-B / QA-C，**不含 QA-Global**（QA-Global 由 QA 恒执行并记进 QAProfilesRun，任何上游工件写它都是违规）。"
+        "yaml 块的 key 集合与 handoff-schema §4（22 字段）**完全一致**：22 个、顺序一致、无自造 key、无漏字段。",
+        "yaml 块的 RequiredQAProfile 取值集合只含 QA-A / QA-B / QA-C，**不含 QA-Global**（QA-Global 由 QA 恒执行并记进 QAProfilesRun，任何上游工件写它都是违规）。",
+        "输出说明 BaseHeadSha 是开工前捕获的 baseline commit，不是交付工件时的 HEAD。",
+        "ModifiedFiles 的每条路径用双引号包住且逐字精确（不 trim、不 glob、不写目录）。",
+        "输出说明：中途要扩大声明范围时，必须在写入新路径之前把它加进清单并重跑开工前的 baseline 脏重叠门；已经写过才补声明 → 停机隔离、取新的 BaseHeadSha 重来。"
       ],
       "forbidden": [
         "RequiredQAProfile: QA-Global",
@@ -337,11 +343,13 @@
       "kind": "rule",
       "validator": {
         "type": "yaml-block-exact-keys",
-        "note": "string-contains 无法验证「完全一致」。需 harness 实现结构化校验：取回复最后一个 fenced yaml block → 解析 → Object.keys() 与 expectedKeys 严格相等且顺序相等 → 检查 yaml fence 之后无非空内容 → 检查 forbiddenKeys 均不存在。若 harness 未实现 validator，本条按「未验证」记，不得因 assertions 全中就判通过（v0.2.2 第九轮补：此前这四条只有 substring 断言，缺 key / 多 key / 顺序错都验不出来）。 🔴 **本条 `forbidden` 的定位（v0.2.2 收口）**：它们只是 validator 未落地前的 substring **回退**，语义已由上面的结构化校验完整承载。harness 真正执行本 validator 后可以整批删除；在那之前不得删——删了当前 substring runner 对这些 key 就完全没有机械约束。 🔴 **`fieldValueConstraints` 的语义（v0.2.2 新增，用于把「不得写 QA-Global」从 substring 提升为结构校验）**：只解析**最后一个** fenced yaml block 里该 key 的值，**不扫描正文**（正文里解释「QA-Global 不得写进本字段」不算违规）；`mode: \"set\"` 表示该值是一个多选集合——形态可以是逗号分隔标量（`QA-A, QA-B`）或 YAML list，解析后**逐成员**比对：任一成员不在 `allowedValues` 内、或命中 `forbiddenValues`，即判违规。🔴 **harness 未实现该扩展时本条按「未验证」记，不得静默忽略后凭 assertions 判通过**——这也是下面那几条 `forbidden` 在 evaluator 落地前**不能删**的原因。evaluator 落地时至少要过三类回归：① 正确的 `QA-A, QA-B` 通过；② yaml 字段里出现 `QA-Global` 判违规；③ 正文提到「QA-Global 不得写入该字段」但最终 yaml 合法 → 通过。 `minItems: 1` / `allowEmpty: false`：空集合（`RequiredQAProfile: []` 或留空）**不算通过**，否则「不含 QA-Global」这条约束可以靠什么都不填来真空满足。 🔴 解析时**必须拒绝重复 key**（YAML parser 默认可能把重复项折叠掉，那样 `Object.keys()` 少一个、缺 key 与重复 key 两种错误都验不出来）。",
+        "note": "string-contains 无法验证「完全一致」。需 harness 实现结构化校验：取回复最后一个 fenced yaml block → 解析 → Object.keys() 与 expectedKeys 严格相等且顺序相等 → 检查 yaml fence 之后无非空内容 → 检查 forbiddenKeys 均不存在。若 harness 未实现 validator，本条按「未验证」记，不得因 assertions 全中就判通过（v0.2.2 第九轮补：此前这四条只有 substring 断言，缺 key / 多 key / 顺序错都验不出来）。 🔴 **本条 `forbidden` 的定位（v0.2.2 收口）**：它们只是 validator 未落地前的 substring **回退**，语义已由上面的结构化校验完整承载。harness 真正执行本 validator 后可以整批删除；在那之前不得删——删了当前 substring runner 对这些 key 就完全没有机械约束。 🔴 **`fieldValueConstraints` 的语义（v0.2.2 新增，用于把「不得写 QA-Global」从 substring 提升为结构校验）**：只解析**最后一个** fenced yaml block 里该 key 的值，**不扫描正文**（正文里解释「QA-Global 不得写进本字段」不算违规）；`mode: \"set\"` 表示该值是一个多选集合——形态可以是逗号分隔标量（`QA-A, QA-B`）或 YAML list，解析后**逐成员**比对：任一成员不在 `allowedValues` 内、或命中 `forbiddenValues`，即判违规。🔴 **harness 未实现该扩展时本条按「未验证」记，不得静默忽略后凭 assertions 判通过**——这也是下面那几条 `forbidden` 在 evaluator 落地前**不能删**的原因。evaluator 落地时至少要过三类回归：① 正确的 `QA-A, QA-B` 通过；② yaml 字段里出现 `QA-Global` 判违规；③ 正文提到「QA-Global 不得写入该字段」但最终 yaml 合法 → 通过。 `minItems: 1` / `allowEmpty: false`：空集合（`RequiredQAProfile: []` 或留空）**不算通过**，否则「不含 QA-Global」这条约束可以靠什么都不填来真空满足。 🔴 解析时**必须拒绝重复 key**（YAML parser 默认可能把重复项折叠掉，那样 `Object.keys()` 少一个、缺 key 与重复 key 两种错误都验不出来）。 📎 v0.3.0：`ChangeSetFingerprint` 已废止，不再单列进 forbiddenKeys —— expectedKeys 的 22 key 严格相等已经覆盖它（多任何一个 key 都判违规），单列反而会让「废止字段名不得再出现」的全局扫描永久报警。",
         "expectedKeys": [
           "ChangeSetId",
           "BaseHeadSha",
-          "ChangeSetFingerprint",
+          "ObjectFormat",
+          "ThemeTreeOid",
+          "ChangeSetScopeFingerprint",
           "ReadOnlyProof",
           "AssessmentRef",
           "OriginTriageRef",
@@ -383,7 +391,15 @@
           "ApprovedExceptionsEvidence",
           "ProfileSpecificResults",
           "Advisories",
-          "Evidence"
+          "Evidence",
+          "VerificationId",
+          "QAScope",
+          "IntegrationOf",
+          "VerifiedThemeTreeOid",
+          "DiffBaseTreeOid",
+          "DeclaredDiffCheck",
+          "StageDirRef",
+          "ReadyForIntegration"
         ],
         "fieldValueConstraints": [
           {

@@ -1,6 +1,7 @@
 {
   "skill_name": "plaud-theme-ux-migration",
-  "matrix": "plaud-shopify-theme-matrix-v0.2.2",
+  "matrix": "plaud-shopify-theme-matrix-v0.3.0",
+  "version": "v0.3.0",
   "path": "C",
   "stage": "Implement",
   "evals": [
@@ -144,7 +145,7 @@
       "id": 11,
       "route": "log-timing-and-wording",
       "prompt": "改动我看了觉得没问题，你现在就把迁移日志写了吧。日志里把 schema 字段名、改的 CSS class 和文件路径都写清楚，方便以后查。",
-      "expected_output": "需用户明确视觉验收通过才写日志；日志措辞禁用 schema/scheme/CSS class/file path/JS 函数名等代码术语，须业务可读。且视觉验收 ≠ QA 通过：memory 状态只能写「视觉已确认，待 QA」，完成态（✅ DONE / 已迁 / 已修）需 changeset-log 中对应 ChangeSetId 的 ReadyForDelivery: Yes 且指纹未失效才可写。",
+      "expected_output": "需用户明确视觉验收通过才写日志；日志措辞禁用 schema/scheme/CSS class/file path/JS 函数名等代码术语，须业务可读。且视觉验收 ≠ QA 通过：memory 状态只能写「视觉已确认，待 QA」；完成态（✅ DONE / 已迁 / 已修）需 changeset-log 中对应 ChangeSetId 的 ReadyForIntegration: Yes、存在覆盖它的 ReadyForDelivery: Yes 工件，且身份三元组未失效才可写。",
       "files": [],
       "assertions": [
         "输出要求用户明确验收通过（而非仅口头觉得没问题）后才登记 UX 差异日志内容。",
@@ -154,7 +155,7 @@
         "输出说明 disabled 实例不登记、空值 pre/sub heading 不列。",
         "输出区分 VisualAcceptance 与 QAStatus 两个正交状态，说明用户视觉验收不等于 QA 通过。",
         "输出说明此时 memory 三文件的状态只能写「视觉已确认，待 QA」，不得写 ✅ DONE / 已迁 / 已修。",
-        "输出说明完成态需 changeset-log 中存在对应 ChangeSetId、ReadyForDelivery: Yes 且 ChangeSetFingerprint 未失效才能写入。"
+        "输出说明完成态需 changeset-log 中存在对应 ChangeSetId、该块 ReadyForIntegration: Yes、存在覆盖它的 ReadyForDelivery: Yes 工件，且身份三元组（ObjectFormat + ThemeTreeOid + ChangeSetScopeFingerprint）未失效才能写入。"
       ]
     },
     {
@@ -188,12 +189,13 @@
       "id": 14,
       "route": "handoff-contract",
       "prompt": "今天第 2 个 Path C 改动做完了，按矩阵格式给我交接块。",
-      "expected_output": "输出 handoff-schema §4 的完整 yaml 块（20 个字段，含 ApprovedExceptions、顺序一致），ChangeSetId 为 CS-<YYYYMMDD>-C02，含交付当刻现算的 BaseHeadSha 与 ChangeSetFingerprint、ReadOnlyProof: N/A，Path: C，RequiredQAProfile 含 QA-C 且不含 QA-Global，QAStatus: NotRun，ReadyForDelivery: No。",
+      "expected_output": "输出 handoff-schema §4 的完整 yaml 块（22 个字段，含 ApprovedExceptions、顺序一致），ChangeSetId 为 CS-<YYYYMMDD>-C02，含开工前捕获的 BaseHeadSha 与交付当刻现算的 ObjectFormat + ThemeTreeOid + ChangeSetScopeFingerprint 三元组、ReadOnlyProof: N/A，Path: C，RequiredQAProfile 含 QA-C 且不含 QA-Global，QAStatus: NotRun，ReadyForDelivery: No。",
       "files": [],
       "assertions": [
         "输出最后是一个 yaml 代码块，且字段名与顺序与 handoff-schema.md §4 一致。",
         "输出的 ChangeSetId 形如 CS-<YYYYMMDD>-C02。",
-        "输出含 BaseHeadSha 与 ChangeSetFingerprint，并说明是交付工件时当场用 §2 的命令生成的。",
+        "输出含 ObjectFormat、ThemeTreeOid、ChangeSetScopeFingerprint，并说明是交付工件时当场用 §2.5 的 plaud_theme_tree / plaud_changeset_scope 生成的。",
+        "输出含 BaseHeadSha，并说明它是开工前捕获的 baseline commit，不是交付工件时的 HEAD。",
         "输出含 ReadOnlyProof（有改动任务填 N/A）。",
         "输出包含 Path: C。",
         "输出的 RequiredQAProfile 含 QA-C（QA-Global 不写进该字段）。",
@@ -201,16 +203,18 @@
         "输出的 yaml 块不含 ChangeSetIdMatched、RegressionMatrix、ReadyForImplement 等其它阶段字段。",
         "yaml 块含 ApprovedExceptions 字段（无声明时为 []）。",
         "yaml 块还含这些字段：AssessmentRef、OriginTriageRef、ReconMode、ModifiedFiles、RootCause、OptionsConsidered、ThemeCheckRequired、VisualRegressionRequired、BuildRequired、BlockingGaps（v0.2.2 第八轮补：此前断言只覆盖了一部分，漏的字段可以整个不写而 eval 仍通过）。",
-        "yaml 块的 key 集合与 handoff-schema §4（20 字段） **完全一致**：20 个、顺序一致、无自造 key、无漏字段——多一个 key 或少一个 key 都算契约违规。"
+        "yaml 块的 key 集合与 handoff-schema §4（22 字段） **完全一致**：22 个、顺序一致、无自造 key、无漏字段——多一个 key 或少一个 key 都算契约违规。"
       ],
       "kind": "rule",
       "validator": {
         "type": "yaml-block-exact-keys",
-        "note": "string-contains 无法验证「完全一致」。需 harness 实现结构化校验：取回复最后一个 fenced yaml block → 解析 → Object.keys() 与 expectedKeys 严格相等且顺序相等 → 检查 yaml fence 之后无非空内容 → 检查 forbiddenKeys 均不存在。若 harness 未实现 validator，本条按「未验证」记，不得因 assertions 全中就判通过（v0.2.2 第九轮补：此前这四条只有 substring 断言，缺 key / 多 key / 顺序错都验不出来）。 🔴 解析时**必须拒绝重复 key**（YAML parser 默认可能把重复项折叠掉，那样 `Object.keys()` 少一个、缺 key 与重复 key 两种错误都验不出来）。",
+        "note": "string-contains 无法验证「完全一致」。需 harness 实现结构化校验：取回复最后一个 fenced yaml block → 解析 → Object.keys() 与 expectedKeys 严格相等且顺序相等 → 检查 yaml fence 之后无非空内容 → 检查 forbiddenKeys 均不存在。若 harness 未实现 validator，本条按「未验证」记，不得因 assertions 全中就判通过（v0.2.2 第九轮补：此前这四条只有 substring 断言，缺 key / 多 key / 顺序错都验不出来）。 🔴 解析时**必须拒绝重复 key**（YAML parser 默认可能把重复项折叠掉，那样 `Object.keys()` 少一个、缺 key 与重复 key 两种错误都验不出来）。 📎 v0.3.0：`ChangeSetFingerprint` 已废止，不再单列进 forbiddenKeys —— expectedKeys 的 22 key 严格相等已经覆盖它（多任何一个 key 都判违规），单列反而会让「废止字段名不得再出现」的全局扫描永久报警。",
         "expectedKeys": [
           "ChangeSetId",
           "BaseHeadSha",
-          "ChangeSetFingerprint",
+          "ObjectFormat",
+          "ThemeTreeOid",
+          "ChangeSetScopeFingerprint",
           "ReadOnlyProof",
           "AssessmentRef",
           "OriginTriageRef",
@@ -253,7 +257,31 @@
           "ProfileSpecificResults",
           "Advisories",
           "Evidence",
-          "ReadyForImplement"
+          "ReadyForImplement",
+          "VerificationId",
+          "QAScope",
+          "IntegrationOf",
+          "VerifiedThemeTreeOid",
+          "DiffBaseTreeOid",
+          "DeclaredDiffCheck",
+          "StageDirRef",
+          "ReadyForIntegration"
+        ],
+        "fieldValueConstraints": [
+          {
+            "field": "RequiredQAProfile",
+            "mode": "set",
+            "allowedValues": [
+              "QA-A",
+              "QA-B",
+              "QA-C"
+            ],
+            "forbiddenValues": [
+              "QA-Global"
+            ],
+            "minItems": 1,
+            "allowEmpty": false
+          }
         ]
       }
     },
@@ -365,13 +393,17 @@
       "id": 23,
       "route": "platform-and-preflight",
       "prompt": "我在 Windows 上做这个迁移。你把审计要跑的命令给我，我照着贴。",
-      "expected_output": "前置：平台检测，Bash 命令须换 PowerShell 等价物，不得原样假跑；并提示必读文件定位。",
+      "expected_output": "前置：平台检测，Bash 命令须换 PowerShell 等价物，不得原样假跑；并提示必读文件定位。 🔴 但身份取证（handoff-schema §2.5 的 plaud_theme_tree / plaud_changeset_scope / plaud_declared_diff）只支持 macOS / Linux，Windows 上没有可用的 PowerShell 等价物，不得自写一份降级生成；相关 QA / release 检查项一律 Blocked。",
       "files": [],
       "assertions": [
         "输出说明本包命令示例是 Bash，Windows 下需换成 PowerShell 等价命令（如 Select-String）。",
         "输出提醒不得原样贴一条跑不了的命令然后当作已核查。",
         "输出提到仓库根路径按本地 clone 位置调整。",
-        "输出仍要求跑 disabled 实例与空 heading 两项核查。"
+        "输出仍要求跑 disabled 实例与空 heading 两项核查。",
+        "输出说明 §2.5 的身份取证函数只支持 macOS / Linux，Windows 上不得改写成 PowerShell 版本，相关检查项填 Blocked。"
+      ],
+      "forbidden": [
+        "我把 plaud_theme_tree 改写成了 PowerShell 版本"
       ]
     },
     {

@@ -43,15 +43,15 @@ ls <theme-root>/{sections,snippets,layout,config}    # 确认是 theme root
 **这是最隐蔽的绕过路径**：本次改动如果动了 `.theme-check.yml`（新增 exclude、关掉某个 check、改 severity），或在代码里加了 suppression 注释，那么 after 那次跑出来的 offense 会被合法地隐藏，差集自然为 0。新增文件也可以靠把自己加进 exclude 来豁免。
 
 ```bash
-# (a) 检查配置是否被本次改动碰过
-git diff --name-only HEAD | grep -E '\.theme-check\.ya?ml|\.shopifyignore'
+# (a) 检查配置是否被本次改动碰过（基准是 BaseHeadSha，不是 HEAD —— 见 §2 的 📎）
+git -C <theme-root> diff --name-only <BaseHeadSha> | grep -E '\.theme-check\.ya?ml|\.shopifyignore'
 # (b) 新增的 suppression 指令
-git diff HEAD -U0 | grep -nE '^\+.*theme-check-(disable|disable-next-line)'
+git -C <theme-root> diff <BaseHeadSha> -U0 | grep -nE '^\+.*theme-check-(disable|disable-next-line)'
 ```
 
 | 结果 | 处理 |
 |---|---|
-| (a) 有命中 | 默认 `ThemeCheck: Blocked`。要继续必须：① 用户明确授权该配置变更；② **before / after 两次都强制用同一份配置**（把 HEAD 版本的配置显式传给两次运行），并在 `ThemeCheckEvidence` 写明用的哪一份。 |
+| (a) 有命中 | 默认 `ThemeCheck: Blocked`。要继续必须：① 用户明确授权该配置变更；② **before / after 两次都强制用同一份配置**（把 `BaseHeadSha` 版本的配置显式传给两次运行），并在 `ThemeCheckEvidence` 写明用的哪一份。 |
 | (b) 有命中 | 逐条列出并要求说明理由。无理由 → `Failed`。suppression 是"承认有问题但选择忽略"，不是"没问题"。 |
 | 都无命中 | 继续。仍要在 Evidence 里写"配置未变更"这一句结论。 |
 
@@ -59,45 +59,42 @@ git diff HEAD -U0 | grep -nE '^\+.*theme-check-(disable|disable-next-line)'
 
 ## 2. 取 baseline（改动前状态）
 
-前提：Step 1 的 ChangeSetId 校验已通过，即工作树改动 **恰好** 等于 `ModifiedFiles`。此时 `HEAD` 就是改动前状态。**校验未过就不要跑 baseline**——baseline 会把别人的改动一起算进去。
+前提：Step 1 的四重绑定校验已通过（文件集合 + `ObjectFormat` + `ThemeTreeOid` + `ChangeSetScopeFingerprint`），且 `BaseHeadSha` **可解析**。**校验未过就不要跑 baseline**——baseline 会把别人的改动一起算进去。
 
-### 方案 A（推荐，不动工作树）— 临时 worktree
+📎 **v0.3.0 起 baseline 的锚点是 `BaseHeadSha`，不是 `HEAD`。** v0.2.x 靠"ChangeSetId 校验通过 ⇒ HEAD 就是改动前状态"来取 baseline；新模型不再拿 HEAD 做失配判据（handoff-schema §2.8），实施期间 commit 是合法的 —— 继续用 `HEAD` 会把**本次的改动当成基线**，差集恒为空、门形同虚设。
 
-```bash
-BASE=$(mktemp -d)/base
-git -C <theme-root> worktree add --detach "$BASE" HEAD
-shopify theme check --path "$BASE" --output json > /tmp/tc-before.json 2>/tmp/tc-before.err
-# 收尾
-git -C <theme-root> worktree remove --force "$BASE"
-```
+**`BaseHeadSha` 缺失或不可解析 → `ThemeCheck: Blocked`**，不是 `NotApplicable`、不是"就用 HEAD 凑合"。
 
-优点：不碰用户工作树，无 stash 冲突风险。
-**注意（必查）**：worktree 里没有 `node_modules`，也没有 **ignored 的 build 产物**。如果 `.gitignore` 覆盖了 `shopify-common` 的输出而 theme check 又依赖它 → baseline 与 after 的产物状态不同 → 差集失真。此时必须在 worktree 里按 HEAD 重新 build（记录 build 命令与产物 hash 写进 Evidence），做不到就 `ThemeCheck: Blocked`。
+### 唯一方案 — 从 `BaseHeadSha` 物化 baseline
 
 ```bash
-git -C <theme-root> check-ignore -v $(git -C <theme-root> diff --name-only HEAD)   # 有输出即踩雷
+BASE="$(mktemp -d "${TMPDIR:-/tmp}/plaud-qa-baseline.XXXXXX")"    # 🔴 必须在仓库外
+git -C <theme-root> rev-parse --verify "<BaseHeadSha>^{commit}" >/dev/null \
+  || { echo "BASE_UNRESOLVABLE"; exit 1; }                        # → ThemeCheck: Blocked
+git -C <theme-root> archive --format=tar "<BaseHeadSha>^{tree}" | tar -x -C "$BASE"
+shopify theme check --path "$BASE" --output json > "$SCRATCH/tc-before.json" 2>"$SCRATCH/tc-before.err"
 ```
 
-### 方案 B（备选）— git stash
+- `^{tree}` 不能省：`git archive` 收的是那个 commit 的整棵树，写清楚取的是树对象，避免有人传一个 tag / branch 名进来时语义漂移。
+- 物化目录**放 scratch，不放仓库内**；用完删掉。
+
+**注意（必查，物化方案下比 worktree 更严重）**：物化目录里**没有** `node_modules`、**没有 ignored 的 build 产物**，也没有任何未跟踪文件。如果 `.gitignore` 覆盖了 `shopify-common` 的输出而 theme check 又依赖它 → baseline 与 after 的产物状态不同 → 差集失真。此时必须在物化目录里按 `BaseHeadSha` 重新 build（记录 build 命令与产物 hash 写进 `Evidence`），做不到就 `ThemeCheck: Blocked`。
 
 ```bash
-cd <theme-root>
-git stash push --include-untracked -m "qa-baseline-<ChangeSetId>"
-shopify theme check --path . --output json > /tmp/tc-before.json 2>/dev/null
-git stash pop
-git status --porcelain          # 必须与 stash 前一致，否则立刻停机报警
+git -C <theme-root> check-ignore -v $(git -C <theme-root> diff --name-only <BaseHeadSha>)   # 有输出即踩雷
 ```
 
-**两个已知缺陷，必须显式排除后才能用方案 B：**
-
-1. `--include-untracked` **不含 ignored 文件**。若被改的是 ignored 的 build 产物，stash 后它仍是 after 内容 → baseline 被污染 → 漏报。**不要**改用 `--all`（会连 `node_modules` 一起 stash，风险过高）；正确做法是确认本次没有 ignored 文件参与，否则改用方案 A + 重 build。
-2. **stash pop 冲突或工作树未完全还原 → 立即停机**，`ThemeCheck: Blocked`，明确告知用户改动可能残留在 `git stash list` 里。QA 弄丢别人的改动比漏检更严重。
+📎 **`git stash` 方案已删除**（v0.2.3 的方案 B）：stash 得到的是"相对**当前 HEAD** 的干净树"，而新模型的基线是 `BaseHeadSha` —— 中途 commit 过就完全不是同一棵树。它同时还有两个老缺陷（`--include-untracked` 不含 ignored 文件、pop 冲突可能弄丢用户改动）。**不要再用它取 baseline。**
 
 ### 改动后
 
+after 那一次跑在 **`StageDirRef` 指向的 workspace 快照**里（不是活工作树，handoff-schema §2.6）：
+
 ```bash
-shopify theme check --path <theme-root> --output json > /tmp/tc-after.json 2>/dev/null
+shopify theme check --path "$StageDirRef" --output json > "$SCRATCH/tc-after.json" 2>/dev/null
 ```
+
+`ThemeCheckEvidence` 里 before / after 两个目录都要写出来，否则无法复核跑的是不是同一对对象。
 
 **两次必须用同一 CLI 版本、同一 `--path` 语义（都是 theme root）、同一份 `.theme-check.yml`（见 §1.1）。** 换了任一项，差集无意义。
 
@@ -125,16 +122,21 @@ cd <theme-root>
 # 🔴 两个 git 选项必须固定，否则非 ASCII 路径会被引号化 / 转义，解析不出来：
 #    -c core.quotePath=false  → 路径按原样输出，不转成 \\344\\270\\255 这种八进制转义
 #    --no-color               → 避免 ANSI 序列混进 header
-GIT="git -c core.quotePath=false"
+# 🔴 基准一律是 <BaseHeadSha>，不是 HEAD（§2 的 📎）：改动被 commit 之后 HEAD 的 diff 是空的，
+#    manifest 与 hunks 一起变空 → 投影退化成恒等映射 → 位移抵消全部漏报。
+# 🔴 用**函数**包，不要写成 GIT="git -c core.quotePath=false" 再 $GIT：zsh 默认不对未加引号的
+#    变量做词分割（SH_WORD_SPLIT 关闭），$GIT 会被当成一个可执行文件名 → command not found。
+#    bash 3.2 下能跑、zsh 下跑不了的写法，等于一半的机器上这道门直接不执行（实测复现）。
+gitq() { git -c core.quotePath=false "$@"; }
 
 # (1) 改动清单（含 rename / copy 识别），NUL 分隔
-{ $GIT diff --name-status -M --find-renames -z HEAD;
-  $GIT ls-files --others --exclude-standard -z \
+{ gitq diff --name-status -M --find-renames -z "<BaseHeadSha>";
+  gitq ls-files --others --exclude-standard -z \
     | while IFS= read -r -d '' f; do printf 'A\0%s\0' "$f"; done;
-} > /tmp/manifest.bin
+} > "$SCRATCH/manifest.bin"
 
 # (2) diff hunk → { "<baseline 路径>": [{o,ol,n,nl}] }
-$GIT diff -U0 --no-color HEAD | node -e '
+gitq diff -U0 --no-color "<BaseHeadSha>" | node -e '
   let s = "";
   process.stdin.on("data", d => s += d).on("end", () => {
     const out = {}; let f = null; let orphanHunks = 0;
@@ -163,7 +165,7 @@ $GIT diff -U0 --no-color HEAD | node -e '
     if (orphanHunks) out.__parseErrors = orphanHunks;     // tc-diff.js 见到它就进 blockers
     console.log(JSON.stringify(out));
   });
-' > /tmp/hunks.json
+' > "$SCRATCH/hunks.json"
 
 # (3) ModifiedFiles（来自上游 §4 工件，已在 Step 1 校验过与 (1) 一致）
 ```
@@ -201,7 +203,8 @@ $GIT diff -U0 --no-color HEAD | node -e '
 | 新增文件的全部 offense | baseline 池里没有该文件的 occurrence |
 | offense 缺行号被拿去顶替存量条目 | 无行号一律不参与抵消，且进 `blockers` |
 
-把下面脚本存到 scratchpad（**不要写进用户仓库**）：
+把下面脚本存到 scratchpad（`$SCRATCH`，**不要写进用户仓库**）。
+📎 **理由 v0.3.0 起变了**：scratch 文件不在可发布面，**不再**让 `ThemeTreeOid` 失配（v0.2.x 会）。但仍然不该写进用户仓库——那是别人的工作树，QA 只做取证不留痕；而且写进仓库的 `.js` 一旦落在可发布目录下就会真的改变身份、还可能被推上线。
 
 ```js
 // tc-diff.js — Theme Check baseline 增量判定（逐 occurrence 匹配）
@@ -230,7 +233,7 @@ function main() {
   const beforePathOf = new Map(); // afterPath -> beforePath（R/C 都记，供 §7 扫描）
 
   const mfPath = arg('--manifest');
-  if (!mfPath) blockers.push('未提供 --manifest（git diff --name-status -M -z HEAD）');
+  if (!mfPath) blockers.push('未提供 --manifest（git diff --name-status -M -z <BaseHeadSha>）');
   else {
     // NUL 不会出现在 UTF-8 多字节序列内部，所以按 utf8 解码后再按 \0 切是安全的
     const toks = fs.readFileSync(mfPath, 'utf8').split('\u0000').filter((t) => t !== '');
@@ -258,7 +261,7 @@ function main() {
   // hunks.json 形如 { "<baseline 路径>": [{o,ol,n,nl}] }（o/ol = 旧起点·旧行数）
   let hunks = {};
   const hPath = arg('--hunks');
-  if (!hPath) blockers.push('未提供 --hunks（由 git diff -U0 HEAD 解析），无法做行号投影');
+  if (!hPath) blockers.push('未提供 --hunks（由 git diff -U0 <BaseHeadSha> 解析），无法做行号投影');
   else {
     try { hunks = JSON.parse(fs.readFileSync(hPath, 'utf8')); }
     catch (e) { blockers.push(`--hunks 解析失败：${e.message}`); hunks = {}; }
@@ -408,10 +411,10 @@ console.log(JSON.stringify(result, null, 2));
 跑法：
 
 ```bash
-node /tmp/tc-diff.js \
-  --before /tmp/tc-before.json --before-root "$BASE" \
-  --after  /tmp/tc-after.json  --after-root  <theme-root> \
-  --manifest /tmp/manifest.bin --hunks /tmp/hunks.json
+node "$SCRATCH/tc-diff.js" \
+  --before "$SCRATCH/tc-before.json" --before-root "$BASE" \
+  --after  "$SCRATCH/tc-after.json"  --after-root  "$StageDirRef" \
+  --manifest "$SCRATCH/manifest.bin" --hunks "$SCRATCH/hunks.json"
 ```
 
 脚本主流程整体 `try/catch`：**无论抛什么异常都输出合法 JSON 且 `blockers` 非空**，调用方永远不会把崩溃误读成"无新增"。
@@ -470,7 +473,9 @@ grep -rn "$BASE_NAME" <theme-root>/templates/*.json <theme-root>/config/*.json
 | **加 `theme-check-disable` 注释** | §1.1 (b)：逐条列出并要求理由，无理由 `Failed`。 |
 | **rename 后旧路径 offense 全成"假新增"，淹没真问题** | `--manifest` 用 `-M --find-renames`，脚本把 after 新路径映射回旧路径再比对。 |
 | **删文件绕过：lint 没报就算过** | §7：旧路径/basename 全仓引用扫描 + 运行时预览兜底。 |
-| **改的是 ignored 的 build 产物，stash/worktree 里 baseline 被污染** | §2：先跑 `git check-ignore -v`；踩雷则 worktree 内按 HEAD 重 build，做不到 `Blocked`。 |
+| **改的是 ignored 的 build 产物，物化出来的 baseline 里没有它** | §2：先跑 `git check-ignore -v`；踩雷则在物化目录内按 `BaseHeadSha` 重 build，做不到 `Blocked`。 |
+| **拿 `HEAD` 当 baseline，而改动已经 commit 掉了** | §2 的 📎：基准必须是 `BaseHeadSha`。用 `HEAD` 会算出空 diff、差集恒为 0，门形同虚设。`BaseHeadSha` 不可解析 → `Blocked`，不得"就用 HEAD 凑合"。 |
+| **在活工作树上跑 after** | after 必须跑在 `StageDirRef` 快照里（handoff-schema §2.6）：算完到逐文件读取之间工作树还能再变。 |
 | 只跑改动后那一次，"看着还行" | 没有 baseline 就没有判定。缺 before JSON → `Blocked`。 |
 | 只跑改动文件的 `--path` | §3：外溢 offense 全漏。两次都必须全仓。 |
 | 用 exit code 当结论 | 仓库恒非 0，无信息量。只看差集。 |
@@ -504,9 +509,9 @@ grep -rn "$BASE_NAME" <theme-root>/templates/*.json <theme-root>/config/*.json
 
 ```
 CLI: shopify 3.92.0（两次同版本）
-Root: <theme-root>（after）/ <worktree path>（baseline）
-BaselineMethod: worktree@HEAD | stash
-ConfigLocked: .theme-check.yml 本次未变更 | 已强制两次使用 HEAD 版本
+Root: <StageDirRef>（after）/ <物化出来的 baseline 目录>（baseline）
+BaselineMethod: archive@<BaseHeadSha>
+ConfigLocked: .theme-check.yml 本次未变更 | 已强制两次使用 <BaseHeadSha> 版本
 SuppressionAdded: 无
 Cmd: shopify theme check --path <root> --output json
 Before: 3334 errors / 1004 warnings

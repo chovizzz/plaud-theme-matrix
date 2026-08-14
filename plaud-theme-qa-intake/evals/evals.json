@@ -1,7 +1,7 @@
 {
   "skill_name": "plaud-theme-qa-intake",
   "matrix": "plaud-shopify-theme-matrix",
-  "version": "v0.2.3",
+  "version": "v0.3.0",
   "evals": [
     {
       "id": 1,
@@ -21,14 +21,16 @@
       "id": 2,
       "route": "materials-must-not-enter-worktree",
       "prompt": "我把 8 张断点截图和配置文档直接放在主题仓库的 docs/ 目录里提交了，这样 QA 一起就能看到。ChangeSetId 是 CS-20260812-A02。",
-      "expected_output": "停机，要求把材料移出主题仓库工作树，并指出这会让 ChangeSetFingerprint 失配导致 QA 停机。",
+      "expected_output": "停机，要求把材料移出主题仓库。🔴 理由在 v0.3.0 变了：docs/ 不在可发布面（assets/blocks/config/layout/locales/sections/snippets/templates + .shopifyignore），所以 ThemeTreeOid 根本不会变——身份看不见这些材料，「指纹会变所以你自己会被挡住」这条兜底在这里**不成立**，而且材料已经 commit，git status 也看不见。真正抓住它的是 Step 1 那三条命令（常规位置 / 被 gitignore 的位置 / memory/ 全量）加上「已 commit 的材料」那条 git log。SubmissionPackageStatus: Incomplete 或直接停机不出包，要求把材料移到仓库外的独立目录或云文档。",
       "files": [],
       "assertions": [
-        "输出指出提测材料写进主题仓库会改变 ChangeSetFingerprint。",
-        "输出指出 QA 会因此判 ChangeSetIdMatched: No 并停机。",
+        "输出指出 docs/ 不在可发布面，ThemeTreeOid 不会因此变化，不能指望身份/指纹兜底。",
+        "输出指出材料已 commit，git status 看不见，必须靠 Step 1 的命令查。",
         "输出要求把材料移到仓库外的独立目录或云文档。",
         "输出 SubmissionPackageStatus: Incomplete 或停机不出包。",
-        "输出没有建议'让 QA 忽略这些文件'之类的绕过做法。"
+        "输出没有建议'让 QA 忽略这些文件'之类的绕过做法。",
+        "输出提到「已 commit 的材料」要用相对基准的 git log 才查得到（单块基准是 BaseHeadSha，集成是 IntegrationBaseCommit）。",
+        "输出提到跑那条 git log 之前要先验基准可解析，否则整条管道会 rc=0 且输出为空、把'没查成'报成'干净'。"
       ]
     },
     {
@@ -293,15 +295,82 @@
       ]
     },
     {
+      "id": "intake-21-integration-package-happy-path",
+      "route": "integration-submission-package",
+      "kind": "rule",
+      "prompt": "A、B 两块都各自过了块 QA，人已经把它们合到一棵树上了，现在要跑一次集成 QA。orchestrator 那份 Coordination 工件里 IntegrationPlan.MemberChangeSets 是 [CS-20260812-A02, CS-20260812-B01]，ChangeSetStatus 里 A02 的 SubmissionId 是 SUB-20260813-04、B01 的是 SUB-20260813-05，两份包都是 Complete。集成提测包该怎么出？",
+      "expected_output": "出一份集成提测包：ChangeSetId: N/A(Integration)、ChangeSetScopeFingerprint: N/A(Integration)、IntegrationOf 逐块列出两条（ChangeSetId + SubmissionId），顶层 SubmissionId 新开一个 SUB-<YYYYMMDD>-<NN> 而不复用 A02/B01 任何一块的。ObjectFormat 与 ThemeTreeOid 从 IntegrationPlan.IntegrationResultTreeOid 原样透传：集成树没有任何 Implement 工件可抄，IntegrationBaseTreeOid 是基准树不是结果树，集成 QA 的 VerifiedThemeTreeOid 又在本 skill 之后才产生，所以这一对的 producer 是 Integrator 那个人（集成落盘后跑 plaud_theme_tree 取前两段、由 orchestrator 补进协调工件），本 skill 只搬运、不自算；协调工件没补这一项就停机不出契约块。QA 的 Step 1 仍会重算并逐字比对。材料要是各块材料的真并集（真拷贝，不许 symlink）加集成本身的 ReworkDelta。",
+      "files": [],
+      "assertions": [
+        "输出 ChangeSetId: N/A(Integration)。",
+        "输出 ChangeSetScopeFingerprint: N/A(Integration)。",
+        "输出 IntegrationOf 非空且逐块列出 ChangeSetId 与 SubmissionId 两段。",
+        "输出说明顶层 SubmissionId 要新开一个，不复用任何成员的 SubmissionId。",
+        "输出说明集成树的 ObjectFormat / ThemeTreeOid 由在集成工作树里跑 plaud_theme_tree 捕获，且明确这是捕获而非校验、QA 仍会重算比对。",
+        "输出说明不得抄 IntegrationPlan.IntegrationBaseTreeOid 顶替（那是基准树不是结果树）。",
+        "输出说明集成材料是各块材料的并集，要真拷贝而不是用 symlink 链进来（symlink 会让 plaud_package_fingerprint 直接 UNSUPPORTED_MATERIAL_OBJECT 返回 1、一个指纹都算不出来）。",
+        "输出的 yaml 契约块里不出现 ReadyForDelivery 字段。"
+      ]
+    },
+    {
+      "id": "intake-22-integration-member-package-missing",
+      "route": "integration-member-package-missing",
+      "kind": "rule",
+      "prompt": "集成提测，MemberChangeSets 是 [CS-20260812-A02, CS-20260812-B01, CS-20260812-C03]。A02、B01 的 SubmissionId 我都有，C03 那块当时没走提测、Coordination 的 ChangeSetStatus 里也没有它的 SubmissionId，我在 memory/changeset-log.md 里也没翻到。要不 IntegrationOf 就先列 A02 和 B01 两块吧，C03 等它补了再说？",
+      "expected_output": "不行。C03 从未提测、两条合法取数路径（Coordination 的 ChangeSetStatus / 用户给出该块的 QAIntake 工件）都拿不到它的 SubmissionId，这属于「该块根本没有提测包」——**停机，不出契约块**，BlockingGaps 正文指名 C03 从未提测，要它先补一次单块提测拿到真 SubmissionId 与 Complete 的包。🔴 不得为此自造占位取值（Unavailable(...) / N/A / TBD 都不行）：canonical §9.1.2 与 §9.2 都没有为 IntegrationOf 嵌套项定义\"取不到\"的取值。也不得把 C03 从 IntegrationOf 里删掉——集合等式会变成与一份被裁剪过的成员清单比，那一块的材料整份缺席而 intake 照样通过。另外要指出 memory/changeset-log.md 本来就没有 SubmissionId 这一列，翻不到不是偶然，它不是这条数据的取数路径。（对照：如果 C03 的 SubmissionId 是拿得到的、只是那份包不是 Complete，那就是另一种情形：照写真实 ID、顶层 SubmissionPackageStatus: Incomplete、下游集成 QA 填 QAAdmissionStatus: Blocked + PackageIncomplete。）",
+      "files": [],
+      "assertions": [
+        "输出停机、不产出 26 key 契约块，而不是出一份带占位值的工件。",
+        "输出明确拒绝自造占位取值，点名 Unavailable(...) / N/A / TBD 都不行，理由是契约没有为该嵌套项定义取不到的取值。",
+        "输出要求 C03 先补一次单块提测，拿到真 SubmissionId 与 Complete 的包。",
+        "输出拒绝把 C03 从 IntegrationOf 里删掉，并说明集合必须与 MemberChangeSets 相等。",
+        "输出 BlockingGaps 指名是哪一块缺什么，不写笼统的'材料不全'。",
+        "输出指出 memory/changeset-log.md 没有 SubmissionId 列，不是这条数据的取数路径。",
+        "输出区分开另一种情形：ID 拿得到但那份包不是 Complete 时，照写真实 ID 并判顶层 Incomplete。"
+      ]
+    },
+    {
+      "id": "intake-23-integration-without-plan",
+      "route": "integration-no-plan-back-to-orchestrator",
+      "kind": "rule",
+      "prompt": "这几块改动我合完了，直接给我出个集成提测包吧，成员就是这三块，我口头告诉你就行。反正最后一块的提测材料是最全的，包就沿用它那份。",
+      "expected_output": "两条都不行。没有 IntegrationPlan（§9.1 Coordination 工件）就没有 MemberChangeSets 这个唯一事实源，本 skill 不自行拟定成员清单、口述不算来源——停机，回 plaud-theme-orchestrator 要集成计划。复用最后一块的提测包同样不行：那份包绑的是那一块的树与那一块的材料，拿它当集成包等于把一块的材料判定冒充成集成的判定，顶层 SubmissionId 必须新开。集成材料应是各块材料的并集加集成本身的 ReworkDelta。",
+      "files": [],
+      "assertions": [
+        "输出停机并要求先回 plaud-theme-orchestrator 取得 IntegrationPlan。",
+        "输出说明 MemberChangeSets 是成员清单的唯一事实源，口述/自行拟定不算。",
+        "输出拒绝复用最后一块的提测包，并说明顶层 SubmissionId 必须新开。",
+        "输出说明集成材料是各块材料的并集加集成本身的 ReworkDelta。",
+        "输出没有在缺 IntegrationPlan 的情况下产出一份 IntegrationOf 已填好的集成提测包。"
+      ]
+    },
+    {
+      "id": "intake-24-integration-empty-integration-of",
+      "route": "integration-empty-field-is-contract-violation",
+      "kind": "rule",
+      "prompt": "集成提测包我出好了，ChangeSetId 填的 N/A(Integration)，IntegrationOf 我先留空了——稳妥起见嘛，等确认了再补。这样应该没问题吧？",
+      "expected_output": "契约违规，停机。ChangeSetId: N/A(Integration) 而 IntegrationOf 为空不是保守而是死锁：集成 QA 结构上取不到任何一块的 intake 工件，会恒 Blocked / MissingArtifact，从而恒拿不到交付许可。要么按 IntegrationPlan.MemberChangeSets 逐块列全（某块的包不是 Complete 就照写真实 SubmissionId 并判顶层 SubmissionPackageStatus: Incomplete；某块根本没有提测包则停机不出块），要么这根本不是集成提测、ChangeSetId 应该填具体的那一块。",
+      "files": [],
+      "assertions": [
+        "输出判为契约违规并停机。",
+        "输出说明空 IntegrationOf 会让集成 QA 恒 Blocked、恒拿不到交付许可，是死锁不是保守。",
+        "输出给出正确做法：按 MemberChangeSets 逐块列全，包不齐的照写真实 SubmissionId 判 Incomplete、从未提测的停机不出块。",
+        "输出指出若不是集成提测，ChangeSetId 就该填具体那一块而不是 N/A(Integration)。"
+      ]
+    },
+    {
       "id": "intake-20-artifact-block-exact-fields",
       "route": "qaintake-artifact-shape",
       "kind": "rule",
       "prompt": "把这次提测的准入工件按契约输出给我看格式。",
-      "expected_output": "回复最后是一个 yaml 代码块，23 个字段与 handoff-schema §9.1.2 完全一致且顺序一致：ArtifactKind: QAIntake、SubmissionId、ChangeSetId、ChangeSetFingerprint、PackageRootRef、PackageFingerprint、TargetSites、ExcludedSites、ThemeIds、ScopeSourceRef、PreviewManifest、PreviewManifestStatus、ConfigurationGuideStatus、SelfTestReportStatus、TestSetTrace、PreviousAcceptedTestSetTrace、TestSetMigrationRef、ScreenshotManifestStatus、ImpactScopeStatus、ReworkDeltaStatus、SubmissionPackageStatus、BlockingGaps、NextRequiredSkill: plaud-theme-qa。无自造字段、无漏字段，块里一个 ReadyForDelivery 都不许出现，材料状态一律用 Complete/Incomplete 而不是 Yes/No。",
+      "expected_output": "回复最后是一个 yaml 代码块，26 个字段与 handoff-schema §9.1.2 完全一致且顺序一致：ArtifactKind: QAIntake、SubmissionId、ChangeSetId、IntegrationOf、ObjectFormat、ThemeTreeOid、ChangeSetScopeFingerprint、PackageRootRef、PackageFingerprint、TargetSites、ExcludedSites、ThemeIds、ScopeSourceRef、PreviewManifest、PreviewManifestStatus、ConfigurationGuideStatus、SelfTestReportStatus、TestSetTrace、PreviousAcceptedTestSetTrace、TestSetMigrationRef、ScreenshotManifestStatus、ImpactScopeStatus、ReworkDeltaStatus、SubmissionPackageStatus、BlockingGaps、NextRequiredSkill: plaud-theme-qa。无自造字段、无漏字段，块里一个 ReadyForDelivery 都不许出现，材料状态一律用 Complete/Incomplete 而不是 Yes/No。",
       "assertions": [
         "ArtifactKind: QAIntake",
         "SubmissionId",
-        "ChangeSetFingerprint",
+        "ThemeTreeOid",
+        "IntegrationOf",
+        "ObjectFormat",
+        "ChangeSetScopeFingerprint",
         "PackageFingerprint",
         "PreviewManifestStatus",
         "SelfTestReportStatus",
@@ -311,17 +380,20 @@
         "ReworkDeltaStatus",
         "SubmissionPackageStatus",
         "NextRequiredSkill: plaud-theme-qa",
-        "yaml 块的 key 集合与 handoff-schema §9.1.2（23 字段）**完全一致**：23 个、顺序一致、无自造 key、无漏字段——多一个 key 或少一个 key 都算契约违规。",
+        "yaml 块的 key 集合与 handoff-schema §9.1.2（26 字段）**完全一致**：26 个、顺序一致、无自造 key、无漏字段——多一个 key 或少一个 key 都算契约违规。",
         "yaml 块里不出现 ReadyForDelivery 字段。"
       ],
       "validator": {
         "type": "yaml-block-exact-keys",
-        "note": "string-contains 无法验证「完全一致」。需 harness 实现结构化校验：取回复最后一个 fenced yaml block → 解析 → Object.keys() 与 expectedKeys 严格相等且顺序相等 → 检查 yaml fence 之后无非空内容 → 检查 forbiddenKeys 均不存在。若 harness 未实现 validator，本条按「未验证」记，不得因 assertions 全中就判通过。（v0.2.2 补：qa-intake 此前没有任何结构 validator，`TestSetMigrationRef` 这类新增字段整字段漏写也发现不了。） 🔴 解析时**必须拒绝重复 key**（YAML parser 默认可能把重复项折叠掉，那样 `Object.keys()` 少一个、缺 key 与重复 key 两种错误都验不出来）。",
+        "note": "string-contains 无法验证「完全一致」。需 harness 实现结构化校验：取回复最后一个 fenced yaml block → 解析 → Object.keys() 与 expectedKeys 严格相等且顺序相等 → 检查 yaml fence 之后无非空内容 → 检查 forbiddenKeys 均不存在。若 harness 未实现 validator，本条按「未验证」记，不得因 assertions 全中就判通过。（v0.2.2 补：qa-intake 此前没有任何结构 validator，`TestSetMigrationRef` 这类新增字段整字段漏写也发现不了。v0.3.0：23 → 26 key，📎 单字段 `ChangeSetFingerprint` 拆成 `ObjectFormat` / `ThemeTreeOid` / `ChangeSetScopeFingerprint` 并新增 `IntegrationOf`；该废止字段**不列进 `forbiddenKeys`** —— `expectedKeys` 的严格集合相等已经把任何多余 key（含它）判违规，而在包里再留一份该字符串会与「下游任何地方再出现即违规」的清理判据冲突。）🔴 本 validator 只验**顶层 26 key 的形状**：`IntegrationOf` 空不空、与 `MemberChangeSets` 是否集合相等、成员是否重复、`SubmissionId` 是否真实且 `Complete`，它一概验不了——那几条由 intake-21 / intake-22 / intake-23 / intake-24 四条行为 eval 覆盖（其中 intake-22 覆盖「成员包缺失时不得自造占位取值」）。 🔴 解析时**必须拒绝重复 key**（YAML parser 默认可能把重复项折叠掉，那样 `Object.keys()` 少一个、缺 key 与重复 key 两种错误都验不出来）。",
         "expectedKeys": [
           "ArtifactKind",
           "SubmissionId",
           "ChangeSetId",
-          "ChangeSetFingerprint",
+          "IntegrationOf",
+          "ObjectFormat",
+          "ThemeTreeOid",
+          "ChangeSetScopeFingerprint",
           "PackageRootRef",
           "PackageFingerprint",
           "TargetSites",

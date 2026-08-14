@@ -1,7 +1,7 @@
 {
   "skill_name": "plaud-theme-qa",
   "matrix": "plaud-shopify-theme-matrix",
-  "version": "v0.2.3",
+  "version": "v0.3.0",
   "evals": [
     {
       "id": 1,
@@ -10,13 +10,15 @@
       "expected_output": "QA 在第一步就判 ChangeSetId 失配，停机要求重新生成，不执行任何检查项，ReadyForDelivery: No。",
       "files": [],
       "assertions": [
-        "输出说明要同时校验文件集合、ChangeSetFingerprint 和 BaseHeadSha 三样，只比文件名不合格。",
+        "输出说明要同时校验文件集合、ObjectFormat、ThemeTreeOid 和 ChangeSetScopeFingerprint 四样，只比文件名不合格。",
         "输出判定 ChangeSetIdMatched: No。",
-        "输出明确拒绝把额外改动一起验证，要求实现 skill 重新生成 ChangeSetId 与 ChangeSetFingerprint。",
+        "输出明确拒绝把额外改动一起验证，要求实现 skill 重新生成 ChangeSetId 与三个身份字段（ObjectFormat / ThemeTreeOid / ChangeSetScopeFingerprint）。",
         "输出 ReadyForDelivery: No。",
         "输出把十一个状态字段（含 StyleHardRuleCheck）标为 Blocked（含 FixedDimensionCheck / ImageQualityCheck / CopyConfigurabilityCheck），绝不改填 NotApplicable 或 Passed。",
         "输出的 ChangeSetIdMatched 取 No（该字段封闭枚举只有 Yes / No，不用 Blocked）。",
-        "输出的记录字段（QAProfilesRun / BreakpointsCovered / FingerprintVerifiedAt / Evidence）不填状态枚举。"
+        "输出的记录字段（QAProfilesRun / BreakpointsCovered / FingerprintVerifiedAt / Evidence）不填状态枚举。",
+        "输出指出 snippets/section-header.liquid 属于未声明的改动，plaud_declared_diff 会判 DECLARED_DIFF_ORPHAN，DeclaredDiffCheck: Failed。",
+        "输出 ReadyForIntegration: No。"
       ]
     },
     {
@@ -27,11 +29,18 @@
       "files": [],
       "assertions": [
         "输出明确说明不能用全仓零 error 作为通过条件，理由是存量 offense 数量巨大。",
-        "输出提到改动前（git stash 或 HEAD / worktree）跑一次 baseline、改动后跑一次，比对新增 offense。",
+        "输出提到 baseline 从 BaseHeadSha 物化（git archive <BaseHeadSha>^{tree}）跑一次、改动后跑一次，比对新增 offense。",
         "输出包含命令 shopify theme check --path 与 --output json。",
         "输出说明本地 lint 不需要登录 Shopify 店铺。",
         "输出说明新增 offense 为 0 才判 ThemeCheck: Passed。",
-        "输出提到 JSON 里 severity 是字符串 error / warning。"
+        "输出提到 JSON 里 severity 是字符串 error / warning。",
+        "输出说明 baseline 的锚点是 BaseHeadSha 而不是 HEAD —— 实施期间 commit 是合法的，用 HEAD 会把本次改动当成基线、差集恒为 0。",
+        "输出说明改动后那一次跑在 StageDirRef 指向的 workspace 快照里，不在活工作树上跑。",
+        "输出说明 BaseHeadSha 不可解析时 ThemeCheck: Blocked，不得改用 HEAD 凑合。"
+      ],
+      "forbidden": [
+        "我用 git stash 取 baseline",
+        "我拿当前 HEAD 当改动前状态"
       ]
     },
     {
@@ -154,9 +163,9 @@
       "files": [],
       "assertions": [
         "输出说明 QA 通过后代码再变则原 QA 自动失效。",
-        "输出说明用 handoff-schema §2 定义的 ChangeSetFingerprint 命令重算比对，而不是自造指纹算法。",
+        "输出说明用 handoff-schema §2.5 定义的 plaud_theme_tree / plaud_changeset_scope 函数重算比对，而不是自造取证算法。",
         "输出说明不使用 mtime 作为判据。",
-        "输出要求重新生成 ChangeSetId + ChangeSetFingerprint + BaseHeadSha 并整轮重跑，而不是只补验变动的那部分。",
+        "输出要求重新生成 ChangeSetId 与三个身份字段（ObjectFormat / ThemeTreeOid / ChangeSetScopeFingerprint）并整轮重跑，而不是只补验变动的那部分。",
         "输出提到把 changeset-log 中该行状态改为 Invalidated。"
       ]
     },
@@ -190,30 +199,40 @@
       "id": 14,
       "route": "output-contract",
       "prompt": "验收结论按矩阵格式给我。",
-      "expected_output": "回复最后是 handoff-schema §5 定义的 26 个字段的 yaml 块（含 FingerprintVerifiedAt），字段名与顺序一字不差。",
+      "expected_output": "回复最后是 handoff-schema §5 定义的 35 个字段的 yaml 块（含 VerificationId / QAScope / IntegrationOf / ObjectFormat / VerifiedThemeTreeOid / DiffBaseTreeOid / DeclaredDiffCheck / StageDirRef / FingerprintVerifiedAt / ReadyForIntegration），字段名与顺序一字不差。",
       "files": [],
       "assertions": [
         "输出的最后是一个 yaml 代码块。",
-        "yaml 块包含 ChangeSetId、ChangeSetIdMatched、FingerprintVerifiedAt、QAProfilesRun、ThemeCheck、ThemeCheckEvidence 字段。",
+        "yaml 块包含 VerificationId、QAScope、ChangeSetId、IntegrationOf、ChangeSetIdMatched、FingerprintVerifiedAt、QAProfilesRun、ThemeCheck、ThemeCheckEvidence 字段。",
+        "yaml 块包含 ObjectFormat、VerifiedThemeTreeOid、DiffBaseTreeOid、DeclaredDiffCheck、StageDirRef 字段。",
         "yaml 块包含 ThemeRuntimePreview、AdminSchemaSave、RegressionMatrix、BreakpointsCovered 字段。",
         "yaml 块包含 LocalizationCheck、A11yCheck、FixedDimensionCheck、ImageQualityCheck、CopyConfigurabilityCheck 字段。",
-        "yaml 块包含 ProfileSpecificResults、Evidence、BlockingGaps、ReadyForDelivery 字段。",
-        "FingerprintVerifiedAt 如实写出 Step1（验证前）与 Step2（验证后）两次重算的值，不是「已核验」。",
-        "yaml 块未出现 handoff-schema §5 之外自造的字段名（例如 QAStatus、Invalidated）。",
-        "即便在用户豁免场景，yaml 块也只含 §5 的 26 个字段，QAStatus 不出现在块内。",
+        "yaml 块包含 ProfileSpecificResults、Evidence、BlockingGaps、ReadyForIntegration、ReadyForDelivery 字段。",
+        "FingerprintVerifiedAt 如实写出 Step1（物化前）、Stage（物化回环复算）、Step5（收尾）三次重算的值，不是「已核验」。",
+        "yaml 块未出现 handoff-schema §5 之外自造或已废止的字段名（📎 例如 QAStatus、Invalidated、v0.2.3 的 ChangeSetFingerprint、以及不进任何工件的 ThemeTreeDigest）。",
+        "即便在用户豁免场景，yaml 块也只含 §5 的 35 个字段，QAStatus 不出现在块内。",
         "yaml 块还含这些字段：SubmissionId、QAAdmissionStatus、QAAdmissionReason、StyleHardRuleCheck、ApprovedExceptionsChecked、ApprovedExceptionsEvidence、Advisories（v0.2.2 第八轮补：此前断言只覆盖了一部分，漏的字段可以整个不写而 eval 仍通过）。",
-        "yaml 块的 key 集合与 handoff-schema §5（26 字段） **完全一致**：26 个、顺序一致、无自造 key、无漏字段——多一个 key 或少一个 key 都算契约违规。"
+        "yaml 块的 key 集合与 handoff-schema §5（35 字段）**完全一致**：35 个、顺序一致、无自造 key、无漏字段——多一个 key 或少一个 key 都算契约违规。",
+        "QAScope: SingleChangeSet 时 IntegrationOf 填 N/A；QAScope: Integration 时 ChangeSetId 填 N/A(Integration)、IntegrationOf 非空、ReadyForIntegration 填 N/A(Integration)。"
       ],
       "kind": "rule",
       "validator": {
         "type": "yaml-block-exact-keys",
-        "note": "string-contains 无法验证「完全一致」。需 harness 实现结构化校验：取回复最后一个 fenced yaml block → 解析 → Object.keys() 与 expectedKeys 严格相等且顺序相等 → 检查 yaml fence 之后无非空内容 → 检查 forbiddenKeys 均不存在。若 harness 未实现 validator，本条按「未验证」记，不得因 assertions 全中就判通过（v0.2.2 第九轮补：此前这四条只有 substring 断言，缺 key / 多 key / 顺序错都验不出来）。 🔴 解析时**必须拒绝重复 key**（YAML parser 默认可能把重复项折叠掉，那样 `Object.keys()` 少一个、缺 key 与重复 key 两种错误都验不出来）。",
+        "note": "string-contains 无法验证「完全一致」。需 harness 实现结构化校验：取回复最后一个 fenced yaml block → 解析 → Object.keys() 与 expectedKeys 严格相等且顺序相等 → 检查 yaml fence 之后无非空内容 → 检查 forbiddenKeys 均不存在。若 harness 未实现 validator，本条按「未验证」记，不得因 assertions 全中就判通过（v0.2.2 第九轮补：此前这四条只有 substring 断言，缺 key / 多 key / 顺序错都验不出来）。 🔴 解析时**必须拒绝重复 key**（YAML parser 默认可能把重复项折叠掉，那样 `Object.keys()` 少一个、缺 key 与重复 key 两种错误都验不出来）。 🔴 v0.3.0：expectedKeys 26 → 35，逐字照抄 canonical §5 的 yaml 模板顺序。**块 QA 与集成 QA 共用这同一套封闭集**（靠 QAScope 判别），刻意不另建第二个 validator——两套近似模板必然漂移。跨字段的 QAScope 条件写在 conditionalConstraints 里；🔴 **包内没有 runner，harness 目前并未执行 validator**，所以这些条件按 UNVERIFIED 记，并由本文件的 rule 类 eval（集成 QA 那几条）的 assertions 兜底，**不得**声称它们已被自动校验。 📎 已废止的 `ChangeSetFingerprint` **不列进 forbiddenKeys**：expectedKeys 的严格集合相等已经把任何多余 key（含它）判违规，而在包里再留一份该字符串会与「下游任何地方再出现即违规」的清理判据冲突（与 qa-intake 的 intake-20 同口径）。",
         "expectedKeys": [
+          "VerificationId",
+          "QAScope",
           "ChangeSetId",
+          "IntegrationOf",
           "SubmissionId",
           "QAAdmissionStatus",
           "QAAdmissionReason",
+          "ObjectFormat",
           "ChangeSetIdMatched",
+          "VerifiedThemeTreeOid",
+          "DiffBaseTreeOid",
+          "DeclaredDiffCheck",
+          "StageDirRef",
           "FingerprintVerifiedAt",
           "QAProfilesRun",
           "ThemeCheck",
@@ -234,27 +253,64 @@
           "Advisories",
           "Evidence",
           "BlockingGaps",
+          "ReadyForIntegration",
           "ReadyForDelivery"
         ],
         "forbiddenKeys": [
-          "BaseHeadSha",
-          "ChangeSetFingerprint",
-          "ReadOnlyProof",
+          "ApprovedExceptions",
           "AssessmentRef",
+          "BaseHeadSha",
+          "BuildRequired",
+          "ChangeSetScopeFingerprint",
+          "IntegrationPlan",
+          "ModifiedFiles",
+          "NextRequiredSkill",
+          "OptionsConsidered",
           "OriginTriageRef",
           "Path",
-          "ReconMode",
-          "ModifiedFiles",
-          "RootCause",
-          "OptionsConsidered",
-          "RequiredQAProfile",
-          "ThemeCheckRequired",
-          "VisualRegressionRequired",
-          "BuildRequired",
-          "ApprovedExceptions",
           "QAStatus",
-          "NextRequiredSkill",
-          "ReadyForImplement"
+          "ReadOnlyProof",
+          "ReadyForImplement",
+          "ReconMode",
+          "ReleaseQARef",
+          "ReleaseSourceTreeOid",
+          "ReleaseStageDir",
+          "RequiredQAProfile",
+          "RootCause",
+          "ThemeCheckRequired",
+          "ThemeTreeDigest",
+          "ThemeTreeOid",
+          "VisualRegressionRequired"
+        ],
+        "conditionalConstraints": [
+          {
+            "when": "QAScope == 'Integration'",
+            "require": [
+              "ChangeSetId == 'N/A(Integration)'",
+              "IntegrationOf 非空，且是映射：含 PlanRef / BaseTreeOid / Members；Members 非空",
+              "IntegrationOf.Members[] 每项含 ChangeSetId / ImplementArtifactRef / QARef / SubmissionId / ObjectFormat / ThemeTreeOid / ChangeSetScopeFingerprint",
+              "IntegrationOf.BaseTreeOid == DiffBaseTreeOid（逐字）",
+              "ReadyForIntegration == 'N/A(Integration)'"
+            ],
+            "status": "UNVERIFIED（harness 未实现 validator，由 qa-50 / qa-51 的 assertions 兜底）"
+          },
+          {
+            "when": "QAScope == 'SingleChangeSet'",
+            "require": [
+              "IntegrationOf == 'N/A'",
+              "ChangeSetId != 'N/A(Integration)'",
+              "ReadyForIntegration ∈ {Yes, No}"
+            ],
+            "status": "UNVERIFIED（同上，由 qa-49 的 assertions 兜底）"
+          },
+          {
+            "when": "任意 QAScope",
+            "require": [
+              "ReadyForDelivery == 'Yes' 时，QAAdmissionStatus == 'Accepted' 且 ChangeSetIdMatched == 'Yes' 且 DeclaredDiffCheck == 'Passed'",
+              "DeclaredDiffCheck == 'NotApplicable' 只对零改动任务成立，而零改动任务不进本 skill —— 出现即违规"
+            ],
+            "status": "UNVERIFIED（由 qa-56 的 assertions 兜底）"
+          }
         ]
       }
     },
@@ -262,15 +318,18 @@
       "id": 15,
       "route": "changeset-log",
       "prompt": "这次 QA 通过了，需要记到哪里吗？",
-      "expected_output": "追加到项目侧 memory/changeset-log.md，含 ChangeSetId、结果、时间、指纹、失效状态。",
+      "expected_output": "追加到项目侧 memory/changeset-log.md。v0.3.0 只把 ChangeSetFingerprint 一列换成 ObjectFormat + ThemeTreeOid + ScopeFP 三列（§9.2 的 memory/ 记录字段枚举只授权了这一处），其余列不变；📎 旧行不回填。VerificationId / ReadyForIntegration **不加列**——要人读追溯就写进 Note（Note 不被下游消费），机器追溯走 release-ops 的 ReleaseQARef 指向 QA 工件本身。",
       "files": [],
       "assertions": [
         "输出说明写入项目侧 memory/changeset-log.md。",
         "输出说明该文件是项目运行时状态、不随包分发。",
-        "输出的记录含 ChangeSetId、QAProfilesRun、ReadyForDelivery、时间、ChangeSetFingerprint、Status。",
+        "输出的记录含 ChangeSetId、QAProfilesRun、ReadyForDelivery、时间、ObjectFormat、ThemeTreeOid、ScopeFP、Status。",
         "输出说明失败与被豁免的 QA 也要记录，且只追加不删除历史行。",
         "输出说明文件不存在时应停下问用户，不凭空重建。",
-        "输出说明必须先算完收尾指纹再写 log。"
+        "输出说明必须先算完收尾那一次 ThemeTreeOid（Step5）再写 log。",
+        "输出说明 ThemeTreeOid 与 ScopeFP 记前 12 位、全长写进正文 Evidence / FingerprintVerifiedAt。",
+        "输出说明旧日志的行不回填，按旧语义阅读。",
+        "输出不给日志新增 VerificationId 或 ReadyForIntegration 列，理由是 §9.2 只授权了替换指纹那一列；要追溯就写进 Note。"
       ]
     },
     {
@@ -322,7 +381,7 @@
       "assertions": [
         "输出识别出改 .theme-check.yml 会让 after 那次的 offense 被合法隐藏，使门失效。",
         "输出判 ThemeCheck: Blocked，而不是 Passed。",
-        "输出要求 before / after 两次强制使用同一份（HEAD 版本的）配置。",
+        "输出要求 before / after 两次强制使用同一份（BaseHeadSha 版本的）配置。",
         "输出还要求扫描代码中新增的 theme-check-disable 类 suppression 指令。"
       ]
     },
@@ -365,33 +424,39 @@
     },
     {
       "id": 23,
-      "route": "fingerprint-staging-noise",
-      "prompt": "上游交过来的 ChangeSetFingerprint 我这边重算对不上，但我记得代码没动过，只是 git add 了一下。可以当作匹配继续验吗？",
-      "expected_output": "指纹对不上即 ChangeSetIdMatched: No，停机要求重新生成，不得自行放行。",
+      "route": "fingerprint-staging-noise-no-longer-invalidates",
+      "prompt": "上游交过来的 ThemeTreeOid 我这边重算对不上。不过我记得代码没动过，只是 git add 了一下，另外在仓库根丢了个 tc-diff.js 临时文件。可以当作匹配继续验吗？",
+      "expected_output": "题面里的两个动作在 v0.3.0 都**不会**改变身份（逐条实测）：git add / git reset 不改（新模型用空白临时索引重扫磁盘，索引状态不进 payload）；仓库根的 tc-diff.js 不在可发布面（assets blocks config layout locales sections snippets templates + 根 .shopifyignore），也不改。所以「重算对不上」这件事本身就说明**可发布内容真的变了**，只是变的不是你以为的那两处。失配就是失配：ChangeSetIdMatched: No，停机要求上游重新生成 ChangeSetId 与三个身份字段，不得以「我记得没动」放行。临时文件仍然放 scratchpad——理由不再是「会进指纹」，而是不该往用户仓库里写东西，且一旦落进可发布目录就会真的改变身份、还可能被推上线。",
       "files": [],
       "assertions": [
-        "输出说明指纹不匹配即 ChangeSetIdMatched: No，必须停机。",
-        "输出拒绝以「我记得代码没动」为由放行。",
-        "输出要求上游重新生成 ChangeSetId + ChangeSetFingerprint + BaseHeadSha。",
-        "输出说明 QA 期间不应在仓库里留临时文件，它们在 memory/ 之外，会进指纹导致失配。"
+        "输出指出 git add / git reset 在 v0.3.0 不再改变身份（实测逐字不变），题面的第一个前提不成立。",
+        "输出指出仓库根的 tc-diff.js 不在可发布面，也不改变 ThemeTreeOid。",
+        "输出据此推断：重算对不上说明可发布内容真的变了，必须查真正的变更处。",
+        "输出说明失配即 ChangeSetIdMatched: No，必须停机，不得以「我记得代码没动」放行。",
+        "输出要求上游重新生成 ChangeSetId + ObjectFormat + ThemeTreeOid + ChangeSetScopeFingerprint。",
+        "输出说明临时文件仍应放 scratchpad，但理由是不该写进用户仓库，不再是「会进指纹导致失配」。"
+      ],
+      "forbidden": [
+        "我按 git add 不影响身份放行了",
+        "这两个动作确实会让身份失配"
       ]
     },
     {
       "id": 24,
       "route": "fingerprint-self-invalidation",
-      "prompt": "你把 QA 结果写进 memory/changeset-log.md 之后，再算一次指纹发现变了，是不是这次 QA 又失效了？",
-      "expected_output": "不是，而且前提就不对：v0.2.2 起 §2 的指纹命令带 `-- . ':(exclude)memory/'`，写 changeset-log 根本不会改变指纹。真变了说明动的是 memory/ 之外的东西——最常见是 QA 自己在仓库里留了临时文件（tc-diff.js / tc-before.json 等），那些必须放 scratchpad。顺序上仍建议先算完 Step2 再写 log（时间顺序与因果顺序一致），但正确性不再依赖这个顺序。",
+      "prompt": "你把 QA 结果写进 memory/changeset-log.md 之后，再算一次 ThemeTreeOid 发现变了，是不是这次 QA 又失效了？",
+      "expected_output": "是失效了，但前提要先纠正：写 changeset-log **不可能**是原因。memory/ 不在可发布面内（assets blocks config layout locales sections snippets templates + 根 .shopifyignore），写它、git add 它、甚至 commit 它，ThemeTreeOid 都逐字不变（v0.3.0 实测）。同理，仓库根的 scratch 临时文件（tc-diff.js / tc-before.json）也不在可发布面，不再造成假失效。所以 ThemeTreeOid 真变了，只可能是**可发布面里的内容被动过**——要么本块又被改了，要么别的块落盘了。前者判失效、要求重新生成 ChangeSetId 整轮重跑；后者（本块 ChangeSetScopeFingerprint 没变而 ThemeTreeOid 变了）说明这棵树已经是 A+B，按 §2.12 只能改走 QAScope: Integration，不是记个 Advisories 继续。顺序上仍建议先算完 Step5 再写 log（时间顺序与因果顺序一致），但正确性不依赖这个顺序。",
       "files": [],
       "assertions": [
-        "输出说明 §2 的指纹已排除 memory/，写 changeset-log 不会改变指纹。",
-        "输出指出指纹真变了说明动的是 memory/ 之外的东西。",
-        "输出说明 QA 的临时文件（tc-diff.js / tc-before.json 等）必须放 scratchpad，不能留在仓库里。",
-        "输出说明先算 Step2 再写 log 仍是建议做法，但正确性不再依赖它。"
+        "输出说明 memory/ 不在可发布面内，写 changeset-log 不会改变 ThemeTreeOid。",
+        "输出指出 ThemeTreeOid 真变了说明动的是可发布面里的内容。",
+        "输出说明仓库根的临时文件（tc-diff.js / tc-before.json 等）v0.3.0 起不再造成假失效，但仍应放 scratchpad。",
+        "输出区分两种原因：本块又被改（判失效、整轮重跑）与别的块落盘（ThemeTreeOid 变而本块 ScopeFP 不变，改走 QAScope: Integration）。",
+        "输出说明先算 Step5 再写 log 仍是建议做法，但正确性不再依赖它。"
       ],
       "forbidden": [
-        "指纹命令会把 changeset-log 的改动算进去",
-        "靠先算指纹再写 log 来规避自失效",
-        "这次 QA 确实又失效了"
+        "写 changeset-log 会改变 ThemeTreeOid",
+        "我按别的块落盘不影响本块，记个 Advisories 继续验了"
       ]
     },
     {
@@ -458,15 +523,20 @@
     },
     {
       "id": 30,
-      "route": "fingerprint-hidden-flags",
-      "prompt": "这个仓库里有几个文件被 git update-index --assume-unchanged 标记过，还有一个 submodule。指纹算出来没变，QA 可以判通过吗？",
-      "expected_output": "两种情况 §2 指纹都看不见；必须过两条补充门，不满足即 ReadyForDelivery: No。",
+      "route": "retired-index-flag-gate-and-auto-gitlink",
+      "prompt": "📎 这个仓库里有几个文件被 git update-index --assume-unchanged 标记过（v0.2.3 的老做法），还有一个 submodule。我按 v0.2.3 的两条补充门查了一遍，要不要照旧处理？",
+      "expected_output": "两条补充门 v0.3.0 起都不再由 QA 手查。① 📎 索引标志门（assume-unchanged / skip-worktree）**v0.3.0 起解除**、已退役：新模型用的是空白临时索引，用户 index 上的标志不生效——实测两种标志下改内容仍判 CHANGED，继续手查只会给出一个不再成立的停机理由。② submodule 由取证函数的 GITLINK_IN_THEME_TREE / GITLINK_IN_SCOPE **自动 fail closed**：可发布面或声明范围里有 gitlink，取证直接失败，所以「指纹算出来没变」这个前提在那种仓库里根本不成立；命中即停机，不存在「递归取子模块指纹后继续」这条路。该 submodule 若在可发布面之外，则与本次身份无关，如实记进 Evidence 即可。",
       "files": [],
       "assertions": [
-        "输出说明 assume-unchanged / skip-worktree 的文件改动对 git 完全隐形，§2 的指纹看不见。",
-        "输出说明 submodule gitlink 指向的内部变化不进指纹。",
-        "输出给出两条补充门命令（git ls-files -v 检出小写状态字母或 S；git ls-files -s 检出 160000 gitlink）。",
-        "输出结论是命中即判 ReadyForDelivery: No 并写进 BlockingGaps，不得当作没问题继续。"
+        "输出说明索引标志门已退役，理由是新模型用空白临时索引、用户 index 上的标志不生效（实测改内容仍判 CHANGED）。",
+        "输出说明 submodule 由 GITLINK_IN_THEME_TREE / GITLINK_IN_SCOPE 在取证函数里自动 fail closed，QA 不再手查。",
+        "输出说明命中 gitlink 即停机，不存在递归取子模块指纹后继续这条处理路径。",
+        "输出区分 submodule 在可发布面之内还是之外：在外则与身份无关，如实记 Evidence。",
+        "📎 输出未要求执行 git ls-files -v 找小写状态字母那条已退役的补充门（assume-unchanged / skip-worktree）。"
+      ],
+      "forbidden": [
+        "我跑了两条补充门后放行",
+        "解除索引标志后即可继续"
       ]
     },
     {
@@ -500,12 +570,12 @@
       "id": 33,
       "route": "fingerprint-verified-at",
       "prompt": "所有检查都过了，给我最终的验收结论。",
-      "expected_output": "FingerprintVerifiedAt 必须如实记两次重算的时点与值。",
+      "expected_output": "FingerprintVerifiedAt 必须如实记三次重算的时点与值：Step1（物化前）/ Stage（物化回环复算）/ Step5（收尾）。",
       "files": [],
       "assertions": [
         "yaml 块包含 FingerprintVerifiedAt 字段。",
-        "FingerprintVerifiedAt 记录 Step1（验证前）与 Step2（验证后）两次重算的值。",
-        "输出说明两次不一致则本轮 QA 作废、ReadyForDelivery 为 No。",
+        "FingerprintVerifiedAt 记录 Step1（物化前）、Stage（物化回环复算）、Step5（收尾）三次重算的值。",
+        "输出说明三次不完全一致则本轮 QA 作废、ReadyForIntegration 与 ReadyForDelivery 均为 No。",
         "输出只写「已核验」而无具体值时视为证据为空。"
       ]
     },
@@ -532,14 +602,15 @@
       "id": 35,
       "route": "fingerprint-pre-gate-tamper",
       "prompt": "上游 CS-20260806-A03 的 ModifiedFiles 是 sections/delta-accordion.liquid 和 assets/delta-accordion.css，我看了工作树也正好是这两个文件，一个不多一个不少。不过交接完之后我又在 delta-accordion.css 里调了两行。文件集合没变，直接开验吧。",
-      "expected_output": "文件集合一致不等于内容一致：Step 1 必须在任何检查之前用 §2 的命令重算 ChangeSetFingerprint 与 BaseHeadSha 并与工件比对，此处指纹必然不符 → ChangeSetIdMatched: No + 停机；不得由 QA 自己现算一个新指纹继续。",
+      "expected_output": "文件集合一致不等于内容一致：Step 1 必须在任何检查之前用 §2.5 的函数重算三个身份字段并与工件比对。这里 delta-accordion.css 在可发布面内，所以 ThemeTreeOid 与 ChangeSetScopeFingerprint 都必然不符 → ChangeSetIdMatched: No + 停机；不得由 QA 自己现算一个新值当基线继续。",
       "files": [],
       "assertions": [
         "输出指出只绑 ModifiedFiles 文件名集合不足以判定匹配，交付后偷改同一批文件会让文件集合保持一致。",
         "输出说明 Step 1 必须在执行任何检查之前（早于 theme check、早于 baseline、早于回归）完成指纹比对。",
-        "输出说明用 handoff-schema §2 的命令原样重算 ChangeSetFingerprint，并同时比对 BaseHeadSha。",
+        "输出说明用 handoff-schema §2.5 的函数原样重算 ObjectFormat / ThemeTreeOid / ChangeSetScopeFingerprint 三个字段。",
         "输出判定 ChangeSetIdMatched: No 并停机，ReadyForDelivery: No。",
-        "输出拒绝由 QA 自己重新生成一个指纹当作基线继续验证，要求实现 skill 重新生成 ChangeSetId + BaseHeadSha + ChangeSetFingerprint。"
+        "输出拒绝由 QA 自己重新生成一个值当作基线继续验证，要求实现 skill 重新生成 ChangeSetId 与三个身份字段。",
+        "输出指出 ChangeSetScopeFingerprint 正是为这种情形设的：它只覆盖本块声明路径，声明范围内的内容被动过即命中。"
       ]
     },
     {
@@ -656,14 +727,15 @@
     {
       "id": 43,
       "route": "changeset-log-testsettrace-column",
-      "prompt": "全部检查通过，ReadyForDelivery: Yes。我按老格式往 memory/changeset-log.md 追加了一行（ChangeSetId / Path / QAProfilesRun / ReadyForDelivery / RunAt / ChangeSetFingerprint / Status / Note）。另外提测包里那行 TestSetTrace 我看格式有点乱，帮它规整了一下再抄进去可以吧？",
-      "expected_output": "两处要改。① v0.2.2 起 changeset-log 多一列 TestSetTrace，Yes 的行必须填；② 必须原样抄自 QAIntake 工件，不得规整或补全——下一轮 qa-intake 要拿它和新一轮比对，改写过就失去比对意义。另外注意写 log 的时点在 Step 2 指纹重算之后。（🔴 harness 是全局 substring：回答里**不要复述** forbidden 列出的那串错误赋值，要指代就换个说法，例如「不得把该字段填成 Yes」。）",
+      "prompt": "全部检查通过，ReadyForDelivery: Yes。📎 我按 v0.2.3 老格式往 memory/changeset-log.md 追加了一行（ChangeSetId / Path / QAProfilesRun / ReadyForDelivery / RunAt / ChangeSetFingerprint / Status / Note）。另外提测包里那行 TestSetTrace 我看格式有点乱，帮它规整了一下再抄进去可以吧？",
+      "expected_output": "三处要改。① v0.2.2 起 changeset-log 多一列 TestSetTrace，Yes 的行必须填；② 必须原样抄自 QAIntake 工件，不得规整或补全——下一轮 qa-intake 要拿它和新一轮比对，改写过就失去比对意义；③ v0.3.0 起列也变了：VerificationId 打头，📎 v0.2.3 的 📎 v0.2.3 的 ChangeSetFingerprint 单列由 ObjectFormat + ThemeTreeOid + ScopeFP 三列取代，另加 ReadyForIntegration 列（旧行不回填）。另外注意写 log 的时点在 Step5 那次重算之后。（🔴 harness 是全局 substring：回答里**不要复述** forbidden 列出的那串错误赋值，要指代就换个说法，例如「不得把该字段填成 Yes」。）",
       "files": [],
       "assertions": [
         "输出指出 changeset-log 需要 TestSetTrace 列。",
         "输出要求原样抄自 QAIntake 工件，不得规整或补全。",
         "输出说明下一轮 qa-intake 靠这一列核跨轮次连续性。",
-        "输出提醒先重算 Step 2 指纹再写 log。"
+        "输出提醒先做 Step5 那次 ThemeTreeOid 重算再写 log。",
+        "输出指出 v0.3.0 的列已变：ObjectFormat / ThemeTreeOid / ScopeFP 三列，📎 旧的 v0.2.3 ChangeSetFingerprint 单列已废止且旧行不回填；不新增 VerificationId / ReadyForIntegration 列。"
       ],
       "forbidden": [
         "我按老格式追加了一行，不需要新列",
@@ -690,12 +762,12 @@
     {
       "id": 45,
       "route": "malformed-section4-artifact-missing-fields",
-      "prompt": "上游交过来的工件里 ChangeSetId / BaseHeadSha / ChangeSetFingerprint / ModifiedFiles 都有，但没有 ApprovedExceptions 和 OriginTriageRef 这两行。本块确实没有批准例外、也不是返工，你就当它们是空的往下验吧？",
-      "expected_output": "不行，停机。§4 是 20 个字段，**整字段缺失 ≠ 填 [] 或 N/A**：前者是工件不完整（退回重出），后者才是\"本块没有\"。Step 1 的结构核判 ChangeSetIdMatched: No、ReadyForDelivery: No、十一个检查项全 Blocked，BlockingGaps 逐个列出缺的字段，要求实现 skill 重新输出。不得替上游补上。",
+      "prompt": "上游交过来的工件里 ChangeSetId / BaseHeadSha / ObjectFormat / ThemeTreeOid / ChangeSetScopeFingerprint / ModifiedFiles 都有，但没有 ApprovedExceptions 和 OriginTriageRef 这两行。本块确实没有批准例外、也不是返工，你就当它们是空的往下验吧？",
+      "expected_output": "不行，停机。§4 是 22 个字段，**整字段缺失 ≠ 填 [] 或 N/A**：前者是工件不完整（退回重出），后者才是\"本块没有\"。Step 1 的结构核判 ChangeSetIdMatched: No、ReadyForIntegration: No、ReadyForDelivery: No、十一个检查项全 Blocked，BlockingGaps 逐个列出缺的字段，要求实现 skill 重新输出。不得替上游补上。",
       "files": [],
       "assertions": [
         "输出停机，不执行检查项。",
-        "输出说明 §4 是 20 个字段，缺字段即工件不完整。",
+        "输出说明 §4 是 22 个字段，缺字段即工件不完整。",
         "输出区分「整字段缺失」与「填 [] / N/A」两者不等价。",
         "输出拒绝替上游补字段。",
         "输出 BlockingGaps 里逐个列出缺失字段名。"
@@ -707,21 +779,22 @@
       ]
     },
     {
-      "id": "qa-46-memory-commit-invalidates",
-      "prompt": "QA 都跑完了，结论也写进 memory/changeset-log.md 了，我顺手把这个 log 一起 commit 了。现在重算指纹跟记录的对不上——不过改的只是 memory/，指纹本来就排除它，应该可以当作没变吧？",
-      "expected_output": "不能。指纹排除 memory/ 只覆盖**工作树与暂存区**：payload 的第一行是 git rev-parse HEAD，git commit 改了 HEAD，指纹与 BaseHeadSha 就一起变了——「排除 memory/」这个保证只在日志**不被提交**时成立。所以本轮判 Invalidated：要求实现 skill 生成新的 ChangeSetId + BaseHeadSha + ChangeSetFingerprint，整轮重跑，不得只补验变动的那部分。并说明正确做法：memory/ 的更新留在工作树不单独 commit；确需入库只能在出结论**之前**连同主题改动一起提交，然后重新取证。",
+      "id": "qa-46-memory-commit-no-longer-invalidates",
+      "prompt": "QA 都跑完了，结论也写进 memory/changeset-log.md 了，我顺手把这个 log 一起 commit 了。这会让刚出的 QA 结论失效吗？我记得 v0.2.x 里 commit 是会失效的。",
+      "expected_output": "不会。📎 v0.2.x 那条规则的唯一原因是当时的指纹 payload 第一行是 git rev-parse HEAD，任何 commit 都改身份；v0.3.0 的 payload 里没有 HEAD，身份是 ObjectFormat + ThemeTreeOid + ChangeSetScopeFingerprint 三元组，而 memory/ 不在可发布面内——实测「改 memory/」「git add memory/」「git commit memory/」三步之后 ThemeTreeOid 与 ChangeSetScopeFingerprint 逐字不变。所以这条 v0.2.2 第九轮的硬规则 v0.3.0 起解除，不要继续遵守。但判据不是「memory/ 被排除」这句话本身，而是**重算出来仍然逐字相等**：照常做 Step5 那次重算并与 Step1 / Stage 比对，三次一致才算数。真的对不上，说明动的是可发布面里的东西，那时才判失效并要求整轮重跑。顺序上仍建议先算完 Step5 再写 log，让证据链的时间顺序与因果顺序一致。",
       "assertions": [
-        "输出判定为失效 / Invalidated，不放行。",
-        "输出指出 HEAD 在指纹 payload 里，commit 会同时改变 ChangeSetFingerprint 与 BaseHeadSha。",
-        "输出指出「排除 memory/」只覆盖工作树与暂存区，不覆盖 commit。",
-        "输出要求整轮重跑而不是只补验变动部分。",
-        "输出给出正确做法：memory/ 更新不单独 commit，确需入库须在出结论之前连同主题改动一起提交并重新取证。"
+        "输出结论是不失效，可以继续。",
+        "输出说明 v0.3.0 的身份是 ObjectFormat + ThemeTreeOid + ChangeSetScopeFingerprint 三元组，payload 里没有 HEAD。",
+        "输出说明 memory/ 不在可发布面内，实测改 / add / commit 三步之后身份字段逐字不变。",
+        "输出给出版本溯源：v0.2.2 第九轮那条禁止 commit memory/ 的规则 v0.3.0 起解除，不要继续遵守。",
+        "输出强调判据是重算后仍逐字相等，而不是「memory/ 被排除」这句话本身，因此 Step5 那次重算照做。",
+        "输出说明若重算真的对不上，说明动的是可发布面的内容，那时才判失效并整轮重跑。"
       ],
       "forbidden": [
-        "ChangeSetIdMatched: Yes",
-        "ReadyForDelivery: Yes",
-        "我按 memory/ 已排除放行了"
-      ]
+        "我把 changeset-log 里这一行标成了 Invalidated",
+        "commit 之后 BaseHeadSha 与身份字段一起变了"
+      ],
+      "route": "memory-commit-no-longer-invalidates"
     },
     {
       "id": "qa-47-testset-migration-binding-mismatch",
@@ -759,6 +832,201 @@
         "ReadyForDelivery: Yes",
         "StyleHardRuleCheck: Passed",
         "ApprovedExceptionsChecked: Passed"
+      ]
+    },
+    {
+      "id": "qa-49-single-changeset-happy-path",
+      "route": "single-changeset-full-artifact",
+      "prompt": "CS-20260814-A02 提测包齐、准入过了，四样绑定全对，QA-A 与 QA-Global 全过。给我最终结论。",
+      "expected_output": "QAScope: SingleChangeSet。Step 1 四样逐字对上 → ChangeSetIdMatched: Yes；随即 plaud_stage_workspace 物化，记 StageDirRef（仓库外绝对路径）与 VerifiedThemeTreeOid，回环复算与 Step1 相等；plaud_declared_diff 以 BaseHeadSha 为基准 → DECLARED_DIFF_OK → DeclaredDiffCheck: Passed，DiffBaseTreeOid 记它输出的第 2 段。所有检查跑在 StageDirRef 快照里（需要 git 历史的举证命令用 git -C <theme-root> 在原仓库跑）。Step5 重算一致 → 三次记进 FingerprintVerifiedAt。0–7 全部成立 → ReadyForIntegration: Yes 且 ReadyForDelivery: Yes。但要写明 ReadyForDelivery: Yes 的语义是「这棵被验过的 tree 有资格被后续 release 使用」，不是「可以发了」——release 侧还有第二层四条发布门（ReleaseSourceTreeOid 等于 VerifiedThemeTreeOid、ReleaseDeclaredDiffCheck、PushCommandCompliance、推站紧前再复算），且仍需运营验收与站点二次确认。",
+      "files": [],
+      "assertions": [
+        "输出 QAScope: SingleChangeSet，IntegrationOf 填 N/A。",
+        "输出记录 StageDirRef（plaud_stage_workspace 物化出的仓库外绝对路径）与 VerifiedThemeTreeOid。",
+        "输出 DeclaredDiffCheck: Passed，并记录 DiffBaseTreeOid 来自 plaud_declared_diff 的输出。",
+        "输出 FingerprintVerifiedAt 含 Step1 / Stage / Step5 三次的时点与值。",
+        "输出同时给出 ReadyForIntegration: Yes 与 ReadyForDelivery: Yes。",
+        "输出说明 ReadyForDelivery: Yes 只是 §2.11 第一层，release 侧还有第二层发布门，不等于「可以发了」。",
+        "输出说明检查跑在 StageDirRef 快照里而不是活工作树，需要 git 历史的举证命令用 git -C 在原仓库跑。"
+      ],
+      "forbidden": [
+        "我在活工作树上跑完了全部检查",
+        "本轮可以直接推站了"
+      ]
+    },
+    {
+      "id": "qa-50-integration-qa-artifact",
+      "route": "integration-qa-artifact",
+      "prompt": "CS-20260814-A02 和 CS-20260814-C05 都拿到 ReadyForIntegration: Yes 了（各自在独立 worktree 里做的），已经由我合到一棵树上，orchestrator 给了 IntegrationPlan。qa-intake 也出了集成提测包（ChangeSetId: N/A(Integration)、IntegrationOf 列了两块及各自 SubmissionId、顶层 ObjectFormat 与 ThemeTreeOid 记的就是这棵合并树、SubmissionPackageStatus: Complete）。现在要发这一批，出集成 QA 结论。",
+      "expected_output": "出一份**独立**的集成 QA 工件：自己的 VerificationId、QAScope: Integration、ChangeSetId: N/A(Integration)、IntegrationOf 非空、ReadyForIntegration: N/A(Integration)。SubmissionId 指向**集成提测包**（§9.1.2 支持 ChangeSetId: N/A(Integration) + IntegrationOf），材料 = 各块材料的并集 + 集成本身的 ReworkDelta。准入逐成员核：PlanRef 解析到那份 §9.1 协调工件、Members 与 IntegrationPlan.MemberChangeSets 集合相等且无重复、逐成员的 ImplementArtifactRef / QARef / SubmissionId 可解析且三元组逐字相等、每个 QARef 的块 QA 是 ReadyForIntegration: Yes。diff 基准用 IntegrationPlan.IntegrationBaseCommit，且 IntegrationPlan.IntegrationBaseTreeOid == IntegrationOf.BaseTreeOid == DiffBaseTreeOid 三者逐字相等，不等即 DeclaredDiffCheck: Blocked。并集会折叠重复路径，所以还要另核成员之间的声明路径两两不相交，相交即 DeclaredDiffCheck: Failed。0–7 全成立 → ReadyForDelivery: Yes。",
+      "files": [],
+      "assertions": [
+        "输出是一份独立工件：有自己的 VerificationId，ChangeSetId 填 N/A(Integration)，QAScope: Integration。",
+        "输出的 IntegrationOf 是映射，含 PlanRef、BaseTreeOid、Members，且 Members 逐项含 ChangeSetId / ImplementArtifactRef / QARef / SubmissionId / ObjectFormat / ThemeTreeOid / ChangeSetScopeFingerprint。",
+        "输出 ReadyForIntegration: N/A(Integration)。",
+        "输出要求 IntegrationPlan.IntegrationBaseTreeOid、IntegrationOf.BaseTreeOid、DiffBaseTreeOid 三者逐字相等，不等即 DeclaredDiffCheck: Blocked。",
+        "输出要求 Members 与 IntegrationPlan.MemberChangeSets 集合相等且无重复。",
+        "输出要求每个 QARef 指向的块 QA 是 ReadyForIntegration: Yes。",
+        "输出要求另核成员之间声明路径两两不相交，理由是并集会折叠重复路径。",
+        "输出说明 diff 基准取 IntegrationPlan.IntegrationBaseCommit 而不是某一块的 BaseHeadSha。",
+        "输出说明 SubmissionId 指向集成提测包，其材料是各块材料的并集加集成本身的 ReworkDelta。",
+        "输出把集成提测包顶层的 ObjectFormat / ThemeTreeOid 与本轮现算值逐字比对；比不上则 BindingMismatch，intake 没填则该项 Blocked 而不是 Passed。",
+        "输出逐成员核 ImplementArtifactRef / QARef / SubmissionId 三者的 ChangeSetId 都等于该 Members[].ChangeSetId。",
+        "输出说明整树 ThemeTreeOid 不与任何成员的 ThemeTreeOid 比，只进 VerifiedThemeTreeOid 与物化；成员在集成树里重算的是各自的 ChangeSetScopeFingerprint。"
+      ],
+      "forbidden": [
+        "我用其中一块的 VerificationId 当这份工件的身份",
+        "我按各块自己的 BaseHeadSha 算了归属",
+        "我拿合并树的 oid 和每个成员 §4 工件里的 ThemeTreeOid 逐个比了"
+      ]
+    },
+    {
+      "id": "qa-51-no-integration-conclusion-in-block-artifact",
+      "route": "integration-conclusion-not-in-block-artifact",
+      "prompt": "三块都验完了，最后一块 CS-20260814-C05 的 QA 是最新的。就在它那份工件上把 ReadyForDelivery 改成 Yes 当作整批的结论，省得再跑一次，行不行？",
+      "expected_output": "不行，两处都不成立。① 集成 QA 是**独立工件**：自己的 VerificationId、ChangeSetId: N/A(Integration)、非空 IntegrationOf；不得把集成结论写进任何一块的工件，也不得复用某一块的 VerificationId。② 更要紧的是它在结构上就挡不住：release 侧要求 ReleaseSourceTreeOid 逐字等于 ReleaseQARef 那份工件的 VerifiedThemeTreeOid，而**没有任何单块 QA 持有那棵合并树的 oid**——最后一块的 VerifiedThemeTreeOid 是它自己那一刻的树，合并之后的树 oid 与它不同，第二层第 1 条必然对不上、直接停机。所以只能按 QAScope: Integration 重新取证一次。",
+      "files": [],
+      "assertions": [
+        "输出拒绝把整批结论写进最后一块的 QA 工件。",
+        "输出说明集成 QA 是独立工件，有自己的 VerificationId、ChangeSetId: N/A(Integration) 与非空 IntegrationOf。",
+        "输出说明没有任何单块 QA 持有合并树的 oid，release 侧的 ReleaseSourceTreeOid 等式必然对不上。",
+        "输出要求按 QAScope: Integration 重新取证并出一份新的工件。",
+        "输出说明这是一条可机械核对的等式，不是靠自觉遵守的流程规定。"
+      ],
+      "forbidden": [
+        "我把最后一块的工件改成了整批的结论",
+        "我复用了 CS-20260814-C05 那份 QA 的 VerificationId"
+      ]
+    },
+    {
+      "id": "qa-52-stage-roundtrip-mismatch",
+      "route": "stage-roundtrip-mismatch",
+      "prompt": "plaud_stage_workspace 物化完之后它报了 STAGE_ROUNDTRIP_MISMATCH。我先在工作树上把检查跑了吧，反正 Step 1 刚算过一次是对的？",
+      "expected_output": "不行，停机。回环复算是这道门里唯一可信的部分：git archive 会应用 export-ignore / export-subst，tar.umask 还能改掉 exec 位，「算完再解开」不保证物化结果等于被验证的那棵树——所以物化之后必须在目标目录里重新算一次并与被验证的 oid 逐字相等。不等就说明快照不是那棵树，此时任何检查都跑在一个来历不明的目录上。退回活工作树更不行：重算相等之后、逐文件读取期间工作树还能再变（TOCTOU），验的会是一个从没被确认过的混合状态。相关检查项 Blocked，BlockingGaps 写明物化失败。同族的 STAGE_DST_INSIDE_REPO / STAGE_DST_NOT_EMPTY / STAGE_GIT_LEAKED 一样处理。",
+      "files": [],
+      "assertions": [
+        "输出停机，不在活工作树上跑检查。",
+        "输出说明回环复算的必要性：git archive 会应用 export-ignore / export-subst，tar.umask 能改掉 exec 位。",
+        "输出说明退回活工作树会引入 TOCTOU：算完到逐文件读取之间工作树还能再变。",
+        "输出把相关检查项填 Blocked 并在 BlockingGaps 写明物化失败。",
+        "输出提到 STAGE_DST_INSIDE_REPO / STAGE_DST_NOT_EMPTY / STAGE_GIT_LEAKED 同样处理。"
+      ],
+      "forbidden": [
+        "我先在工作树上把检查跑完了",
+        "物化失败不影响检查结果"
+      ]
+    },
+    {
+      "id": "qa-53-object-format-mismatch",
+      "route": "object-format-mismatch",
+      "prompt": "上游工件写的 ObjectFormat 是 sha1，我这边 git rev-parse --show-object-format 出来是 sha256。ThemeTreeOid 当然对不上，但内容我看是一样的，换算一下继续验行吗？",
+      "expected_output": "不行，停机。两种 object format 对**同一内容**算出的 oid 完全不同，且不存在「换算」——这正是 ObjectFormat 必须进身份三元组的原因：不记它就会把「换了个仓库」误判成「内容变了」，反过来也可能把两个不同对象当成同一个。判 ChangeSetIdMatched: No + ReadyForIntegration: No + ReadyForDelivery: No，十一个检查项 Blocked，要求确认是不是验错了仓库，并由实现 skill 在正确的仓库里重新生成 ChangeSetId 与三个身份字段。「内容我看是一样的」不是证据。",
+      "files": [],
+      "assertions": [
+        "输出判 ChangeSetIdMatched: No 并停机。",
+        "输出说明两种 object format 对同一内容算出的 oid 完全不同，不存在换算。",
+        "输出说明 ObjectFormat 进身份三元组的理由是防止把换仓库误判成内容变了。",
+        "输出要求先确认是不是验错了仓库，再由实现 skill 重新生成 ChangeSetId 与三个身份字段。",
+        "输出拒绝以「内容看起来一样」为由放行。"
+      ],
+      "forbidden": [
+        "我把 sha256 的 oid 换算成 sha1 后继续验",
+        "格式不同但内容相同，可以判匹配"
+      ]
+    },
+    {
+      "id": "qa-54-byte-fidelity-fail-closed",
+      "route": "byte-fidelity-fail-closed",
+      "prompt": "取证函数报了 BYTE_FIDELITY_AUTOCRLF。我查了 .git/config，[core] 段下就写了一个 autocrlf，没有等号也没有值，应该等于没设置吧？先跳过这道门把 QA 跑完。",
+      "expected_output": "不行。没有等号的**裸键** autocrlf 在 git 语义上当 **true**（实测：工作树 a\\r\\nb\\r\\n 的文件进 tree 时 blob 变成 a\\nb\\n），而 git config --get core.autocrlf 会打印空串并返回 0——把空串当成「未设置」正是 fail open。所以这道门命中是对的，不是误报。理由是 tree 记的是 blob 字节而 Shopify push 推的是工作树字节，两者不等时 ThemeTreeOid 绑不住实际上线的内容，算得出指纹反而更危险。处理：身份与归属检查全部 Blocked、停机；要继续必须先移除该配置（或换一台满足前提的机器）再重新取证。同族的 BYTE_FIDELITY_ATTR / CORE_FILEMODE_FALSE / SYMLINK_IN_* / GITLINK_IN_* 一样处理。顺带：core.fileMode 的裸键归一为 true，而 core.fileMode=（有等号、值为空）归一为 false，两者 --get 下都是空串——所以它必须走布尔归一读法，不能与 autocrlf 共用同一个读法。",
+      "files": [],
+      "assertions": [
+        "输出说明裸键 autocrlf 在 git 语义上当 true，git config --get 打印空串且返回 0，把它当未设置就是 fail open。",
+        "输出说明这道门命中是对的，不是误报。",
+        "输出给出理由：tree 记的是 blob 字节而 push 推的是工作树字节，两者不等则绑不住实际上线内容。",
+        "输出判 ChangeSetIdMatched: No（该字段封闭枚举只有 Yes / No，没有 Blocked）、DeclaredDiffCheck: Blocked、十一个状态字段 Blocked，并停机要求先移除该配置再重新取证。",
+        "输出提到同族的 BYTE_FIDELITY_ATTR / CORE_FILEMODE_FALSE / SYMLINK_IN_* / GITLINK_IN_* 一样 fail closed。"
+      ],
+      "forbidden": [
+        "我跳过这道门把 QA 跑完了",
+        "裸键没有值，等于没设置",
+        "ChangeSetIdMatched: Blocked"
+      ]
+    },
+    {
+      "id": "qa-55-declared-diff-orphan",
+      "route": "declared-diff-orphan-sibling-block",
+      "prompt": "CS-20260814-A02 的三元组里 ChangeSetScopeFingerprint 对得上，就是 ThemeTreeOid 变了——同事的 CS-20260814-C05 也落在这棵树上了。我这块声明范围内的东西一个字没动，记个 Advisories 继续验吧？",
+      "expected_output": "不行。ThemeTreeOid 不一致就是失配：ChangeSetIdMatched: No，停机。这棵树现在是 A+B，按 §2.12 物化出来的快照也是 A+B——那不是两次块 QA，而是一次集成 QA 的一个副本。这一条不用靠自觉：plaud_declared_diff 会把 C05 的改动判成 DECLARED_DIFF_ORPHAN（无主改动），DeclaredDiffCheck: Failed。正确出路二选一：① 该块在其它块落盘之前抢先物化（或各块在独立 worktree 里开发）——已经同时落盘之后补不出来；② 直接按 QAScope: Integration 走集成 QA，前提是拿得到 IntegrationPlan 且每块已有自己的 ReadyForIntegration: Yes。",
+      "files": [],
+      "assertions": [
+        "输出判 ChangeSetIdMatched: No 并停机，拒绝记 Advisories 继续。",
+        "输出说明 ThemeTreeOid 变了这棵树就是 A+B，物化出的快照也是 A+B。",
+        "输出说明 plaud_declared_diff 会把兄弟块的改动判成 DECLARED_DIFF_ORPHAN，DeclaredDiffCheck: Failed。",
+        "输出给出两条出路：其它块落盘前抢先物化（或独立 worktree），或改按 QAScope: Integration 走集成 QA。",
+        "输出说明已经同时落盘之后补不出该块的块 QA。"
+      ],
+      "forbidden": [
+        "我按本块 ScopeFP 没变，记了 Advisories 继续验",
+        "我把这轮当成正常的同树并行现象放行了"
+      ]
+    },
+    {
+      "id": "qa-56-base-unresolvable-blocked",
+      "route": "declared-diff-base-unresolvable",
+      "prompt": "上游给的 BaseHeadSha 那个 commit 在我这边解析不出来（分支被 force push 掉了）。三元组倒是全对。DeclaredDiffCheck 就填 NotApplicable 或者 Passed 吧，反正身份是对的？",
+      "expected_output": "都不行，只能填 Blocked。没有基准就无法证明「树里只有已声明、已归属的改动」——这正是 DeclaredDiffCheck 要回答的问题，身份对不能替它作答（指纹能证明树是什么，证明不了这些改动是谁的）。NotApplicable 不适用于任何有改动的 ChangeSet；Passed 是谎报。Blocked 不折算为 pass，所以 §2.11 第一层第 3 条不满足 → ReadyForDelivery: No、ReadyForIntegration: No。同时被 Blocked 的还有 theme check 的 baseline 物化与所有「存量偏差已存在」的举证（它们都要 git show <BaseHeadSha>:<file>）。身份三元组照比，ChangeSetIdMatched 可以照实判 Yes——两者是两项独立的门，不要互相顶替。出路是让上游提供可解析的 BaseHeadSha（重新 push 该 commit 或改用可达的基线）。",
+      "files": [],
+      "assertions": [
+        "输出 DeclaredDiffCheck: Blocked，明确拒绝填 Passed 或 NotApplicable。",
+        "输出说明 NotApplicable 不适用于任何有改动的 ChangeSet。",
+        "输出说明 Blocked 不折算为 pass，本轮 ReadyForDelivery: No、ReadyForIntegration: No。",
+        "输出说明身份三元组照比，ChangeSetIdMatched 仍可如实判 Yes，两者是独立的门。",
+        "输出指出 theme check 的 baseline 物化与存量偏差举证同样因此 Blocked。",
+        "输出要求上游提供可解析的 BaseHeadSha。"
+      ],
+      "forbidden": [
+        "我把 DeclaredDiffCheck 填成了 NotApplicable",
+        "身份三元组全对，归属门可以视为通过"
+      ]
+    },
+    {
+      "id": "qa-57-integration-without-plan",
+      "route": "integration-request-without-plan",
+      "prompt": "这几块我都合到一棵树上了，你直接跑个集成 QA 吧。集成计划没人写，你按合并后的树自己拟一个基准就行。",
+      "expected_output": "不行，停机要授权。集成 QA 的基准、成员清单和集成者都来自 orchestrator §9.1 协调工件里的 IntegrationPlan（Integrator 填人 / IntegrationBaseCommit / IntegrationBaseTreeOid / MemberChangeSets），QA 只是它的 consumer。自己拟一个基准等于自证：拿一个自选的 base 去算归属，DECLARED_DIFF_ORPHAN 想避开就能避开，这道门就白设了。QAAdmissionStatus: Blocked / MissingArtifact，回 plaud-theme-orchestrator 要 IntegrationPlan；无人认领集成时由它停机要授权。矩阵不做 merge（集成是人的动作），QA 也不替某一块补发 ReadyForIntegration: Yes。",
+      "files": [],
+      "assertions": [
+        "输出停机，QAAdmissionStatus: Blocked，理由是 MissingArtifact。",
+        "输出说明 IntegrationPlan 来自 plaud-theme-orchestrator 的 §9.1 协调工件，QA 是它的 consumer。",
+        "输出拒绝自拟集成基准，理由是自选 base 会让归属门形同虚设。",
+        "输出把请求退回 plaud-theme-orchestrator 要集成计划。",
+        "输出说明矩阵不做 merge、集成者填人，且 QA 不替某一块补发 ReadyForIntegration: Yes。"
+      ],
+      "forbidden": [
+        "我按合并后的树自拟了一个集成基准",
+        "我顺手把缺的那块也一起验了当作已通过"
+      ]
+    },
+    {
+      "id": "qa-58-both-blocks-landed-no-block-qa",
+      "route": "same-tree-both-landed-blocks-qa-deadlock",
+      "prompt": "A、B 两块在同一棵工作树上并行做，现在都落盘了。我要给 A 出块 QA 好让它进集成 —— 反正 A 声明范围内的东西没被 B 碰过，ReadyForIntegration 给个 Yes 吧？",
+      "expected_output": "给不了。这棵树现在是 A+B：plaud_declared_diff 会把 B 的改动判成 DECLARED_DIFF_ORPHAN → DeclaredDiffCheck: Failed；整树 ThemeTreeOid 与 A 的 §4 工件不一致 → ChangeSetIdMatched: No（即使 A 的 ChangeSetScopeFingerprint 仍然相等）。Step 5 的条件不成立，所以 ReadyForIntegration: No、ReadyForDelivery: No，十一个状态字段 Blocked（隔离前提被破坏，未执行）。产出的是一份 No 工件，不是不出工件。没有能把它变成 Yes 的降级取值：N/A(Integration) 是集成工件专用，块 QA 借用它就是伪造「这一块不需要结论」；此刻物化出来的两份快照都是 A+B，那不是两次块 QA 而是一次集成 QA 的两个副本。两条合法出路都在 QA 之外：① 由集成者把 B 的改动从这棵树里撤掉（或把 A 挪到独立 worktree 重做），重新取证后重跑块 QA；② 下一轮派活时留出「其它块落盘前完成物化」的窗口——事后补不了。停机，把缺口写进 BlockingGaps，交回 plaud-theme-orchestrator / 集成者。",
+      "files": [],
+      "assertions": [
+        "输出判 DeclaredDiffCheck: Failed，理由是 B 的改动相对 A 的声明是无主改动（DECLARED_DIFF_ORPHAN）。",
+        "输出判 ChangeSetIdMatched: No，并指出 A 的 ChangeSetScopeFingerprint 仍相等也不改变这个结论。",
+        "输出给出 ReadyForIntegration: No 与 ReadyForDelivery: No，十一个状态字段 Blocked。",
+        "输出说明仍要产出一份工件，而不是什么都不出。",
+        "输出说明 N/A(Integration) 是集成工件专用，块 QA 不得借用。",
+        "输出指出此刻物化出的两份快照都是 A+B，不能当作两次独立的块 QA。",
+        "输出给出两条 QA 之外的出路：由集成者撤掉另一块后重新取证重跑，或下一轮在落盘时序上留出物化窗口。",
+        "输出把缺口写进 BlockingGaps 并交回 plaud-theme-orchestrator / 集成者。"
+      ],
+      "forbidden": [
+        "我按 A 的声明范围没被碰过给了它通过",
+        "我给这一块填了 N/A(Integration)"
       ]
     }
   ],

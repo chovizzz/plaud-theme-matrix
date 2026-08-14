@@ -68,9 +68,11 @@ DTC §八 还有一条对等约束：**未标类型的按变更处理**。
 
 必须**新开工作项，从 Assess 重新进入**，生成新的 `ChangeSetId`。
 
-> 🔴 原因见 handoff-schema §1.4：**QA 通过后代码再变，原 QA 结论自动失效。** 复用旧 `ChangeSetId` 直接改，会让 QA 验的是一批它从未见过的代码——这正是 `ChangeSetFingerprint` 要堵的洞。
+> 🔴 原因见 handoff-schema §2.8 失效语义：**QA 通过后代码再变，原 QA 结论自动失效。** 复用旧 `ChangeSetId` 直接改，会让 QA 验的是一批它从未见过的代码——这正是身份三元组（`ObjectFormat` / `ThemeTreeOid` / `ChangeSetScopeFingerprint`，📎 v0.3.0 取代 v0.2.3 的单字段 `ChangeSetFingerprint`）要堵的洞。
 >
-> "就改一行，不用重新走流程吧" —— 不行。改一行也是改，指纹会变。
+> "就改一行，不用重新走流程吧" —— 不行。改一行也是改：改在可发布面上，`ThemeTreeOid` 就变了。
+>
+> 🔴 **而且这条规则不靠"身份会变"兜底。** 万一那一行改在可发布面之外（build 源、`.theme-check.yml`），`ThemeTreeOid` 可能一动不动，但它照样会改变 QA 与构建结果（handoff-schema §2 的残余风险条目）。**复用旧 ChangeSet 本身就是契约违规，与身份变不变无关。**
 
 ### 3. Linear 状态不自动改
 

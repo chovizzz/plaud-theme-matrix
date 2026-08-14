@@ -44,7 +44,8 @@
 3. `Blocked` 与 `NotRun` **不得**折算为 pass——存在任一项时 `ReadyForDelivery` 必须是 `No`。
 
    `NotApplicable` 不同：它是**合法终态**，但必须给出适用性证据（例如"本次未改任何 `.liquid`，故 Theme Check 不适用"）。没有证据的 `NotApplicable` 一律按 `Blocked` 处理。区别在于——`Blocked` 是"该验但验不了"，`NotApplicable` 是"根本不需要验"；前者是风险，后者不是。
-4. QA 通过后代码若再次变化，该 QA 结果**自动失效**，必须重新生成 `ChangeSetId` 并重跑 QA。
+4. QA 通过后，**可发布内容**（`ThemeTreeOid`）或**本块声明范围**（`ChangeSetScopeFingerprint`）再次变化时，该 QA 结果**自动失效**，必须重新生成 `ChangeSetId` 并重跑 QA。
+   🔴 v0.3.0 起「代码变化」有精确定义，不再等于「仓库里发生了任何事」：`git add` / `git reset` / `commit`（含 `commit memory/`）/ 仓库根 scratch 临时文件**都不算**变化（§2.8）。反过来，QA 跑在物化快照里，快照被篡改同样算失效（§2.6）。
 5. 用户即使明说"不用检查了直接给我"，实现 skill 仍不得输出 `ReadyForDelivery: Yes`；正确做法是照常输出 `No` + `QAStatus: Skipped(UserWaived)`，并在正文一句话说明已按用户要求跳过验证、风险由用户承担。
 
 ### 1.1 `ReadyForDelivery: Yes` 的边界
@@ -61,7 +62,7 @@
 
 ---
 
-## 2. ChangeSetId 绑定
+## 2. ChangeSetId 与对象绑定
 
 `ChangeSetId` 是把「谁改的」和「谁验的」焊在一起的唯一凭据。QA 验的必须**就是**实现 skill 交出的那批改动。
 
@@ -69,389 +70,1057 @@
 - `<path>` ∈ `A` / `B` / `C`
 - `<NN>` 为当日该路径的序号，从 `01` 起
 
-**`<NN>` 怎么取（v0.2.2 第九轮补：此前只说「从 01 起」，没有 allocator、没有冲突处理，两个独立 worktree 会各自生成 `CS-20260813-A01`，QA / changeset-log / 返工链会把两批内容当成同一个 ChangeSet）**：
+**`<NN>` 怎么取**：
 1. 读 `memory/changeset-log.md`，取**同一天、同一 `<path>`** 的已有最大序号 + 1；该日该路径没有行则从 `01` 起。
 2. 生成后**立刻**在 `changeset-log.md` 追加一行占位（`ChangeSetId` + 生成时间 + 归属 skill），再开始实现——先占位是这套编号唯一的互斥手段。
 3. 🔴 **独立 worktree / clone 里开发时 `memory/` 不共享，第 1 步读到的是各自的日志 → 必然撞号。** 此时不得自行生成：回 `plaud-theme-orchestrator` 由它在主树的日志里统一分配，或改为串行。
+   📎 **v0.3.0 起同树并行 Implement 成为主推路径**，此时 `memory/changeset-log.md` **是共享的**，占位法重新有效——但两个 agent 同时写同一个日志文件是新的竞态，**「生成后立刻占位」是唯一防线**，不得攒到实现结束再补。
 4. 日志里已有同号但内容不是本块 → **停机**，不要自造 `A01b` 之类的后缀格式。
 
-**生成方**：实现类 skill（dev / section-build / ux-migration），在输出 HandoffContract 时生成。
-**消费方**：`plaud-theme-qa`，必须回填 `ChangeSetIdMatched`。
-
-### 🔴 必须绑定内容，不能只绑文件名
+### 2.1 身份是三个字段，缺一不可
 
 只比对 `ModifiedFiles` 的**文件集合**是不够的：实现 skill 交出工件之后、QA 开始之前，如果同一批文件的**内容**又被改过，文件集合仍然一致，`ChangeSetIdMatched` 会错误地判为 `Yes`——QA 验的是一批它从未见过的代码。
 
-因此实现 skill 必须在交付工件时**当场**生成并写入：
+v0.2.x 的做法是对「工作树状态文本」求 SHA-256。v0.3.0 换成**让 git 把当前可发布内容写成一个不可变的 tree 对象，用它的 oid 作身份**：
+
+| 字段 | 是什么 | 谁产谁验 | 为什么缺它不行 |
+|---|---|---|---|
+| `ObjectFormat` | `sha1` \| `sha256` | 实现 skill 产、QA / release 验 | sha1 与 sha256 仓库对**同一内容**算出的 oid 完全不同。不记就会把「换了个仓库」误判成「内容变了」 |
+| `ThemeTreeOid` | 可发布面（`assets blocks config layout locales sections snippets templates` + 仓库根 `.shopifyignore`）的 git tree oid | 同上 | **QA 验的对象 = release 推的对象**。没有它，「已验证」与「实际推送」之间没有稳定标识 |
+| `ChangeSetScopeFingerprint` | 只覆盖本 ChangeSet **声明路径**的 tree oid + 删除项 `absent` 行的 SHA-256，形态是 `<ScopeTreeOid> <ScopeDigest>` 两段 | 同上 | 它是 ChangeSet 的**身份**，不受同树其它块落盘影响 → 这是同树并行 Implement 的全部依据。单比 `ScopeTreeOid` 会漏掉删除（删除只体现在 `ScopeDigest`），所以两段必须一起逐字比 |
+
+`BaseHeadSha` **不再是失配判据**（详见 §2.5），但**仍然必填、且必须是可解析的 commit-ish**。
+
+三个字段一起构成身份：`ThemeTreeOid` 单独不够（表达不了声明范围），`ChangeSetScopeFingerprint` 单独不够（表达不了整树），`ObjectFormat` 不比就会跨仓库误判。
+
+### 2.2 不要求 commit —— 这是全案的关键
+
+实现 skill 交工件的那一刻，改动通常还在工作树里。这正是临时索引存在的理由：`git add` 到一个 `GIT_INDEX_FILE` 指向 scratch 的**空白**索引里，把工作树当前状态（含未跟踪文件、删除、exec 位、被 gitignore 的文件）固化成一个 tree 对象，**用户的 `.git/index` 一个字节都不动，HEAD 不动，没有任何 ref 指向这个 tree**。
+
+正面回答那几个必然会被问到的问题：
+
+| 问题 | 答案 |
+|---|---|
+| 谁来 commit？ | **没人。矩阵不产生 commit。** |
+| commit 到哪个分支？ | 不适用。 |
+| 要求干净工作树吗？ | **不要求。** 脏工作树是常态，正是被固化的那个状态。 |
+| 提交信息格式？ | 不适用。 |
+| 矩阵会变成「必须有写权限的 git 操作者」吗？ | **不会**，但边界要说清，见 §2.3。 |
+
+**「只读取证者」这个姿态仍然成立**，但要害不在「不写对象」，在**oid 是内容的确定性函数**：对象库只是缓存，**校验 = 重算 + 比字符串**，从来不需要去对象库里把对象捞出来。
+
+- **默认模式**：`GIT_OBJECT_DIRECTORY` 指 scratch，`GIT_ALTERNATE_OBJECT_DIRECTORIES` 指仓库的 `objects`（只读）。新对象全落 scratch，算完即删。实测 `.git/objects` 文件数前后不变；把 `.git/objects` 置为只读，默认模式仍能算出指纹。
+- **例外是物化**（§2.6）：`git archive` 必须能读到那个 tree 对象，所以 `plaud_stage_verified` 把对象留到 archive 之后再删——仍然只在 scratch 里，仍然不写仓库。
+- **`PLAUD_TREE_WRITE_TO_REPO=1`** 是显式 opt-in（把对象写进仓库，之后可 `git cat-file` 查），默认关闭。写进去的是 dangling 对象，等 `git gc` 回收。**不要拿它当持久化手段**——dangling 对象会被 gc 掉。
+
+### 2.3 三条新增的环境前提
+
+1. **可写的临时目录**（`TMPDIR`，取不到时退 `/tmp`）。这是 v0.2.x 不需要的新依赖，`mktemp` 失败即 fail closed。
+2. **git ≥ 2.25**（`--pathspec-from-file`）。低于此版本有 `GIT_TOO_OLD` 能力门。
+3. **只支持 macOS / Linux 取证。** 这几个函数用了 `set -o pipefail`、POSIX 文件模式与 `git check-attr -z` 的解析约定；同时 Windows 上的典型 git 配置（`core.fileMode` 为假、`core.autocrlf` 为真——具体取值随安装时的选项而定，**不要写成"Windows 默认必然如此"**）会直接命中两道字节保真门。与其给一份行为不同的 PowerShell 实现，不如明说不支持：Windows 环境下取证不可用，对应的 QA / release 检查项填 `Blocked`，理由写「平台不支持 / 字节保真前提不满足」。
+
+### 2.4 `git add` 会执行 hook 与 clean filter
+
+这是取证动作**曾经**能执行仓库里任意脚本的入口（`post-index-change` hook 被触发，实测复现）。现在两条挡法：
+
+- 所有内部 git 调用一律带 `-c core.hooksPath=/dev/null -c core.fsmonitor=false`；
+- clean filter 由**字节保真门在 `git add` 执行之前**拦下。
+
+🔴 **因此下游 skill 复制这几个函数时必须逐字原样复制，不得凭记忆敲、不得删注释。** 一个漏掉 `-c core.hooksPath=/dev/null` 的抄本，后果是**执行仓库里的任意脚本**，比 v0.2.x 的「算出一个假指纹」严重一个量级。
+
+### 2.5 生成与校验命令（唯一事实源）
+
+必须在**仓库根目录**执行。producer 与 verifier 必须用一字不差的同一段命令。执行环境是 `bash`（≥3.2）或 `zsh`，**不是任意 `/bin/sh`**——这几段都用了 `set -o pipefail`，`dash` 不支持它、会直接以状态 2 退出；macOS 的 `/bin/sh` 实为 bash 所以看不出问题，**在 Linux 上必须显式 `bash -c`**。
 
 ```bash
-# BaseHeadSha
+# BaseHeadSha —— 溯源字段 + diff 基准锚点。**不与当前 HEAD 比对**（期间 commit / rebase /
+# checkout 不再让 ChangeSet 失效），但它必须是**可解析的 commit-ish**：§5 的 DeclaredDiffCheck、
+# theme check 的 baseline 物化、以及若干条「存量偏差举证」都要 git show <BaseHeadSha>:<file>。
+# 缺失或不可解析 → 这些检查填 Blocked，不得填 Advisories，也不得填 N/A。
 git rev-parse HEAD
 
-# ChangeSetFingerprint —— 覆盖内容、删除态、未跟踪文件，以及**未跟踪文件的完整权限位**
-# 🔴 tracked 文件的权限只覆盖 executable 位（v0.2.2 第十轮实测更正：原文写"覆盖权限"，
-#    而 git 对已跟踪文件只记 100644/100755 这一个 bit —— 0644→0600 指纹纹丝不动）。
-#    对 Shopify push 无害（推的是内容），但这句声明本身原来是错的，而 CORE_FILEMODE_FALSE
-#    那道门恰恰是以"覆盖权限"的名义 fail closed 的。
-# 必须在仓库根目录执行。producer 与 verifier 必须用一字不差的同一段命令。
-plaud_fingerprint() (
-  set -o pipefail
-  # 🔴 必须在仓库根执行 —— 这条以前只写在正文里、没有守卫（v0.2.2 第七轮自查补）。
-  #    在子目录跑时 `-- .` 会把范围收到该子目录，于是**静默算出一个子集指纹并返回 0**
-  #    （实测：根目录与 sections/ 下得到两个不同的正常 hash）。producer 与 verifier 只要
-  #    一个不在根目录就是假失配；两边都在同一子目录，则指纹看着正常却只覆盖一部分。
-  _top=$(git rev-parse --show-toplevel 2>/dev/null)                                 || return 1
-  [ -n "$_top" ] || return 1
-  [ "$(cd "$_top" && pwd -P)" = "$(pwd -P)" ] || {
-    # printf + ASCII 分隔：把变量紧贴多字节字符（如「根为 $_top）」）在某些 bash 下会截断输出
-    printf 'NOT_REPO_ROOT: must run at repo root. cwd=%s toplevel=%s\n' "$(pwd -P)" "$_top" >&2
-    return 1; }
-  # 🔴 四条不可改的结构约束（v0.2.2 修，全部实测验证过）：
-  # (1) 排除 memory/ —— 它是项目运行时状态、不属于 ChangeSet，且由矩阵自己写。
-  #     不排除的话，QA 写完 changeset-log 当场就把刚记录的结论算失效（§1.4）。
-  # (2) 先把全部输入收进变量、成功了才 hash。**绝不能把 { … } 直接管进 shasum**：
-  #     那样 { } 是管道左端、跑在子 shell 里，里面的 return/exit 只结束子 shell，
-  #     shasum 照样把残缺输入算出一个像样的 hash（空输入 → e3b0c442…，看不出坏了）。
-  # (3) 未跟踪文件**逐行数核对**：循环零次迭代时它的退出码也是 0（heredoc 建不了临时文件、
-  #     输入为空等），不核对行数就会静默产出"不含未跟踪文件"的指纹。
-  # (4) 未跟踪"目录" fail closed，见下。
-  # 必须在仓库根目录执行。producer 与 verifier 必须用一字不差的同一段命令。
-  # 🔴 换行文件名必须 fail closed：下面把 NUL 转成换行后逐行读，路径里本身带 \n 的会被
-  #    拆成两行、两半都 hash 不到，**指纹静默漏算且行数守卫也对得上**（实测：造 a、b、
-  #    "a\nb" 三个文件，改 "a\nb" 的内容，指纹完全不变）。所以先探测、命中就退出。
-  nl_probe=$(git ls-files --others --exclude-standard -z -- . ':(exclude)memory/' \
-    | tr -d '\0' | tr -cd '\n' | wc -c | tr -d ' ')                                 || return 1
-  [ "$nl_probe" = "0" ] || { echo "NEWLINE_IN_PATH: 路径含换行，指纹无法覆盖，先重命名" >&2; return 1; }
-  # 🔴 被 gitignore 的**主题可发布文件** fail closed：下面的 --exclude-standard 会跳过 ignored
-  #    文件，而 Shopify push 推的是整个主题目录 —— ignored 的 assets/*.css 照样上线，却完全
-  #    不在指纹里（实测：放进 .git/info/exclude 后新增与改内容指纹都不变）。
-  #    只管可发布目录：node_modules / .DS_Store 之类本就该 ignore，不在这几个目录下。
-  #    🔴 **先数个数、不要 head，也绝不能 `|| var=""`**（v0.2.2 第七轮修）：
-  #    `| head -5` 在 pipefail 下命中量大时会让上游吃 SIGPIPE 而失败，紧跟的 `|| ignored_pub=""`
-  #    又把证据清空 —— 这个门就 **fail open** 了（评审用 12,000 个 ignored assets/*.css 复现：
-  #    函数两次都返回 0，改其中一个文件 hash 仍完全相同）。**门禁的失败分支不许兜底成"没命中"。**
-  n_ignored=$(git ls-files --others --ignored --exclude-standard -z -- \
-    assets blocks config layout locales sections snippets templates \
-    | tr -cd '\0' | wc -c | tr -d ' ')                                              || return 1
-  [ -n "$n_ignored" ]                                                               || return 1
-  if [ "$n_ignored" != "0" ]; then
-    printf 'IGNORED_PUBLISHABLE_FILE: %s 个被 gitignore 的文件位于主题可发布目录下，会被 push 但不进指纹。\n' "$n_ignored" >&2
-    printf '  先纳入版本控制或移出主题目录。列出前 20 个：\n' >&2
-    # 这里可以用 head：它只影响**诊断输出**，判定已由上面的计数完成
-    git ls-files --others --ignored --exclude-standard -- \
-      assets blocks config layout locales sections snippets templates 2>/dev/null \
-      | head -20 | sed 's/^/    /' >&2
-    return 1
-  fi
-  # 🔴 stat 必须**先按平台定一次**，不能写成 `stat -f '%Lp' … || stat -c '%a' …`：
-  #    GNU stat 会把 '%Lp' 当成**另一个文件操作数**，仓库里恰好有名为 %Lp 的文件时第一支就
-  #    "成功"、第二支不执行，拿到的是文件系统信息而不是权限位 —— 权限改了指纹却不变（已复现）。
-  if stat -c '%a' . >/dev/null 2>&1; then STAT_MODE_CMD="stat -c '%a'"      # GNU / Linux
-  elif stat -f '%Lp' . >/dev/null 2>&1; then STAT_MODE_CMD="stat -f '%Lp'"  # BSD / macOS
-  else echo "NO_USABLE_STAT: 既不支持 GNU 也不支持 BSD 的 stat" >&2; return 1; fi
-  # 🔴 tracked 侧的三个盲区（v0.2.2 第七轮补，前两个实测可静默漏算）：
-  #  (a) .gitattributes 的 clean filter：工作树字节变了但 filter 清洗后 git 语义相同 →
-  #      git diff/status 都看不见。非默认配置，直接 fail closed。
-  #  (b) core.fileMode=false：tracked 文件权限 0644→0755 时 status 为空、指纹不变。
-  #      本函数只对**未跟踪**文件记权限，所以这里必须 fail closed，否则"覆盖权限"这个声明是假的。
-  #  (c) 大小写不敏感卷上的**纯大小写改名**：git status 为空、指纹不变，但磁盘文件名已变。
-  #      macOS 默认 core.ignorecase=true，不能因此 fail closed；改为逐路径比对**字节精确**的存在性。
-  # 🔴 v0.2.2 第八轮实测修：旧写法 `… | grep -q .` 与第七轮那条 `head -5` 是**同一族**
-  #    —— `grep -q` 命中即退出、关闭管道，上游 while 循环吃 SIGPIPE（状态 141），
-  #    pipefail 下整条管道失败，`if` 于是不进阻断分支 → **fail open**。
-  #    实测：1 个 .gitattributes 正确阻断；3000 个时 bash 3.2 与 zsh 都放行。
-  #    改法与 ignored 门一致：**不许任何提前退出的消费者**，把命中项全收进变量再判空。
-  #    同时补上第七轮漏掉的两个 attributes 来源：`$GIT_DIR/info/attributes` 与
-  #    `core.attributesFile`（全局），它们同样能挂 clean filter 而不进版本控制。
-  # 🔴 v0.2.2 第九轮：第八轮的 `_ga_hit=$( pipeline; : )` **仍是 fail open** —— 末尾那个
-  #    `:` 把 pipeline 的失败整个吞掉（评审注入 `git ls-files` 失败复现：先打印错误、
-  #    随后照样返回一个正常 SHA-256）。同轮还查出三个漏：只枚举 tracked `.gitattributes`
-  #    （工作树里**未跟踪**的那份照样生效）、`core.attributesFile` 拿到 `~/x` 后 `[ -f ]`
-  #    **不展开 `~`**、以及路径含换行时 NUL→换行转换又把它拆成两半。
-  #    改法：列表落**临时文件**（`$( )` 在 bash 里会直接丢掉 NUL 字节，不能用变量存 -z 输出），
-  #    每条命令单独判退出码，`while` 从文件读（不起子壳，命中项留得住）。
-  _atmp=$(mktemp -d)                                                                || return 1
-  git ls-files -z -- '*.gitattributes' > "$_atmp/z1" || {
-    printf 'GITATTR_ENUM_FAILED: git ls-files（tracked）失败，无法判定 clean filter\n' >&2
-    rm -rf "$_atmp"; return 1; }
-  # 🔴 v0.2.2 第十轮实测修：这里原来带 `--exclude-standard`，而它**按定义排除 ignored 文件** ——
-  #    可一个 `.gitattributes` 是否被 ignore，与它在 git 里生不生效**完全无关**（`.git/info/exclude`
-  #    是合法的本地配置，git 照样让该文件生效）。于是把 `.gitattributes` 加进 exclude 再挂 clean
-  #    filter，这道门两条枚举命令都返回空 → 放行，三次完全不同的工作树内容算出同一个指纹。
-  #    Shopify push 推的是工作树字节：QA 重算一致就放行，而上线的 CSS 与 QA 认证过的不是同一份。
-  #    （同函数的 IGNORED_PUBLISHABLE_FILE 门兜不住 —— 它只扫八个可发布目录，仓库根的
-  #    `.gitattributes` 不在其中。）所以这一路**必须连 ignored 一起枚举**。
-  git ls-files --others --exclude-standard -z -- '*.gitattributes' > "$_atmp/z2" || {
-    printf 'GITATTR_ENUM_FAILED: git ls-files（untracked）失败，无法判定 clean filter\n' >&2
-    rm -rf "$_atmp"; return 1; }
-  git ls-files --others --ignored --exclude-standard -z -- '*.gitattributes' > "$_atmp/z3" || {
-    printf 'GITATTR_ENUM_FAILED: git ls-files（ignored）失败，无法判定 clean filter\n' >&2
-    rm -rf "$_atmp"; return 1; }
-  cat "$_atmp/z1" "$_atmp/z2" "$_atmp/z3" > "$_atmp/z"                              || { rm -rf "$_atmp"; return 1; }
-  # 路径含换行 → fail closed（NUL 个数与行数不等即有换行）
-  _n_nul=$(tr -cd '\0' < "$_atmp/z" | wc -c | tr -d ' ')                            || { rm -rf "$_atmp"; return 1; }
-  _n_lin=$(tr '\0' '\n' < "$_atmp/z" | sed '/^$/d' | wc -l | tr -d ' ')             || { rm -rf "$_atmp"; return 1; }
-  [ "$_n_nul" = "$_n_lin" ] || {
-    printf 'NEWLINE_IN_ATTR_PATH: .gitattributes 路径含换行，无法可靠判定，先重命名\n' >&2
-    rm -rf "$_atmp"; return 1; }
-  tr '\0' '\n' < "$_atmp/z" | sed '/^$/d' > "$_atmp/list"                          || { rm -rf "$_atmp"; return 1; }
-  printf '%s\n' "$(git rev-parse --git-dir)/info/attributes" >> "$_atmp/list"       || { rm -rf "$_atmp"; return 1; }
-  # 🔴 用 --path 让 git 自己展开 `~`：--get 拿到的是字面量 `~/global-attrs`，`[ -f ]` 永假
-  _gattr=$(git config --path --get core.attributesFile 2>/dev/null) && [ -n "$_gattr" ] \
-    && { printf '%s\n' "$_gattr" >> "$_atmp/list" || { rm -rf "$_atmp"; return 1; }; }
-  _ga_hit=""
-  while IFS= read -r ga; do
-    [ -n "$ga" ] || continue
-    [ -f "$ga" ] || continue
-    # 🔴 v0.2.3：不能只查 `filter=`（第十轮演练：`*.css text eol=lf` + autocrlf 全关时，
-    #    两个不同的工作树字节串算出同一指纹，且**没有任何门触发**）。凡是让「工作树字节」
-    #    与「git 语义」脱钩的属性都要拦：text / eol / working-tree-encoding / ident。
-    if grep -qE 'filter=|(^|[[:space:]])(-?text([[:space:]=]|$)|eol=|working-tree-encoding=|ident([[:space:]]|$))' -- "$ga"; then
-      _ga_hit="$_ga_hit$ga
-"; fi
-  done < "$_atmp/list"
-  rm -rf "$_atmp"
-  [ -z "$_ga_hit" ] || {
-    printf 'GITATTRIBUTES_CLEAN_FILTER: 下列 attributes 文件挂了 clean/smudge filter，工作树字节可绕过指纹；本函数不支持：\n%s' "$_ga_hit" >&2
-    return 1; }
-  # 🔴 v0.2.2 第八轮实测修：git 的布尔值不只有字面 `false` —— `off` / `no` / `0` /
-  #    `FALSE` 等都表示假，旧写法只比字面串，这些取值会**直接通过**这道门，而本函数
-  #    只对未跟踪文件记权限，于是"指纹覆盖权限"这个声明变成假的。用 `--bool` 让 git
-  #    自己归一化；未配置时 git 无输出、退出码非 0，按默认 true 处理。
-  # 🔴 core.autocrlf / eol 转换（v0.2.2 第十轮实测补，与 clean filter 同族）：开着 autocrlf 时
-  #    把工作树文件从 LF 改成 CRLF，git 归一化后语义相同 —— `git status` 空、`git diff` 空、
-  #    **指纹一字不变**，而 Shopify CLI 推的是工作树字节。实测复现（索引 LF + 工作树 CRLF）。
-  #    与 clean filter 一样按非默认配置 fail closed；要继续用就先 `git config core.autocrlf false`。
-  # 🔴 v0.2.3：只比字面量是错的（第十轮演练打出 yes/on/1/iNpUt 四种绕过）。git 的布尔值
-  #    还认 yes/on/1，且 `input` 大小写不敏感 —— **这与第八轮给 core.fileMode 修的是同一族**，
-  #    当时的修法就是交给 `git config --bool` 归一化，教训没带到这个键上。
-  #    但不能只用 --bool：`input` 不是布尔值，--bool 会直接报错，所以两条都要。
-  _crlf_raw=$(git config --get core.autocrlf 2>/dev/null) || _crlf_raw=false
-  _crlf_lc=$(printf '%s' "$_crlf_raw" | tr 'A-Z' 'a-z')
-  if [ "$_crlf_lc" = "input" ]; then
-    printf 'CORE_AUTOCRLF_ON: core.autocrlf=%s hides worktree line-ending changes\n' "$_crlf_raw" >&2
-    return 1
-  fi
-  _crlf=$(git config --bool --get core.autocrlf 2>/dev/null) || _crlf=false
-  [ -n "$_crlf" ] || _crlf=false
-  [ "$_crlf" != "true" ] || {
-    printf 'CORE_AUTOCRLF_ON: core.autocrlf=%s hides worktree line-ending changes\n' "$_crlf_raw" >&2
-    return 1; }
-  _fm=$(git config --bool --get core.fileMode 2>/dev/null) || _fm=true
-  [ -n "$_fm" ] || _fm=true
-  [ "$_fm" != "false" ] || {
-    echo "CORE_FILEMODE_FALSE: core.fileMode 为假值时 tracked 权限变化对 git 隐形，指纹覆盖不到" >&2
-    return 1; }
-  # (c) tracked 路径必须在磁盘上**字节精确**存在（catch 纯大小写 / unicode 规范化改名）
-  #     🔴 一次 find 取盘上清单再做集合差 —— **不要逐文件 ls|grep**：真实仓库 1602 个
-  #     tracked 文件时那样跑要 >2 分钟（实测超时），agent 会挂死。
-  #     已被 git status 报告的路径（含删除、改名）排除掉，避免把合法删除误报成大小写问题。
-  #     🔴 v0.2.2 第八轮实测修的三处（三条都能复现）：
-  #     (i)  `find` 的目录清单必须**只含盘上存在的目录**：主题仓库不一定八个目录都有
-  #          （`blocks/` 只在新版 theme architecture 里有），少一个 find 就退出非 0，
-  #          而这里的 `|| return 1` **一句诊断都不打** —— agent 只看到 FINGERPRINT_FAILED，
-  #          无从判断是真被门挡住还是环境不齐（实测：删掉 blocks/ 即静默失败）。
-  #     (ii) `find … -type f` 会漏掉 **tracked symlink**：它在盘上存在、git 也正常跟踪，
-  #          却不进 disk 清单 → 被误报成 PATH_CASE_MISMATCH，指纹**永远算不出来**，
-  #          整条 QA/交付链死锁（实测：assets/link.css 一个 symlink 即复现）。
-  #          本函数别处也明说「已跟踪的 symlink 不受影响」——那句话原本是假的。
-  #     (iii)`git status --porcelain=v1 -z` 的**改名第二条目**（ORIG_PATH）是裸路径、没有
-  #          两字符状态前缀，旧写法 `sed 's/^...//'` 会把它削掉三个字符
-  #          （`assets/a.css` → `ets/a.css`），排除清单就少了一条真路径。
-  #          `-z` 格式下也根本不存在 ` -> `，那条 sed 是死的。改为只在真有状态前缀时才剥。
-  _tmpd=$(mktemp -d)                                                                || return 1
-  # 🔴 用位置参数收目录清单，**不要**写 `find $_dirs`：zsh 默认不对未加引号的变量做词分割，
-  #    整串会当成一个参数传给 find（实测 zsh 直接 No such file or directory），而本函数
-  #    明文支持 bash 与 zsh 两家。`set -- "$@" "$_d"` 在 bash / zsh / sh 下语义一致。
+# ==============================================================================
+# PLAUD theme matrix v0.3.0 —— 对象绑定的 ChangeSet 指纹
+#
+# 与 v0.2.x 的根本区别：不再对「工作树状态文本」求 hash，而是让 git 把当前**可发布
+# 内容**写成不可变的 tree 对象，用它的 oid 作身份。不 commit、不动 HEAD / ref / 用户
+# index / 工作树；默认连 .git/objects 都不写（对象进 scratch，用 alternates 读仓库）。
+#
+# 🔴 本节全部守卫遵守一条判据：**这一段失败了，外层真的会知道吗？**
+#    禁止 `|| var=""`（把「检测失败」改写成「没命中」）、禁止在判定路径上用 head / grep -q
+#    之类提前退出的消费者（pipefail 下让上游吃 SIGPIPE）、禁止把 grep 的状态 2 当成
+#    「零命中」、禁止把 `git config` 的查询失败或空值默认成安全值。
+# ==============================================================================
+# ---- 内部：可发布目录清单（唯一事实源） --------------------------------------
+# 🔴 Shopify 新增顶层可发布目录时**只改这一处**，并重跑本节自检。清单散在多处 =
+#    新目录被静默漏收，指纹看着正常却绑不住新上线的内容。
+_plaud_pub_dirs() {
   set --
   for _d in assets blocks config layout locales sections snippets templates; do
     [ -d "$_d" ] && set -- "$@" "$_d"
   done
-  [ "$#" -gt 0 ] || {
+  [ "$#" -gt 0 ] || return 1
+  printf '%s\n' "$@"
+}
+
+# ---- 内部：仓库根守卫 --------------------------------------------------------
+_plaud_at_root() {
+  _top=$(git rev-parse --show-toplevel 2>/dev/null)  || return 1
+  [ -n "$_top" ]                                     || return 1
+  # printf + ASCII 分隔：变量紧贴多字节字符时某些 bash 会截断输出
+  [ "$(cd "$_top" && pwd -P)" = "$(pwd -P)" ] || {
+    printf 'NOT_REPO_ROOT: must run at repo root. cwd=%s toplevel=%s\n' "$(pwd -P)" "$_top" >&2
+    return 1; }
+  return 0
+}
+
+# ---- 内部：git 能力门（--pathspec-from-file 需要 >= 2.25） --------------------
+_plaud_git_capable() {
+  _gv=$(git --version 2>/dev/null | sed -n 's/^git version \([0-9][0-9]*\)\.\([0-9][0-9]*\).*/\1 \2/p')
+  [ -n "$_gv" ] || { printf 'GIT_VERSION_UNKNOWN\n' >&2; return 1; }
+  _maj=${_gv% *}; _min=${_gv#* }
+  [ "$_maj" -gt 2 ] && return 0
+  [ "$_maj" -eq 2 ] && [ "$_min" -ge 25 ] && return 0
+  printf 'GIT_TOO_OLD: 需要 git >= 2.25（--pathspec-from-file），当前 %s.%s\n' "$_maj" "$_min" >&2
+  return 1
+}
+
+# ---- 内部：安全计数（grep 状态 2 = 出错，绝不当成零命中） ----------------------
+_plaud_count() {
+  _c=$(grep -c -- "$1" "$2"); _rc=$?
+  if [ "$_rc" -eq 0 ] || [ "$_rc" -eq 1 ]; then
+    [ -n "$_c" ] || return 1
+    printf '%s' "$_c"; return 0
+  fi
+  printf 'GREP_FAILED(rc=%s) on %s\n' "$_rc" "$2" >&2
+  return 1
+}
+
+# ---- 内部：读 git config 原始值，区分「未设置」/「设置成空」/「查询失败」 ---------
+# 打印 `UNSET` 或 `SET:<规整为小写的值>`；查询失败返回 1。**只给 core.autocrlf 用。**
+# 🔴 三态是必须的，不能只返回值字符串（v0.3.0 落地实测补）：
+#    `[core]` 段下写一个**没有等号的裸键**（`autocrlf`）时，git 语义上把它当 **true**，
+#    而 `git config --get core.autocrlf` 打印**空串并返回 0**。把空串当成「未设置」就是
+#    fail open —— 实测：裸 `core.autocrlf` 下 CRLF 文件进 tree 时真的被转成 LF
+#    （工作树 `a\r\nb\r\n`，blob `a\nb\n`），而设计原型照样算出正常指纹。
+# 🔴 `--type=bool` **不能**用在 core.autocrlf 上：合法取值 `input` 会 `fatal: bad boolean
+#    config value`（rc=128），把一个真实存在的危险配置变成「查询失败」。
+# 🔴 `LC_ALL=C tr`：土耳其语 locale 下 `I` 的小写是 `ı`，不锁 locale 会让 `INPUT`
+#    规整成 `ınput` 而落进「取值不认识」分支（方向仍安全，但报错文案会误导）。
+_plaud_cfg_raw() {
+  _v=$(git config --get "$1" 2>/dev/null); _rc=$?
+  if [ "$_rc" -eq 0 ]; then
+    printf 'SET:'; printf '%s' "$_v" | LC_ALL=C tr '[:upper:]' '[:lower:]'; return 0
+  fi
+  [ "$_rc" -eq 1 ] && { printf 'UNSET'; return 0; }
+  printf 'GIT_CONFIG_QUERY_FAILED: %s (rc=%s)\n' "$1" "$_rc" >&2
+  return 1
+}
+
+# ---- 内部：读 git config 的**布尔归一值**（只给 core.fileMode 用） --------------
+# 打印 `UNSET` / `true` / `false`；查询失败或值非布尔返回 1。
+# 🔴 为什么这里必须用 `--type=bool` 而不能复用 _plaud_cfg_raw（Codex 评审实测，我复现）：
+#    `core.fileMode` 的**裸键**归一为 **true**，而 `core.fileMode=`（有等号、值为空）归一为
+#    **false**。两者在 `--get` 下都是「空串 + rc=0」，raw 三态区分不了。
+#    实测：`git -c core.fileMode= add` 把 0755 的文件记成 100644，`-c core.fileMode=true`
+#    记成 100755 —— 把空值当成 true 放行就是 fail open。
+_plaud_cfg_bool() {
+  _v=$(git config --type=bool --get "$1" 2>/dev/null); _rc=$?
+  if [ "$_rc" -eq 0 ]; then
+    [ "$_v" = "true" ] || [ "$_v" = "false" ] || {
+      printf 'GIT_CONFIG_BOOL_UNEXPECTED: %s=%s\n' "$1" "$_v" >&2; return 1; }
+    printf '%s' "$_v"; return 0
+  fi
+  [ "$_rc" -eq 1 ] && { printf 'UNSET'; return 0; }
+  printf 'GIT_CONFIG_BOOL_FAILED: %s (rc=%s) —— 取值非布尔或查询失败\n' "$1" "$_rc" >&2
+  return 1
+}
+
+# ---- 内部：隔离对象库执行 git ------------------------------------------------
+# 🔴 -c core.hooksPath=/dev/null：`git add` 会触发 post-index-change hook（实测复现）。
+#    取证动作绝不能执行仓库里的任意脚本 —— 既是副作用，也是投毒入口。
+#    clean filter 是同族入口，由字节保真门在 add **之前**拦下。
+_plaud_git_iso() {
+  if [ "${PLAUD_TREE_WRITE_TO_REPO:-0}" = "1" ]; then
+    git -c core.hooksPath=/dev/null -c core.fsmonitor=false "$@"
+  else
+    GIT_OBJECT_DIRECTORY="${_PLAUD_OBJDIR:-}" \
+    GIT_ALTERNATE_OBJECT_DIRECTORIES="${_PLAUD_REALOBJ:-}" \
+    git -c core.hooksPath=/dev/null -c core.fsmonitor=false "$@"
+  fi
+}
+
+_plaud_iso_setup() {
+  _PLAUD_REALOBJ=$(cd "$(git rev-parse --git-path objects 2>/dev/null)" 2>/dev/null && pwd -P) || return 1
+  [ -n "$_PLAUD_REALOBJ" ]                                                           || return 1
+  # 新增环境依赖：必须有可写临时目录。mktemp 失败即 fail closed，不许退回 /tmp 猜路径。
+  _PLAUD_OBJDIR=$(mktemp -d "${TMPDIR:-/tmp}/plaud-obj.XXXXXX")                       || return 1
+  [ -n "$_PLAUD_OBJDIR" ] && [ -d "$_PLAUD_OBJDIR" ]                                  || return 1
+  return 0
+}
+
+# ---- 内部：字节保真门 --------------------------------------------------------
+# tree 记的是 blob 字节，Shopify push 推的是工作树字节。任何让两者不等的机制都必须
+# fail closed。参数 = 待判路径集合（可发布面 + 声明范围里的仓外路径）。
+# 🔴 判的是**每条路径的生效属性**（git check-attr），不是"扫 .gitattributes 文件"：
+#    后者会漏掉被 gitignore 的 .gitattributes、漏掉 .git/info/attributes 与
+#    core.attributesFile，也会因为 filter 只作用于非可发布目录而误停机。
+_plaud_bytes_gate() {
+  _bg_tmp=$(mktemp -d "${TMPDIR:-/tmp}/plaud-bg.XXXXXX")                             || return 1
+  # 不加 --exclude-standard：ignored 文件同样会被 push 上线，必须一起判
+  _plaud_git_iso ls-files --cached --others -z -- "$@" > "$_bg_tmp/paths" || {
+    printf 'ATTR_ENUM_FAILED: 无法枚举待判路径\n' >&2; rm -rf "$_bg_tmp"; return 1; }
+  if [ ! -s "$_bg_tmp/paths" ]; then rm -rf "$_bg_tmp"; return 0; fi
+  # 🔴 路径含换行 → fail closed，理由是**工具能力**：check-attr -z 的输出要按 NUL 切
+  #    三元组，而 macOS 自带 awk 不支持 RS="\0"（实测只读到一条记录），tr '\0' '\n'
+  #    又会把含换行的路径拆行、让三元组整体错位。探测必须是"NUL 流里一个 \n 都不许有"
+  #    —— 用 sed '/^$/d' + wc -l 会漏掉**以 LF 结尾**的文件名。
+  _nl_cnt=$(tr -cd '\n' < "$_bg_tmp/paths" | wc -c | tr -d ' ')                       || { rm -rf "$_bg_tmp"; return 1; }
+  [ -n "$_nl_cnt" ]                                                                   || { rm -rf "$_bg_tmp"; return 1; }
+  [ "$_nl_cnt" = "0" ] || {
+    printf 'NEWLINE_IN_PATH: 待判路径里含换行，属性门无法可靠判定，先重命名\n' >&2
+    rm -rf "$_bg_tmp"; return 1; }
+  _plaud_git_iso check-attr -z --stdin \
+      filter text eol crlf ident working-tree-encoding export-ignore export-subst \
+      < "$_bg_tmp/paths" > "$_bg_tmp/attrs" || {
+    printf 'ATTR_CHECK_FAILED: git check-attr 失败，无法判定字节保真\n' >&2
+    rm -rf "$_bg_tmp"; return 1; }
+  tr '\0' '\n' < "$_bg_tmp/attrs" > "$_bg_tmp/lines"                                  || { rm -rf "$_bg_tmp"; return 1; }
+  awk 'NR%3==1{p=$0} NR%3==2{a=$0} NR%3==0{v=$0; if (v!="unspecified" && v!="unset") print a"="v" @ "p}' \
+      "$_bg_tmp/lines" > "$_bg_tmp/hits"                                              || { rm -rf "$_bg_tmp"; return 1; }
+  _nhit=$(_plaud_count . "$_bg_tmp/hits")                                             || { rm -rf "$_bg_tmp"; return 1; }
+  if [ "$_nhit" != "0" ]; then
+    printf 'BYTE_FIDELITY_ATTR: %s 条路径带有会改写字节或改写归档集合的属性（filter/text/eol/crlf/ident/working-tree-encoding/export-ignore/export-subst）。前 20 条：\n' "$_nhit" >&2
+    head -20 "$_bg_tmp/hits" | sed 's/^/  /' >&2     # 只用于诊断，判定已由计数完成
+    rm -rf "$_bg_tmp"; return 1
+  fi
+  rm -rf "$_bg_tmp"
+  # core.autocrlf —— 全仓生效，不经 attributes。git 接受 INPUT / TRUE 等大小写变体，
+  # 也接受**裸键**（等价于 true）。裸键在 --get 下是「空串 + rc=0」，故必须靠 SET:/UNSET 区分。
+  _crlf=$(_plaud_cfg_raw core.autocrlf)                                               || return 1
+  case "$_crlf" in
+    UNSET|SET:false|SET:no|SET:off|SET:0) : ;;
+    SET:true|SET:yes|SET:on|SET:1|SET:input)
+      printf 'BYTE_FIDELITY_AUTOCRLF: core.autocrlf=%s 会转换换行\n' "${_crlf#SET:}" >&2; return 1 ;;
+    SET:)
+      printf 'BYTE_FIDELITY_AUTOCRLF: core.autocrlf 是裸键（git 视为 true），会转换换行\n' >&2; return 1 ;;
+    *) printf 'BYTE_FIDELITY_AUTOCRLF_UNKNOWN: core.autocrlf=%s 取值不认识，fail closed\n' "${_crlf#SET:}" >&2; return 1 ;;
+  esac
+  # core.fileMode 假值 —— tree 只记 100644/100755，配置为假时 exec 位对 git 隐形。
+  # 用布尔归一值判：裸键=true（安全），`fileMode=`（空值）=false（危险），两者 --get 都是空串。
+  _fm=$(_plaud_cfg_bool core.fileMode)                                                || return 1
+  case "$_fm" in
+    UNSET|true) : ;;
+    false)
+      printf 'CORE_FILEMODE_FALSE: core.fileMode 归一为 false 时 exec 位变化不进 tree oid\n' >&2; return 1 ;;
+    *) printf 'CORE_FILEMODE_UNKNOWN: core.fileMode 归一值 =%s，fail closed\n' "$_fm" >&2; return 1 ;;
+  esac
+  return 0
+}
+
+# ---- 内部：对一份 -z 的 ls-tree 输出做 mode 门（symlink / gitlink） -----------
+# 🔴 判定必须**先计数**，不许 `grep | head` 这种提前退出的消费者，也不许 `|| var=""`：
+#    高基数时 head 关闭管道 → 上游 SIGPIPE → pipefail 下整条失败 → `|| var=""`
+#    把"检测失败"改写成"没命中" → fail open。（5,000 个 symlink 可复现。）
+_plaud_mode_gate() {
+  _mg_ls="$1"; _mg_tag="$2"
+  # -z 的 ls-tree 记录之间用 NUL 分隔，记录内部不含换行 —— 除非路径本身含换行。
+  # 那样 `tr '\0' '\n'` 会把一条记录拆成两行，mode 前缀匹配整体错位（fail open）。
+  _mg_nl=$(tr -cd '\n' < "$_mg_ls" | wc -c | tr -d ' ')                                || return 1
+  [ -n "$_mg_nl" ]                                                                    || return 1
+  [ "$_mg_nl" = "0" ] || {
+    printf 'NEWLINE_IN_PATH_%s: tree 条目里含换行路径，mode 门无法可靠判定\n' "$_mg_tag" >&2
+    return 1; }
+  tr '\0' '\n' < "$_mg_ls" > "$_mg_ls.lines"                                          || return 1
+  _n_gl=$(_plaud_count '^160000 commit ' "$_mg_ls.lines")                             || return 1
+  [ "$_n_gl" = "0" ] || {
+    printf 'GITLINK_IN_%s: %s 个嵌套 git 仓库条目，其内容不在 tree 里。前 20 条：\n' "$_mg_tag" "$_n_gl" >&2
+    grep '^160000 commit ' "$_mg_ls.lines" 2>/dev/null | head -20 | sed 's/^/  /' >&2
+    return 1; }
+  _n_sl=$(_plaud_count '^120000 blob ' "$_mg_ls.lines")                               || return 1
+  [ "$_n_sl" = "0" ] || {
+    printf 'SYMLINK_IN_%s: %s 个 symlink。tree 只记链接目标字符串，而 Shopify CLI 解引用上传目标内容 —— 改目标内容指纹不会变。先改成真实文件。前 20 条：\n' "$_mg_tag" "$_n_sl" >&2
+    grep '^120000 blob ' "$_mg_ls.lines" 2>/dev/null | head -20 | sed 's/^/  /' >&2
+    return 1; }
+  return 0
+}
+
+# ==============================================================================
+# plaud_theme_tree —— 当前**可发布内容**的 tree
+# 输出一行： <ObjectFormat> <ThemeTreeOid> <ThemeTreeDigest> [<objdir>]
+#   第 4 段只在 PLAUD_TREE_KEEP_OBJECTS=1 时出现，供 plaud_stage_verified 精确接手
+#   （用 `ls -dt` 去 TMPDIR 里回捞会在并发时拿到、甚至删掉别的进程的对象目录）。
+# ==============================================================================
+plaud_theme_tree() (
+  set -o pipefail
+  _plaud_at_root                                                                     || return 1
+  _plaud_git_capable                                                                 || return 1
+  _dirs=$(_plaud_pub_dirs) || {
     printf 'NO_THEME_DIRS: 当前目录下不存在任何主题可发布目录，这不像主题仓库根\n' >&2
-    rm -rf "$_tmpd"; return 1; }
-  git ls-files -z -- assets blocks config layout locales sections snippets templates \
-    | tr '\0' '\n' | sed '/^$/d' | LC_ALL=C sort > "$_tmpd/tracked" || {
-    printf 'CASE_CHECK_FAILED: git ls-files 采集 tracked 清单失败\n' >&2
-    rm -rf "$_tmpd"; return 1; }
-  # symlink 必须一起收（-type l），否则 tracked symlink 会被误判成大小写改名
-  find "$@" \( -type f -o -type l \) -print \
-    | sed 's|^\./||' | LC_ALL=C sort > "$_tmpd/disk" || {
-    printf 'CASE_CHECK_FAILED: find 采集盘上清单失败（目录清单=%s）\n' "$*" >&2
-    rm -rf "$_tmpd"; return 1; }
-  # 只在行首确实是「两位状态码 + 空格」时才剥前缀；改名的 ORIG_PATH 行保持原样
-  git status --porcelain=v1 -z --untracked-files=all | tr '\0' '\n' \
-    | sed 's/^[ MADRCUT?!][ MADRCUT?!] //' | LC_ALL=C sort > "$_tmpd/reported" || {
-    printf 'CASE_CHECK_FAILED: git status 采集已报告路径失败\n' >&2
-    rm -rf "$_tmpd"; return 1; }
-  _casebad=$(LC_ALL=C comm -23 "$_tmpd/tracked" "$_tmpd/disk" \
-    | LC_ALL=C comm -23 - "$_tmpd/reported")                                        || { rm -rf "$_tmpd"; return 1; }
-  rm -rf "$_tmpd"
-  [ -z "$_casebad" ] || {
-    printf 'PATH_CASE_MISMATCH: 下列 tracked 路径在磁盘上不是字节精确同名（纯大小写/规范化改名，git 看不见）：\n%s\n' "$_casebad" >&2
     return 1; }
-  # 🔴 已跟踪 symlink 的**目标内容**不在指纹里（v0.2.2 第十轮实测补）：git 存的是链接目标
-  #    字符串，`git diff HEAD` 只覆盖这个字符串 —— 目标文件的内容换掉，指纹一字不变，而
-  #    **Shopify CLI 上传的是解引用后的内容**。本文件此前明写"已跟踪的 symlink 不受影响"，
-  #    那句话只对链接字符串成立、对推送内容不成立。
-  #    只拦真正绑不住的两类：目标解析后**落在仓库外**、或目标**不是已跟踪文件**（跟踪目标的
-  #    内容本来就进指纹，那种用法照常放行）。
-  _badlink=""
-  while IFS= read -r _l; do
-    [ -n "$_l" ] || continue
-    [ -L "$_l" ] || continue
-    _tgt=$(cd "$(dirname "$_l")" 2>/dev/null && cd "$(dirname "$(readlink "$(basename "$_l")")")" 2>/dev/null && pwd -P)/$(basename "$(readlink "$_l")")
-    case "$_tgt" in
-      # 🔴 变量与多字节字符之间必须留 ASCII 分隔（本文件 §2 早就记过这条）：
-      #    某些 bash 下 "$var（中文" 会截断输出，实测这里就出过乱码。
-      # 🔴 v0.2.3：`memory/` 是**唯一一个指纹刻意看不见的目录** —— 目标即使已跟踪，改它的
-      #    内容指纹也一字不变。第十轮演练正是从这里绕过了本门自己的前提（"已跟踪即已绑定"）。
-      "$_top"/memory/*)
-        _badlink="$_badlink$_l -> $_tgt | target under memory/, excluded from fingerprint
-" ;;
-      "$_top"/*)
-        if [ -d "$_tgt" ]; then
-          # 目标是目录时 pathspec 也能匹配 index，会被误判成 tracked；目录内容不进指纹
-          _badlink="$_badlink$_l -> $_tgt | target is a directory, content not in fingerprint
-"
-        else
-          git ls-files --error-unmatch -- "${_tgt#$_top/}" >/dev/null 2>&1 \
-            || _badlink="$_badlink$_l -> $_tgt | target not tracked, content not in fingerprint
-"
-        fi ;;
-      *) _badlink="$_badlink$_l -> $_tgt | target outside repo, content not in fingerprint
-" ;;
-    esac
-  done <<EOF
-$(git ls-files -z -- assets blocks config layout locales sections snippets templates | tr '\0' '\n')
-EOF
-  [ -z "$_badlink" ] || {
-    printf 'TRACKED_SYMLINK_UNBOUND: 下列已跟踪 symlink 的目标内容不在指纹里，而 Shopify 上传的是解引用后的内容：\n%s' "$_badlink" >&2
-    return 1; }
-  others=$(git ls-files --others --exclude-standard -z -- . ':(exclude)memory/' \
-    | tr '\0' '\n' | sed '/^$/d')                                                  || return 1
-  n_others=$(printf '%s\n' "$others" | grep -c '[^[:space:]]')                     || n_others=0
-  payload=$(
-    git rev-parse HEAD                                                              || exit 1
-    git status --porcelain=v1 -z --untracked-files=all -- . ':(exclude)memory/' \
-      | tr '\0' '\n'                                                                || exit 1
-    git diff HEAD --no-renames --binary -- . ':(exclude)memory/'                    || exit 1
-    printf 'untracked_count:%s\n' "$n_others"                                       || exit 1
-    # 未跟踪文件 git diff 看不到，逐个 hash + 记权限
-    # 🔴 必须用 printf '%s\n'（带结尾换行）：不带的话最后一行被 read 读到但返回非 0、
-    #    循环体不执行，**最后一个未跟踪文件永远漏掉**。下面的行数核对就是为抓这个而加的。
-    # 🔴 `LC_ALL=C`（v0.2.2 第十轮实测修）：本函数另外四处都固定了，唯独这里是裸 `sort` ——
-    #    第九轮刚在 plaud_package_fingerprint 里修过一模一样的问题，这个函数没跟上。
-    #    纯 ASCII 大小写混合即可触发（`SA-hero.css.bak` + `sa-hero.css.bak`），不需要非 ASCII：
-    #    producer 与 verifier 的 locale 不同 → 指纹失配 → 合格 ChangeSet 被挡在交付门外，代码一字未改。
-    printf '%s\n' "$others" | LC_ALL=C sort | while IFS= read -r f; do
-      [ -n "$f" ] || continue
-      # 未跟踪"目录"（多为嵌套 git repo）无法 hash —— **必须失败退出，不能跳过**。
-      # 跳过的话该目录整棵树都不在指纹里，而指纹看上去完全正常。
-      # 🔴 这里刻意不用 case/esac：macOS 自带的 bash 3.2 无法在 $( ) 里解析 case 的
-      #    模式括号，会直接语法错误。用后缀剥除判尾部斜杠，bash/zsh/sh 都能跑。
-      if [ "${f%/}" != "$f" ]; then
-        echo "UNHASHABLE_UNTRACKED_DIR: $f" >&2
-        exit 1
-      fi
-      # 🔴 未跟踪 symlink 也 fail closed：git hash-object 走的是**目标的内容**，
-      #    所以把 symlink 改指向另一个同内容的文件，指纹一点不变（实测）。
-      #    已跟踪的 symlink 不受影响 —— git 存的是链接目标字符串，git diff HEAD 覆盖得到。
-      if [ -L "$f" ]; then
-        echo "UNTRACKED_SYMLINK: $f —— 指纹覆盖不到它的指向，先移除或纳入版本控制" >&2
-        exit 1
-      fi
-      # 🔴 先赋值再判空判退出码。写成 printf "$(git hash-object …)" 时，
-      #    命令替换里的失败**不会**让 printf 失败——printf 拿到空串照样返回 0。
-      h=$(git hash-object -- "$f")                                                  || exit 1
-      [ -n "$h" ]                                                                   || exit 1
-      m=$(eval "$STAT_MODE_CMD \"\$f\"")                                            || exit 1
-      [ -n "$m" ]                                                                   || exit 1
-      printf 'u %s %s %s\n' "$f" "$h" "$m"                                          || exit 1
-    done                                                                            || exit 1
-  ) || return 1
-  [ -n "$payload" ] || return 1
-  # 🔴 行数核对：hash 出来的 untracked 行必须与 git 报的条数一致
-  got=$(printf '%s\n' "$payload" | grep -c '^u ')                                   || got=0
-  [ "$got" -eq "$n_others" ] || { echo "UNTRACKED_COUNT_MISMATCH: $got != $n_others" >&2; return 1; }
-  printf '%s\n' "$payload" | shasum -a 256 | cut -d' ' -f1
+  set --
+  while IFS= read -r _d; do [ -n "$_d" ] && set -- "$@" "$_d"; done <<PLAUD_DIRS
+$_dirs
+PLAUD_DIRS
+  [ "$#" -gt 0 ]                                                                     || return 1
+  # .shopifyignore 在仓库根、不在可发布目录里，但它**改变 Shopify CLI 的上传集合**，
+  # 必须一起进树（只收可发布目录时，改它指纹一动不动而上传内容变了）。
+  [ -f .shopifyignore ] && set -- "$@" .shopifyignore
+
+  _plaud_iso_setup                                                                   || return 1
+  _plaud_bytes_gate "$@"                                                             || { rm -rf "$_PLAUD_OBJDIR"; return 1; }
+  # object format 查询失败**不许回退**：sha1 与 sha256 仓库对同一内容算出的 oid 完全不同
+  _fmt=$(git rev-parse --show-object-format 2>/dev/null) || {
+    printf 'OBJECT_FORMAT_UNKNOWN: git rev-parse --show-object-format 失败\n' >&2
+    rm -rf "$_PLAUD_OBJDIR"; return 1; }
+  [ "$_fmt" = "sha1" ] || [ "$_fmt" = "sha256" ] || {
+    printf 'OBJECT_FORMAT_UNSUPPORTED: %s\n' "$_fmt" >&2; rm -rf "$_PLAUD_OBJDIR"; return 1; }
+
+  _idx="$_PLAUD_OBJDIR/index"
+  # 空白 index 从零构建 → 不受用户 index（git add / git reset）影响，也不受
+  # core.ignorecase 下"沿用已有条目大小写"的影响。-f：连被 gitignore 的文件一起收。
+  if ! GIT_INDEX_FILE="$_idx" _plaud_git_iso add -A -f -- "$@" 2>"$_PLAUD_OBJDIR/adderr"; then
+    printf 'ADD_FAILED: 构建临时索引失败：\n' >&2; cat "$_PLAUD_OBJDIR/adderr" >&2
+    rm -rf "$_PLAUD_OBJDIR"; return 1
+  fi
+  _oid=$(GIT_INDEX_FILE="$_idx" _plaud_git_iso write-tree) || {
+    printf 'WRITE_TREE_FAILED\n' >&2; rm -rf "$_PLAUD_OBJDIR"; return 1; }
+  case "$_fmt" in
+    sha1)   [ ${#_oid} -eq 40 ] || { printf 'OID_LENGTH_MISMATCH: fmt=%s oid=%s\n' "$_fmt" "$_oid" >&2; rm -rf "$_PLAUD_OBJDIR"; return 1; } ;;
+    sha256) [ ${#_oid} -eq 64 ] || { printf 'OID_LENGTH_MISMATCH: fmt=%s oid=%s\n' "$_fmt" "$_oid" >&2; rm -rf "$_PLAUD_OBJDIR"; return 1; } ;;
+  esac
+
+  _plaud_git_iso ls-tree -r -t --full-tree -z "$_oid" > "$_PLAUD_OBJDIR/ls" || {
+    printf 'LS_TREE_FAILED\n' >&2; rm -rf "$_PLAUD_OBJDIR"; return 1; }
+  # "可发布面全空"必须停机；.shopifyignore 不算主题文件，不能让它把这道门顶开
+  tr '\0' '\n' < "$_PLAUD_OBJDIR/ls" | grep '	' > "$_PLAUD_OBJDIR/lsl" 2>/dev/null
+  _nblob=$(_plaud_count '^100[67][0-9][0-9] blob ' "$_PLAUD_OBJDIR/lsl")               || { rm -rf "$_PLAUD_OBJDIR"; return 1; }
+  _nign=0
+  if [ -f .shopifyignore ]; then _nign=1; fi
+  [ "$_nblob" -gt "$_nign" ] || {
+    printf 'EMPTY_THEME_TREE: 可发布目录下一个主题文件都没有\n' >&2
+    rm -rf "$_PLAUD_OBJDIR"; return 1; }
+  _plaud_mode_gate "$_PLAUD_OBJDIR/ls" "THEME_TREE"                                   || { rm -rf "$_PLAUD_OBJDIR"; return 1; }
+
+  _dig=$(shasum -a 256 < "$_PLAUD_OBJDIR/ls" | cut -d' ' -f1)                          || { rm -rf "$_PLAUD_OBJDIR"; return 1; }
+  [ -n "$_dig" ]                                                                      || { rm -rf "$_PLAUD_OBJDIR"; return 1; }
+  if [ "${PLAUD_TREE_KEEP_OBJECTS:-0}" = "1" ]; then
+    printf '%s %s %s %s\n' "$_fmt" "$_oid" "$_dig" "$_PLAUD_OBJDIR"
+  else
+    rm -rf "$_PLAUD_OBJDIR"
+    printf '%s %s %s\n' "$_fmt" "$_oid" "$_dig"
+  fi
 )
-# 🔴 原样抄这两行，**不要只抄第一行**（v0.2.2 第十轮实测补）：旧写法只有 `plaud_fingerprint || echo "FINGERPRINT_FAILED"`，
-#    它打印了 FINGERPRINT_FAILED 却让整段 **rc=0** —— 任何按 `$?` 分支、或跑在 `set -e` 下的调用方
-#    都会认为这道门通过了。判定既要看输出、也要看退出码。
-plaud_fingerprint || { echo "FINGERPRINT_FAILED"; exit 1; }
+
+# ==============================================================================
+# plaud_changeset_scope <pathlist-file>
+#   pathlist-file：本 ChangeSet 声明的路径清单（= §4 ModifiedFiles），**每行一条
+#   逐字路径**，不 trim、不做 glob（内部加 `:(literal)` 前缀），可含可发布面之外
+#   的路径（build 源等）。
+# 输出一行： <ObjectFormat> <ScopeTreeOid> <ScopeDigest>
+#   身份需要后两段一起看：删除只体现在 ScopeDigest 的 `absent` 行，单比 ScopeTreeOid 会漏。
+# ==============================================================================
+plaud_changeset_scope() (
+  set -o pipefail
+  _list="$1"
+  [ -n "$_list" ] && [ -f "$_list" ] || { printf 'SCOPE_LIST_MISSING\n' >&2; return 1; }
+  _plaud_at_root                                                                     || return 1
+  _plaud_git_capable                                                                 || return 1
+  # 清单里含 NUL → fail closed（bash 的 read 在 NUL 处截断，zsh 行为又不同）
+  _nul=$(tr -cd '\0' < "$_list" | wc -c | tr -d ' ')                                  || return 1
+  [ -n "$_nul" ] || return 1
+  [ "$_nul" = "0" ] || { printf 'SCOPE_LIST_HAS_NUL\n' >&2; return 1; }
+  # 🔴 声明路径含双引号 → fail closed。§4 的 ModifiedFiles 用 `- "<逐字路径>": <说明>`
+  #    形态承载机器可解析的路径集合，路径里出现 `"` 会让那层引用无法逐字还原。
+  _q=$(tr -cd '"' < "$_list" | wc -c | tr -d ' ')                                     || return 1
+  [ -n "$_q" ] || return 1
+  [ "$_q" = "0" ] || { printf 'SCOPE_LIST_HAS_QUOTE: 声明路径含双引号，先重命名\n' >&2; return 1; }
+  _dirs=$(_plaud_pub_dirs) || { printf 'NO_THEME_DIRS\n' >&2; return 1; }
+
+  _plaud_iso_setup                                                                   || return 1
+  _T="$_PLAUD_OBJDIR"
+  # 🔴 **不 trim**：`sed 's/[[:space:]]*$//'` 会把真实存在的 `assets/a.css ` 剥成
+  #    `assets/a.css`，声明因此指错文件、改真实文件指纹不变。
+  sed '/^$/d' "$_list" | LC_ALL=C sort -u > "$_T/declared"                            || { rm -rf "$_T"; return 1; }
+  _n=$(_plaud_count . "$_T/declared")                                                 || { rm -rf "$_T"; return 1; }
+  [ "$_n" -gt 0 ] || { printf 'SCOPE_LIST_EMPTY\n' >&2; rm -rf "$_T"; return 1; }
+
+  # 🔴 字节保真门必须覆盖**可发布面 + 声明范围**：只传可发布目录时，声明的 build 源
+  #    （src/…）上挂的 clean filter 检查不到，改内容 ScopeFingerprint 完全不变，
+  #    而且 git add 还会真的去执行那个 filter。
+  set --
+  while IFS= read -r _d; do [ -n "$_d" ] && set -- "$@" "$_d"; done <<PLAUD_DIRS2
+$_dirs
+PLAUD_DIRS2
+  [ -f .shopifyignore ] && set -- "$@" .shopifyignore
+  while IFS= read -r _p; do [ -n "$_p" ] && set -- "$@" "$_p"; done < "$_T/declared"
+  _plaud_bytes_gate "$@"                                                             || { rm -rf "$_T"; return 1; }
+
+  _fmt=$(git rev-parse --show-object-format 2>/dev/null) || {
+    printf 'OBJECT_FORMAT_UNKNOWN\n' >&2; rm -rf "$_T"; return 1; }
+  [ "$_fmt" = "sha1" ] || [ "$_fmt" = "sha256" ] || {
+    printf 'OBJECT_FORMAT_UNSUPPORTED: %s\n' "$_fmt" >&2; rm -rf "$_T"; return 1; }
+
+  : > "$_T/exists"; : > "$_T/absentp"; _dirbad=""
+  while IFS= read -r _p; do
+    [ -n "$_p" ] || continue
+    if [ -d "$_p" ] && [ ! -L "$_p" ]; then _dirbad="$_dirbad$_p
+"; continue; fi
+    if [ -e "$_p" ] || [ -L "$_p" ]; then printf '%s\n' "$_p" >> "$_T/exists" || { rm -rf "$_T"; return 1; }
+    else printf '%s\n' "$_p" >> "$_T/absentp" || { rm -rf "$_T"; return 1; }; fi
+  done < "$_T/declared"
+  [ -z "$_dirbad" ] || {
+    printf 'DECLARED_DIRECTORY: 声明清单里出现目录，ModifiedFiles 必须逐个文件：\n%s' "$_dirbad" >&2
+    rm -rf "$_T"; return 1; }
+  LC_ALL=C sort -u "$_T/exists" -o "$_T/exists"                                       || { rm -rf "$_T"; return 1; }
+
+  _idx="$_T/index"
+  _ne=$(_plaud_count . "$_T/exists")                                                  || { rm -rf "$_T"; return 1; }
+  if [ "$_ne" -gt 0 ]; then
+    # :(literal) —— 不加的话 `assets/g[1].css` 会被当 glob 去吸收 `assets/g1.css`
+    sed 's/^/:(literal)/' "$_T/exists" > "$_T/pathspec"                               || { rm -rf "$_T"; return 1; }
+    # add 失败不许吞：吞掉 "did not match any files" 时，一条路径不存在就让整个索引
+    # 为空、算出**空树** oid 却照样返回 0
+    if ! GIT_INDEX_FILE="$_idx" _plaud_git_iso add -A -f --pathspec-from-file="$_T/pathspec" \
+         2>"$_T/adderr"; then
+      printf 'SCOPE_ADD_FAILED:\n' >&2; cat "$_T/adderr" >&2; rm -rf "$_T"; return 1
+    fi
+    _oid=$(GIT_INDEX_FILE="$_idx" _plaud_git_iso write-tree) || {
+      printf 'SCOPE_WRITE_TREE_FAILED\n' >&2; rm -rf "$_T"; return 1; }
+    [ -n "$_oid" ] || { rm -rf "$_T"; return 1; }
+    _plaud_git_iso ls-tree -r --full-tree -z "$_oid" > "$_T/ls" || {
+      printf 'SCOPE_LS_TREE_FAILED\n' >&2; rm -rf "$_T"; return 1; }
+  else
+    _oid=$(_plaud_git_iso hash-object -t tree /dev/null) || { rm -rf "$_T"; return 1; }
+    [ -n "$_oid" ] || { rm -rf "$_T"; return 1; }
+    : > "$_T/ls"
+  fi
+  _plaud_mode_gate "$_T/ls" "SCOPE_TREE"                                              || { rm -rf "$_T"; return 1; }
+
+  # 收全性核对：tree 条目集合必须与 exists 清单**完全相等**（多或少都 fail closed）。
+  # cut -f2- 只切第一个 TAB —— `sed 's/^.*\t//'` 贪婪，路径含 TAB 时会削错。
+  tr '\0' '\n' < "$_T/ls" | sed '/^$/d' | cut -f2- | LC_ALL=C sort -u > "$_T/present" \
+    || { rm -rf "$_T"; return 1; }
+  if ! LC_ALL=C diff "$_T/exists" "$_T/present" > "$_T/setdiff" 2>&1; then
+    printf 'SCOPE_SET_MISMATCH: 声明存在的路径与 tree 条目不一致：\n' >&2
+    head -40 "$_T/setdiff" >&2; rm -rf "$_T"; return 1
+  fi
+
+  sed 's/^/absent /' "$_T/absentp" > "$_T/absent"                                     || { rm -rf "$_T"; return 1; }
+  cat "$_T/ls" "$_T/absent" > "$_T/payload"                                           || { rm -rf "$_T"; return 1; }
+  _dig=$(shasum -a 256 < "$_T/payload" | cut -d' ' -f1)                                || { rm -rf "$_T"; return 1; }
+  [ -n "$_dig" ]                                                                      || { rm -rf "$_T"; return 1; }
+  rm -rf "$_T"
+  printf '%s %s %s\n' "$_fmt" "$_oid" "$_dig"
+)
+
+# ---- 内部：在一棵**普通目录**里重算 tree oid（回环复算 / 推站前复核共用） --------
+# 一次性 bare 仓库 + 独立 index，绝不碰源仓库。
+# 🔴 必须屏蔽 global / system config 与 core.attributesFile：否则用户机器上的
+#    `core.autocrlf` / `core.fileMode` / 全局 attributes 会让"复算"用一套与被验证时
+#    不同的规则去读同一批字节，算出一个不等的 oid（假失配），或反过来抹平真差异。
+_plaud_recompute_dir() {
+  _rd="$1"; _rfmt="$2"; shift 2
+  [ "$#" -gt 0 ] || set -- .
+  [ -n "$_rd" ] && [ -d "$_rd" ]                     || { printf 'RECOMPUTE_DIR_MISSING\n' >&2; return 1; }
+  [ "$_rfmt" = "sha1" ] || [ "$_rfmt" = "sha256" ]   || { printf 'RECOMPUTE_FMT_BAD: %s\n' "$_rfmt" >&2; return 1; }
+  _rg=$(mktemp -d "${TMPDIR:-/tmp}/plaud-vg.XXXXXX")                                 || return 1
+  GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_DIR="$_rg/g" \
+    git -c core.hooksPath=/dev/null init -q --object-format="$_rfmt" --bare >/dev/null 2>&1 || {
+    printf 'RECOMPUTE_INIT_FAILED\n' >&2; rm -rf "$_rg"; return 1; }
+  GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+  GIT_DIR="$_rg/g" GIT_WORK_TREE="$_rd" GIT_INDEX_FILE="$_rg/idx" \
+    git -c core.hooksPath=/dev/null -c core.fsmonitor=false -c core.fileMode=true \
+        -c core.autocrlf=false -c core.attributesFile=/dev/null \
+        add -A -f -- "$@" 2>/dev/null || {
+    printf 'RECOMPUTE_ADD_FAILED\n' >&2; rm -rf "$_rg"; return 1; }
+  _roid2=$(GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+           GIT_DIR="$_rg/g" GIT_INDEX_FILE="$_rg/idx" git write-tree)                 || { rm -rf "$_rg"; return 1; }
+  rm -rf "$_rg"
+  [ -n "$_roid2" ] || return 1
+  printf '%s' "$_roid2"
+}
+
+# ==============================================================================
+# plaud_stage_verified <目标空目录>
+#   一步做完：算当前 ThemeTreeOid → 把**同一个 tree** 物化成独立目录 → **回环复算**。
+#   QA 与 release 都从这棵目录跑/推，不得从活工作树跑/推：重算相等之后、消费者逐文件
+#   读取期间工作树还能再变（TOCTOU），推上去的会是一个从没被验过的混合状态。
+#   输出一行： <ObjectFormat> <ThemeTreeOid> <ThemeTreeDigest>
+#
+#   🔴 回环复算不是锦上添花，是这道门唯一可信的部分：`git archive` 会应用
+#      export-ignore / export-subst，`tar.umask` 还能改掉 exec 位 —— 光"算完再解开"
+#      不保证物化结果等于被验证的那个 tree。所以物化之后必须在目标目录里**重新算一次**，
+#      与被验证的 oid 逐字相等才算成立。
+# ==============================================================================
+plaud_stage_verified() (
+  set -o pipefail
+  _dst="$1"
+  [ -n "$_dst" ] && [ -d "$_dst" ]                     || { printf 'STAGE_DST_MISSING\n' >&2; return 1; }
+  [ -z "$(ls -A "$_dst" 2>/dev/null)" ]                || { printf 'STAGE_DST_NOT_EMPTY\n' >&2; return 1; }
+  _plaud_at_root                                                                     || return 1
+  _dstp=$(cd "$_dst" && pwd -P)                        || return 1
+  _rootp=$(pwd -P)
+  case "$_dstp/" in "$_rootp"/*) printf 'STAGE_DST_INSIDE_REPO: 物化目录不得在仓库内\n' >&2; return 1 ;; esac
+
+  _v=$(PLAUD_TREE_KEEP_OBJECTS=1 plaud_theme_tree)     || return 1
+  [ -n "$_v" ]                                         || return 1
+  _fmt=$(printf '%s' "$_v" | cut -d' ' -f1)
+  _oid=$(printf '%s' "$_v" | cut -d' ' -f2)
+  _dig=$(printf '%s' "$_v" | cut -d' ' -f3)
+  _od=$(printf '%s' "$_v" | cut -d' ' -f4)             # 精确接手，不用 ls -dt 猜
+  [ -n "$_oid" ] && [ -n "$_od" ] && [ -d "$_od" ]     || { printf 'STAGE_OBJDIR_LOST\n' >&2; return 1; }
+  _realobj=$(cd "$(git rev-parse --git-path objects)" && pwd -P)                     || { rm -rf "$_od"; return 1; }
+
+  GIT_OBJECT_DIRECTORY="$_od" GIT_ALTERNATE_OBJECT_DIRECTORIES="$_realobj" \
+    git -c core.hooksPath=/dev/null -c tar.umask=0022 archive --format=tar "$_oid" > "$_od/t.tar" || {
+      printf 'STAGE_ARCHIVE_FAILED\n' >&2; rm -rf "$_od"; return 1; }
+  tar -xf "$_od/t.tar" -C "$_dst" || { printf 'STAGE_EXTRACT_FAILED\n' >&2; rm -rf "$_od"; return 1; }
+  rm -rf "$_od"
+
+  # 回环复算：在物化目录里建一个**一次性**仓库（object format 与源一致），重算 tree oid，
+  # 必须与被验证的 oid 逐字相等。
+  _roid=$(_plaud_recompute_dir "$_dstp" "$_fmt")                                     || return 1
+  [ "$_roid" = "$_oid" ] || {
+    printf 'STAGE_ROUNDTRIP_MISMATCH: 物化结果 %s != 已验证 %s（export-ignore / export-subst / tar.umask 等改写了归档）\n' "$_roid" "$_oid" >&2
+    return 1; }
+  printf '%s %s %s\n' "$_fmt" "$_oid" "$_dig"
+)
+
+# ---- 内部：从一个**已解析成完整 oid 的 commit** 重建可发布子树 -----------------
+# 在**调用方已经建好**的 scratch 对象库（_plaud_iso_setup）里建树，只打印 <BaseTreeOid>。
+# 🔴 base 树完全来自**已提交对象**：不读工作树、不跑 `git add`、不触发 hook / clean filter，
+#    所以这里**不跑字节保真门** —— 那道门判的是「工作树字节 vs blob 字节」，此处没有工作树
+#    字节参与。跳过它不是 fail open。
+# 🔴 可发布目录在这里**必须按固定清单从 base commit 枚举**，不能用 _plaud_pub_dirs：后者看的
+#    是**当前工作树**有哪些目录，会让「基准」随工作树漂移。清单与 _plaud_pub_dirs 必须一致，
+#    新增顶层可发布目录时**两处一起改**。
+# 🔴 失败时**不清理** scratch 对象库：清理归调用方（plaud_declared_diff 还要用同一个对象库
+#    做 diff，base 对象必须一直可达）。
+_plaud_base_tree_build() {
+  _bt_commit="$1"
+  [ -n "$_bt_commit" ] && [ -n "${_PLAUD_OBJDIR:-}" ]                                 || return 1
+  _bt_idx="$_PLAUD_OBJDIR/bidx"
+  GIT_INDEX_FILE="$_bt_idx" _plaud_git_iso read-tree --empty                          || return 1
+  _bt_nsub=0
+  for _bt_d in assets blocks config layout locales sections snippets templates; do
+    _bt_sub=$(git rev-parse -q --verify "$_bt_commit:$_bt_d" 2>/dev/null) || continue
+    [ -n "$_bt_sub" ] || continue
+    GIT_INDEX_FILE="$_bt_idx" _plaud_git_iso read-tree --prefix="$_bt_d/" "$_bt_sub"  || return 1
+    _bt_nsub=$((_bt_nsub+1))
+  done
+  [ "$_bt_nsub" -gt 0 ] || {
+    printf 'DIFF_BASE_NO_THEME_DIRS: %s 那一版里没有任何可发布目录\n' "$_bt_commit" >&2
+    return 1; }
+  # 🔴 mode 必须从 base tree 里读，**不能写死 100644**（Codex 评审实测：`.shopifyignore`
+  #    完全可能是 100755，写死会让「无改动」也算出伪 diff，进而把正常交付判成
+  #    DECLARED_DIFF_ORPHAN/UNCHANGED）。非普通文件（symlink / gitlink）一律 fail closed。
+  _bt_nign=0
+  git ls-tree "$_bt_commit" -- .shopifyignore > "$_PLAUD_OBJDIR/siline" 2>/dev/null || : > "$_PLAUD_OBJDIR/siline"
+  if [ -s "$_PLAUD_OBJDIR/siline" ]; then
+    _bt_simode=$(cut -d' ' -f1 < "$_PLAUD_OBJDIR/siline")
+    _bt_sitype=$(cut -d' ' -f2 < "$_PLAUD_OBJDIR/siline")
+    _bt_si=$(cut -d' ' -f3 < "$_PLAUD_OBJDIR/siline" | cut -f1)
+    [ "$_bt_sitype" = "blob" ] && { [ "$_bt_simode" = "100644" ] || [ "$_bt_simode" = "100755" ]; } || {
+      printf 'DIFF_BASE_SHOPIFYIGNORE_MODE: 基准里的 .shopifyignore 不是普通文件（mode=%s type=%s）\n' \
+        "$_bt_simode" "$_bt_sitype" >&2; return 1; }
+    [ -n "$_bt_si" ] || return 1
+    GIT_INDEX_FILE="$_bt_idx" _plaud_git_iso update-index --add \
+      --cacheinfo "$_bt_simode,$_bt_si,.shopifyignore"                                || return 1
+    _bt_nign=1
+  fi
+  _bt_boid=$(GIT_INDEX_FILE="$_bt_idx" _plaud_git_iso write-tree)                     || return 1
+  [ -n "$_bt_boid" ]                                                                  || return 1
+  _plaud_git_iso ls-tree -r -t --full-tree -z "$_bt_boid" > "$_PLAUD_OBJDIR/bls"      || return 1
+  _plaud_mode_gate "$_PLAUD_OBJDIR/bls" "DIFF_BASE"                                   || return 1
+  # 与 plaud_theme_tree / plaud_declared_diff 的 after 侧**同口径**的空主题检查：少了它，
+  # 两支函数会对同一棵基准树给出相反结论（Codex 复核指出）。
+  tr '\0' '\n' < "$_PLAUD_OBJDIR/bls" | grep '	' > "$_PLAUD_OBJDIR/blsl" 2>/dev/null
+  _bt_nblob=$(_plaud_count '^100[67][0-9][0-9] blob ' "$_PLAUD_OBJDIR/blsl")          || return 1
+  [ "$_bt_nblob" -gt "$_bt_nign" ] || {
+    printf 'EMPTY_BASE_THEME_TREE: %s 那一版的可发布目录下一个主题文件都没有\n' "$_bt_commit" >&2
+    return 1; }
+  printf '%s\n' "$_bt_boid"
+}
+
+# ==============================================================================
+# plaud_base_theme_tree <commit-ish>
+#   把**某个 commit 的可发布子树**重建出来。输出一行： <ObjectFormat> <BaseTreeOid>
+#   用在 §9.1 的 IntegrationPlan.IntegrationBaseTreeOid（也可用于任何需要「某个 commit
+#   那一版的可发布树 oid」的场合）。
+#
+#   🔴 **绝不要用 `plaud_theme_tree "<commit>"` 代替它**（v0.3.0 收尾验收补）：
+#      plaud_theme_tree 是**无参函数**，函数体里根本没有 $1 —— 传进去的 commit 被静默丢弃，
+#      返回的是**当前工作树**的 oid，却被命名成「基准树 oid」。两侧都"算得出值"，而 §5 的
+#      三方等式（IntegrationPlan.IntegrationBaseTreeOid == IntegrationOf.BaseTreeOid ==
+#      DiffBaseTreeOid）会恒不成立 → DeclaredDiffCheck 恒 Blocked → 多块集成结构性死锁。
+#   🔴 也不要退到 `git rev-parse <commit>^{tree}`：那是**仓库根树**，不是可发布子树。
+#   本函数与 plaud_declared_diff 的 base 半段**共用同一支内部实现**（_plaud_base_tree_build），
+#   两者必然同口径 —— 两份拷贝必然漂移，而漂移的表现正好是「等式恒不成立」。
+# ==============================================================================
+plaud_base_theme_tree() (
+  set -o pipefail
+  [ "$#" -eq 1 ] && [ -n "$1" ] || {
+    printf 'BASE_COMMIT_MISSING: 需要恰好一个 commit-ish 参数\n' >&2; return 1; }
+  _bc="$1"
+  _plaud_at_root                                                                      || return 1
+  _plaud_git_capable                                                                  || return 1
+  # 🔴 先一次性解析成完整 commit oid，之后只用解析结果：直接把分支名 / HEAD 一路传下去时，
+  #    同一次运行里 ref 可能被别的进程移动，基准就不是同一个了。
+  _bcoid=$(git rev-parse -q --verify "$_bc^{commit}" 2>/dev/null) || {
+    printf 'DIFF_BASE_UNREACHABLE: %s 在本仓库里不可达或不是 commit（浅克隆 / 已被 gc / 写错 / 传了 tree 或 blob）——\n' "$_bc" >&2
+    printf '  这不是可以降级放行的情形：没有基准就无法证明「树里只有已声明、已归属的改动」\n' >&2
+    return 1; }
+  [ -n "$_bcoid" ]                                                                    || return 1
+  _fmt=$(git rev-parse --show-object-format 2>/dev/null) || {
+    printf 'OBJECT_FORMAT_UNKNOWN\n' >&2; return 1; }
+  [ "$_fmt" = "sha1" ] || [ "$_fmt" = "sha256" ] || {
+    printf 'OBJECT_FORMAT_UNSUPPORTED: %s\n' "$_fmt" >&2; return 1; }
+  _plaud_iso_setup                                                                    || return 1
+  _boid=$(_plaud_base_tree_build "$_bcoid")                                           || { rm -rf "$_PLAUD_OBJDIR"; return 1; }
+  [ -n "$_boid" ]                                                                     || { rm -rf "$_PLAUD_OBJDIR"; return 1; }
+  case "$_fmt" in
+    sha1)   [ ${#_boid} -eq 40 ] || { printf 'OID_LENGTH_MISMATCH: fmt=%s oid=%s\n' "$_fmt" "$_boid" >&2; rm -rf "$_PLAUD_OBJDIR"; return 1; } ;;
+    sha256) [ ${#_boid} -eq 64 ] || { printf 'OID_LENGTH_MISMATCH: fmt=%s oid=%s\n' "$_fmt" "$_boid" >&2; rm -rf "$_PLAUD_OBJDIR"; return 1; } ;;
+  esac
+  rm -rf "$_PLAUD_OBJDIR"
+  printf '%s %s\n' "$_fmt" "$_boid"
+)
+
+# ==============================================================================
+# plaud_declared_diff <base-commit-ish> <pathlist-file>
+#   把「本次可发布面到底变了哪些路径」与「本 ChangeSet（或本批集成）声明了哪些路径」
+#   做**四元组**比对，回答 §5 的 DeclaredDiffCheck。
+#   输出一行： <ObjectFormat> <BaseThemeTreeOid> <ThemeTreeOid> DECLARED_DIFF_OK
+#
+#   🔴 为什么 base 取的是**commit**而不是「开工前算的那个 oid」（Codex 评审逼出来的）：
+#      默认模式下 plaud_theme_tree 算完就删 scratch 对象库，那个 oid **不是可达对象**，
+#      事后 `git diff <BASE> <AFTER>` 根本解析不了。用 BaseHeadSha 的可发布子树做 base，
+#      对象天然可达、可复算，而且顺带堵上另一个洞：**开工前就已经躺在工作树里的
+#      别人的半成品**，在「开工前 oid」做 base 时会被当成基线的一部分而漏掉，
+#      在 commit 做 base 时会作为无主改动被抓出来。
+#      代价要说清：BaseHeadSha 因此**同时**是溯源字段与 diff 基准，但它**仍然不与
+#      当前 HEAD 比对** —— 期间发生 commit / rebase 不再让 ChangeSet 失效。
+#
+#   🔴 为什么用 `--raw -z --no-renames` 而不是 `--name-status`（Codex 评审）：
+#      name-status 只证明路径与状态字母，证明不了 mode 与新旧 blob，还会被 rename
+#      推断改写成 R 记录。四元组（path / old mode+blob / new mode+blob）才是可核的。
+# ==============================================================================
+plaud_declared_diff() (
+  set -o pipefail
+  _base="$1"; _list="$2"
+  [ -n "$_base" ]                    || { printf 'DIFF_BASE_MISSING\n' >&2; return 1; }
+  [ -n "$_list" ] && [ -f "$_list" ] || { printf 'SCOPE_LIST_MISSING\n' >&2; return 1; }
+  _plaud_at_root                                                                     || return 1
+  _plaud_git_capable                                                                 || return 1
+  _nul=$(tr -cd '\0' < "$_list" | wc -c | tr -d ' ')                                  || return 1
+  [ -n "$_nul" ] && [ "$_nul" = "0" ] || { printf 'SCOPE_LIST_HAS_NUL\n' >&2; return 1; }
+  # 🔴 一次性解析成完整 commit oid，之后只用解析结果：同一次运行里分支 / HEAD 可能被别的
+  #    进程移动，两次读到不同基准（与 plaud_base_theme_tree 同口径）。
+  _bcoid=$(git rev-parse -q --verify "$_base^{commit}" 2>/dev/null) || {
+    printf 'DIFF_BASE_UNREACHABLE: %s 在本仓库里不可达或不是 commit（浅克隆 / 已被 gc / 写错）——\n' "$_base" >&2
+    printf '  这不是可以降级放行的情形：没有基准就无法证明「树里只有已声明、已归属的改动」\n' >&2
+    return 1; }
+  [ -n "$_bcoid" ]                                                                    || return 1
+  _dirs=$(_plaud_pub_dirs) || { printf 'NO_THEME_DIRS\n' >&2; return 1; }
+  _fmt=$(git rev-parse --show-object-format 2>/dev/null) || {
+    printf 'OBJECT_FORMAT_UNKNOWN\n' >&2; return 1; }
+  [ "$_fmt" = "sha1" ] || [ "$_fmt" = "sha256" ] || {
+    printf 'OBJECT_FORMAT_UNSUPPORTED: %s\n' "$_fmt" >&2; return 1; }
+
+  _plaud_iso_setup                                                                   || return 1
+  _T="$_PLAUD_OBJDIR"
+  set --
+  while IFS= read -r _d; do [ -n "$_d" ] && set -- "$@" "$_d"; done <<PLAUD_DIRS3
+$_dirs
+PLAUD_DIRS3
+  [ "$#" -gt 0 ]                                                                     || { rm -rf "$_T"; return 1; }
+  [ -f .shopifyignore ] && set -- "$@" .shopifyignore
+  _plaud_bytes_gate "$@"                                                             || { rm -rf "$_T"; return 1; }
+
+  # ---- base：BaseHeadSha 的可发布子树（同一 scratch 对象库里现建，两棵树同时可达）
+  # 🔴 与 plaud_base_theme_tree **共用同一支内部实现**，不再各写一份：两份拷贝必然漂移，
+  #    而漂移的表现正好是 §5 那道三方等式恒不成立。
+  _boid=$(_plaud_base_tree_build "$_bcoid")                                           || { rm -rf "$_T"; return 1; }
+  [ -n "$_boid" ]                                                                     || { rm -rf "$_T"; return 1; }
+  # ---- after：当前工作树的可发布树（与 plaud_theme_tree 同一算法、同一参数）
+  _aidx="$_T/aidx"
+  if ! GIT_INDEX_FILE="$_aidx" _plaud_git_iso add -A -f -- "$@" 2>"$_T/adderr"; then
+    printf 'ADD_FAILED:\n' >&2; cat "$_T/adderr" >&2; rm -rf "$_T"; return 1
+  fi
+  _aoid=$(GIT_INDEX_FILE="$_aidx" _plaud_git_iso write-tree)                          || { rm -rf "$_T"; return 1; }
+  [ -n "$_aoid" ]                                                                     || { rm -rf "$_T"; return 1; }
+  _plaud_git_iso ls-tree -r -t --full-tree -z "$_aoid" > "$_T/als"                     || { rm -rf "$_T"; return 1; }
+  _plaud_mode_gate "$_T/als" "THEME_TREE"                                             || { rm -rf "$_T"; return 1; }
+  # 与 plaud_theme_tree 同口径的空主题检查：少了它，可发布面全空时本函数会回
+  # DECLARED_DIFF_OK 而 plaud_theme_tree 报 EMPTY_THEME_TREE，两个函数对同一棵树给出
+  # 相反结论（Codex 评审指出）。
+  tr '\0' '\n' < "$_T/als" | grep '	' > "$_T/alsl" 2>/dev/null
+  _nblob=$(_plaud_count '^100[67][0-9][0-9] blob ' "$_T/alsl")                         || { rm -rf "$_T"; return 1; }
+  _nign=0
+  if [ -f .shopifyignore ]; then _nign=1; fi
+  [ "$_nblob" -gt "$_nign" ] || {
+    printf 'EMPTY_THEME_TREE: 可发布目录下一个主题文件都没有\n' >&2
+    rm -rf "$_T"; return 1; }
+
+  # ---- 四元组 diff。--no-renames：rename 推断会把「删 A + 增 B」重写成一条 R 记录，
+  #      归属核对要的是逐路径事实，不是 git 的猜测。
+  _plaud_git_iso diff --raw -z --no-renames "$_boid" "$_aoid" > "$_T/raw"              || {
+    printf 'DIFF_RAW_FAILED\n' >&2; rm -rf "$_T"; return 1; }
+  tr '\0' '\n' < "$_T/raw" > "$_T/rawl"                                               || { rm -rf "$_T"; return 1; }
+  # 记录成对出现（meta 行 + path 行）。行数为奇数 = 解析错位，fail closed。
+  _nl=$(_plaud_count . "$_T/rawl")                                                    || { rm -rf "$_T"; return 1; }
+  [ $((_nl % 2)) -eq 0 ] || {
+    printf 'DIFF_RAW_PARSE_MISALIGNED: %s 行，无法按 meta/path 成对解析\n' "$_nl" >&2
+    rm -rf "$_T"; return 1; }
+  awk 'NR%2==0{print}' "$_T/rawl" | LC_ALL=C sort -u > "$_T/changed"                  || { rm -rf "$_T"; return 1; }
+  awk 'NR%2==1{print}' "$_T/rawl" > "$_T/meta"                                        || { rm -rf "$_T"; return 1; }
+  # 每条 meta 必须是 `:<oldmode> <newmode> <oldsha> <newsha> <status>` 形态；不是就说明
+  # 解析假设不成立（例如出现了 rename 的三段记录），fail closed 而不是硬猜。
+  _nbad=$(_plaud_count '^:[0-7][0-7]* [0-7][0-7]* [0-9a-f][0-9a-f]* [0-9a-f][0-9a-f]* [ACDMTUX]' "$_T/meta") \
+    || { rm -rf "$_T"; return 1; }
+  _nmeta=$(_plaud_count . "$_T/meta")                                                 || { rm -rf "$_T"; return 1; }
+  [ "$_nbad" = "$_nmeta" ] || {
+    printf 'DIFF_RAW_UNEXPECTED_RECORD: %s/%s 条 raw 记录不是预期形态\n' \
+      "$((_nmeta - _nbad))" "$_nmeta" >&2; rm -rf "$_T"; return 1; }
+
+  # ---- 声明集合里落在**可发布面**的那部分（build 源等仓内其它路径不参与本比对）
+  sed '/^$/d' "$_list" | LC_ALL=C sort -u > "$_T/decl"                                || { rm -rf "$_T"; return 1; }
+  awk -F/ '$0=="'".shopifyignore"'" || $1=="assets" || $1=="blocks" || $1=="config" || $1=="layout" || $1=="locales" || $1=="sections" || $1=="snippets" || $1=="templates"' \
+    "$_T/decl" | LC_ALL=C sort -u > "$_T/declpub"                                     || { rm -rf "$_T"; return 1; }
+
+  if ! LC_ALL=C comm -13 "$_T/declpub" "$_T/changed" > "$_T/orphan" 2>/dev/null; then
+    printf 'DIFF_COMPARE_FAILED\n' >&2; rm -rf "$_T"; return 1; fi
+  if ! LC_ALL=C comm -23 "$_T/declpub" "$_T/changed" > "$_T/unchanged" 2>/dev/null; then
+    printf 'DIFF_COMPARE_FAILED\n' >&2; rm -rf "$_T"; return 1; fi
+  _norph=$(_plaud_count . "$_T/orphan")                                               || { rm -rf "$_T"; return 1; }
+  _nunch=$(_plaud_count . "$_T/unchanged")                                            || { rm -rf "$_T"; return 1; }
+  if [ "$_norph" != "0" ]; then
+    printf 'DECLARED_DIFF_ORPHAN: %s 条可发布路径变了但没有任何 ChangeSet 声明它 —— 无主改动不得随整树发版。前 20 条：\n' "$_norph" >&2
+    head -20 "$_T/orphan" | sed 's/^/  /' >&2
+    rm -rf "$_T"; return 1
+  fi
+  if [ "$_nunch" != "0" ]; then
+    printf 'DECLARED_DIFF_UNCHANGED: %s 条声明为改动的可发布路径相对基准毫无变化 —— 声明不实。前 20 条：\n' "$_nunch" >&2
+    head -20 "$_T/unchanged" | sed 's/^/  /' >&2
+    rm -rf "$_T"; return 1
+  fi
+  rm -rf "$_T"
+  printf '%s %s %s DECLARED_DIFF_OK\n' "$_fmt" "$_boid" "$_aoid"
+)
+
+# ==============================================================================
+# plaud_stage_workspace <目标空目录>
+#   物化一份**完整工作区快照**（不只是可发布面），供 QA 在里面跑 theme check / build /
+#   断点回归 —— 这些检查要读 .theme-check.yml、lockfile、build 源，只有可发布面跑不了。
+#   物化后同样**回环复算**：快照里可发布面的 tree oid 必须与被验证的 ThemeTreeOid 逐字相等。
+#   输出一行： <ObjectFormat> <ThemeTreeOid> <ThemeTreeDigest>
+#
+#   与 plaud_stage_verified 的分工（DESIGN R7 的两层）：
+#     - plaud_stage_workspace → §5 的 StageDirRef，**QA 在这里跑**
+#     - plaud_stage_verified  → §9.1.4 的 ReleaseStageDir，**只用于推站**（只含可发布面，
+#       多一个文件都会被整树 push 发出去）
+#   两者的 ThemeTreeOid 必须相同；不同即说明两次取证之间工作树变过，停机。
+#
+#   🔴 快照是**整棵工作树的拷贝**（除 .git），因此会包含 node_modules 之类的大目录，
+#      也会包含 memory/。这不是缺陷：QA 要的就是一个可运行的工作区。想省时间就先清理
+#      工作树，不要靠缩小拷贝范围 —— 缩了就跑不了它本来要跑的检查。
+# ==============================================================================
+plaud_stage_workspace() (
+  set -o pipefail
+  _dst="$1"
+  [ -n "$_dst" ] && [ -d "$_dst" ]                     || { printf 'STAGE_DST_MISSING\n' >&2; return 1; }
+  [ -z "$(ls -A "$_dst" 2>/dev/null)" ]                || { printf 'STAGE_DST_NOT_EMPTY\n' >&2; return 1; }
+  _plaud_at_root                                                                     || return 1
+  _dstp=$(cd "$_dst" && pwd -P)                        || return 1
+  _rootp=$(pwd -P)
+  case "$_dstp/" in "$_rootp"/*) printf 'STAGE_DST_INSIDE_REPO: 快照目录不得在仓库内\n' >&2; return 1 ;; esac
+
+  _v=$(plaud_theme_tree)                               || return 1
+  [ -n "$_v" ]                                         || return 1
+  _fmt=$(printf '%s' "$_v" | cut -d' ' -f1)
+  _oid=$(printf '%s' "$_v" | cut -d' ' -f2)
+  _dig=$(printf '%s' "$_v" | cut -d' ' -f3)
+  [ -n "$_fmt" ] && [ -n "$_oid" ] && [ -n "$_dig" ]   || { printf 'STAGE_TREE_LOST\n' >&2; return 1; }
+
+  # 🔴 **不能用 `find … -exec cp …`**：`find` 不把 `-exec` 子命令的失败传播成自己的退出码
+  #    （实测 `find /tmp -maxdepth 0 -exec false \;` 返回 0，连 `exit 255` 在 BSD find 的
+  #    `\;` 形态下也不传播）。那样一来非发布文件（.theme-check.yml / lockfile / build 源）
+  #    拷贝失败时，可发布面的回环复算照样相等、函数照样成功，QA 就在一份**残缺快照**里跑。
+  #    改成显式循环 + 逐次判退出码 + 条目数核对。
+  _sw=$(mktemp -d "${TMPDIR:-/tmp}/plaud-sw.XXXXXX")                                  || return 1
+  find . -maxdepth 1 -mindepth 1 ! -name .git -print0 > "$_sw/top0" || {
+    printf 'STAGE_ENUM_FAILED\n' >&2; rm -rf "$_sw"; return 1; }
+  _swnl=$(tr -cd '\n' < "$_sw/top0" | wc -c | tr -d ' ')                              || { rm -rf "$_sw"; return 1; }
+  [ -n "$_swnl" ] && [ "$_swnl" = "0" ] || {
+    printf 'STAGE_NEWLINE_IN_TOPLEVEL: 顶层条目名含换行，逐项拷贝无法可靠进行\n' >&2
+    rm -rf "$_sw"; return 1; }
+  tr '\0' '\n' < "$_sw/top0" | sed '/^$/d' > "$_sw/top"                              || { rm -rf "$_sw"; return 1; }
+  _want=$(_plaud_count . "$_sw/top")                                                  || { rm -rf "$_sw"; return 1; }
+  _got=0
+  while IFS= read -r _e; do
+    [ -n "$_e" ] || continue
+    # -P：保留 symlink 不解引用。快照里的 symlink 仍指向外部可变对象，这一点写在契约里，
+    #     可发布面的 symlink 早已被 mode 门挡掉，这里只涉及非发布文件。
+    cp -RP "$_e" "$_dstp/" || {
+      printf 'STAGE_COPY_FAILED: %s\n' "$_e" >&2; rm -rf "$_sw"; return 1; }
+    _got=$((_got+1))
+  done < "$_sw/top"
+  rm -rf "$_sw"
+  [ "$_got" = "$_want" ] || {
+    printf 'STAGE_COPY_COUNT_MISMATCH: 拷贝 %s 项，枚举到 %s 项\n' "$_got" "$_want" >&2; return 1; }
+  [ -e "$_dstp/.git" ] && { printf 'STAGE_GIT_LEAKED: 快照里出现了 .git\n' >&2; return 1; }
+
+  _dirs2=$(cd "$_dstp" && _plaud_pub_dirs) || {
+    printf 'STAGE_NO_THEME_DIRS: 快照里没有可发布目录\n' >&2; return 1; }
+  set --
+  while IFS= read -r _d; do [ -n "$_d" ] && set -- "$@" "$_d"; done <<PLAUD_DIRS4
+$_dirs2
+PLAUD_DIRS4
+  [ "$#" -gt 0 ]                                       || return 1
+  [ -f "$_dstp/.shopifyignore" ] && set -- "$@" .shopifyignore
+  _roid=$(_plaud_recompute_dir "$_dstp" "$_fmt" "$@")  || return 1
+  [ "$_roid" = "$_oid" ] || {
+    printf 'STAGE_ROUNDTRIP_MISMATCH: 快照里重算 %s != 已验证 %s\n' "$_roid" "$_oid" >&2
+    return 1; }
+  printf '%s %s %s\n' "$_fmt" "$_oid" "$_dig"
+)
 ```
 
-> 🔴 **执行环境要求：`bash`（≥3.2）或 `zsh`，不是任意 `/bin/sh`。** 两段函数都用了 `set -o pipefail`，`dash`（Linux 上常见的 `/bin/sh`）不支持它、会直接以状态 2 退出。macOS 的 `/bin/sh` 实为 bash 所以看不出问题——**在 Linux 上必须显式 `bash -c`**。
->
-> 🔴 **五处静默失败点，缺一个指纹就废了**：`set -o pipefail`、各段的 `|| exit 1`、循环内「先赋值再判空」、**payload 先收变量再 hash**、**未跟踪目录 fail closed**。
->
-> 第三点是 v0.1.0 遗留的同类漏洞，v0.2.0 才修：原文把 `git hash-object` / `stat` 直接写在 `printf` 的命令替换里，它们失败时 `printf` 拿到空串**照样返回 0**，`|| return 1` 永远不触发——未跟踪文件的内容就从指纹里消失了。同一个包的 `PackageFingerprint`（§9.1.2）当初也踩了这个坑。
->
-> 第四、五点是 **v0.2.2 实测发现**的同族漏洞（在真实仓库 `shopify-plaud-yidian` 上跑出来的，不是推演）：
->
-> - 旧写法把 `{ … } | shasum` 连成管道，`{ }` 因此跑在**子 shell**里，里面的 `return 1` 只结束那个子 shell，`shasum` 仍然把已经吐出的**残缺输入**算出一个 hash。实测：当仓库里有未跟踪目录时，旧命令输出 `e3b0c44298fc…`（**空输入的 sha256**）—— 一个完全正常、完全错误的指纹。
-> - `git ls-files --others` 对「整个目录都未跟踪」的情形（典型是嵌套 git repo、本地 worktree、`dev/` 之类）列出的是**目录名**，`git hash-object` 对目录必然失败。旧写法在这里静默滑过，该目录整棵树都不进指纹。现在遇到就**失败退出**并打印 `UNHASHABLE_UNTRACKED_DIR`，由人决定是清理它还是加进 `.gitignore`。
->
-> **实测两条性质**（v0.2.2）：连续两次写 `memory/changeset-log.md` 指纹不变；仓库内任何非 `memory/` 改动仍被捕获。
->
-> 通用判据：**这一段失败了，外层真的会知道吗？** 命令替换、管道中段、`while` 子 shell 都是"不会知道"的高发区。 任何一段静默失败时，管道仍会继续，`shasum` 会对残缺输入求值，算出一个**看似正常、实则与内容无关**的常量——校验因此永远通过，P0 漏洞原样复活。
->
-> 实测踩过：早期版本写的是 `git diff HEAD --find-renames=false`，**git 2.52 起该参数非法**（正确写法是 `--no-renames` 或 `-M0`）。错误走 stderr，管道照常执行，指纹退化成"只反映文件集合、完全不反映内容"——恰好是本节要堵的那个洞。
->
-> 拿到 `FINGERPRINT_FAILED` 或空值时**必须停机**，不得用空串或占位符填进工件。
+```bash
+# 🔴 原样抄这两行，**不要只抄第一行**：旧写法只有 `plaud_theme_tree || echo "..."`，
+#    它打印了错误串却让整段 **rc=0** —— 任何按 `$?` 分支、或跑在 `set -e` 下的调用方
+#    都会认为这道门通过了。判定既要看输出、也要看退出码。
+plaud_theme_tree      || { echo "THEME_TREE_FAILED";  exit 1; }
+# ModifiedFiles 的逐字路径清单（每行一条），见 §4
+plaud_changeset_scope "$PATHLIST" || { echo "SCOPE_FAILED"; exit 1; }
+```
 
-**自检**：改一个已跟踪文件的内容（不增删文件），指纹必须变化；还原后必须精确复原。做不到就说明命令在当前环境退化了，停机排查。
+**自检**：改一个已跟踪文件的内容（不增删文件），`ThemeTreeOid` 必须变化；还原后必须精确复原。做不到就说明命令在当前环境退化了，停机排查。
 
-QA **在执行任何检查之前**（Step 1，早于 theme check、早于回归）必须用同一命令重算，与工件里的 `ChangeSetFingerprint` **精确比对**。
+### 2.6 两层物化：QA 跑哪里、release 推哪里
 
-**失配处理**：以下任一情形都必须输出 `ChangeSetIdMatched: No` + `ReadyForDelivery: No` 并停机，要求重新生成 ChangeSet——**不得**自行"顺便把新改动也验了"：
+**QA 与 release 都不得在活工作树上跑。** 重算相等之后、消费者逐文件读取期间，工作树还能再变（TOCTOU），验的 / 推的会是一个从没被确认过的混合状态。所以先物化成**不可变快照**，在快照里跑。
+
+两层快照的分工是刻意的，**不可互换**：
+
+| 函数 | 产出 | 内容 | 谁用 |
+|---|---|---|---|
+| `plaud_stage_workspace <空目录>` | §5 的 `StageDirRef` | **整棵工作树的拷贝**（除 `.git`）：含 `.theme-check.yml`、build 源、lockfile、`memory/` | **QA 在这里跑**所有检查 |
+| `plaud_stage_verified <空目录>` | §9.1.4 的 `ReleaseStageDir` | **只含可发布面**（`git archive` 物化的那个 tree） | **只用于推站**——整树 push 会把多出的任何文件一起发出去 |
+
+🔴 **为什么必须是两层，而不是一层。** 只含可发布面的目录里**跑不了** theme check（没有 `.theme-check.yml`）、跑不了 build（没有源与 lockfile）、跑不了依赖 `git diff` 的检查。要求在这样的目录里跑 theme check 是自相矛盾的。反过来，把完整工作区拿去 push 会把 `node_modules`、`.env`、scratch 文件全发上线。
+
+两者的 `ThemeTreeOid` **必须相同**；不同即说明两次取证之间工作树变过，**停机**。
+
+🔴 **不要把 workspace 快照说成「不可变快照」。** 它是一份经过**可发布面回环校验**的普通目录副本，准确的边界是：
+
+- **可发布面**有回环复算背书（快照里重算出的 tree oid 必须等于被验证的 `ThemeTreeOid`）；
+- **非可发布面**（`.theme-check.yml` / lockfile / build 源 / `memory/`）**没有**原子快照保证：拷贝期间它们可以变化，形成混合快照；
+- 非可发布面的 **symlink 按 `cp -RP` 原样保留**，因此仍可能指向快照外的可变对象；
+- **非可发布目录下的嵌套 `.git` 会被一起拷进去**（只排除了仓库根的 `.git`）。可发布面的嵌套 git 仓库另有 `GITLINK_IN_*` 门挡着，这里指的是 `tools/` 之类；
+- 快照建成之后目录仍可被改。QA 期间不要动它。
+
+**拷贝失败必须被发现。** 不得用 `find … -exec cp …`：`find` 不把 `-exec` 子命令的失败传播成自己的退出码（实测 `find /tmp -maxdepth 0 -exec false \;` 返回 0，`exit 255` 在 BSD find 的 `\;` 形态下同样不传播）。那样一来非发布文件拷贝失败时，可发布面的回环复算照样相等、函数照样成功，**QA 就在一份残缺快照里跑**。函数用的是显式循环 + 逐次判退出码 + 条目数核对。
+
+🔴 **回环复算不是锦上添花，是这两道门唯一可信的部分。** `git archive` 会应用 `export-ignore` / `export-subst`，`tar.umask` 还能改掉 exec 位——「算完再解开」不保证物化结果等于被验证的那个 tree（实测：`export-ignore` 让文件消失而函数照样成功返回）。所以物化之后必须在目标目录里**重新算一次**，与被验证的 oid 逐字相等才算成立。复算用的一次性仓库屏蔽了 global / system config 与 `core.attributesFile`，否则用户机器上的配置会让「复算」用另一套规则去读同一批字节。
+
+**普通目录不是真「不可变」**，它可被改。所以 release 在执行 push 命令**紧前**还要再复算一次并与 `ReleaseSourceTreeOid` 比对（实测能抓到篡改）。可选加强：把物化目录设为 `a-w`。这仍然**不能**创造原子性——同权限的进程在 CLI 逐文件读取期间篡改目录，矩阵挡不住，这条残余风险如实记在这里。
+
+### 2.7 改动归属：`DeclaredDiffCheck`
+
+指纹能证明「树是什么」，证明不了「这些改动是谁的」。少了这一条，同树并行时把别人的半成品一起推上线是**结构上可能**的。
+
+`plaud_declared_diff <base-commit-ish> <pathlist-file>` 的判定对象是**可发布路径集合**：
+
+> 相对基准真正变化的**可发布路径集合**，必须**恰好等于**本工件覆盖的 ChangeSet 声明的可发布路径集合。
+> 多出来的（`DECLARED_DIFF_ORPHAN`）= 无主改动，停机；少掉的（`DECLARED_DIFF_UNCHANGED`）= 声明不实，停机。
+
+三条实现上的选择，每条都堵一个洞：
+
+1. **base 取的是 commit，不是「开工前算的那个 oid」。** 默认模式下 `plaud_theme_tree` 算完就删 scratch 对象库，那个 oid **不是可达对象**，事后 `git diff` 根本解析不了。用 `BaseHeadSha` 的可发布子树做 base，对象天然可达、可复算，而且顺带堵上另一个洞：**开工前就已经躺在工作树里的别人的半成品**，在「开工前 oid」做 base 时会被当成基线的一部分而漏掉，在 commit 做 base 时会作为无主改动被抓出来（实测 M6）。
+2. **用 `--raw -z --no-renames`，不用 `--name-status`。**
+   🔴 **要精确说清这一步做了什么、没做什么**：raw 记录（`:<oldmode> <newmode> <oldsha> <newsha> <status>`）用于**格式守卫**——记录必须成对、必须匹配预期形态，否则解析假设不成立就 fail closed；`--no-renames` 保证不会出现三段的 `R` 记录把两条路径折叠成一条。**判定本身用的是路径集合，不是逐项比 mode 与 blob。**「路径没变但 mode / 内容变了」由 `ChangeSetScopeFingerprint` 承担（它绑的就是声明路径的 tree + `absent` 行），两者分工，不重复。
+   不要在下游文档里把这道门写成「四元组逐项相等」——那是过度表述。
+3. **声明清单里的非可发布路径（build 源等）不参与本比对**——它们不上线，也就不存在「无主上线」的问题；它们的绑定由 `ChangeSetScopeFingerprint` 承担。
+
+🔴 **并集会折叠重复路径，所以「两个块声明了同一条路径」这道洞挡不住。** `QAScope: Integration` 时必须**另外**核一遍：`IntegrationOf.Members` 各成员的声明路径**两两不相交**，相交即停机（`DeclaredDiffCheck: Failed`）。orchestrator 派活时的「两两不重叠」是同一条判据的上游版本，两处都要做——上游漏派、下游就得抓住。
+
+`base` 取值：`QAScope: SingleChangeSet` 用 `BaseHeadSha`；`QAScope: Integration` 用 `IntegrationPlan.IntegrationBaseCommit`。两者都必须可解析，**不可解析不是可以降级放行的情形**：没有基准就无法证明「树里只有已声明、已归属的改动」，此时 `DeclaredDiffCheck: Blocked` → 无交付许可。
+
+### 2.8 失效语义
+
+QA **在执行任何检查之前**（Step 1，早于 theme check、早于回归）必须重算三个字段，与工件里的记录**逐字精确比对**。
+
+**失配处理**：以下任一情形都必须输出 `ChangeSetIdMatched: No` + `ReadyForDelivery: No` 并停机，要求重新生成 ChangeSet——**不得**自行「顺便把新改动也验了」：
 
 - `ModifiedFiles` 与工作树文件集合不一致（多文件、少文件）
-- `ChangeSetFingerprint` 不匹配（**文件没多没少但内容变了**——这正是只绑文件名会漏掉的情形）
-- `BaseHeadSha` 与当前 HEAD 不一致（期间发生了 commit / rebase / checkout）
+- `ObjectFormat` 不一致（换了仓库 / 换了 object format）
+- `ThemeTreeOid` 不一致（可发布面的内容变了）
+- `ChangeSetScopeFingerprint` 不一致（**本块声明范围内**的内容变了——这正是只绑文件名会漏掉的情形）
 
-QA 通过后必须**再算一次**指纹并记入 `changeset-log`；后续任何时刻指纹与记录不符，该 QA 结论即失效（§1.4）。
+> 📎 **`BaseHeadSha` 与当前 HEAD 不一致，v0.3.0 起不再是失配判据。** v0.2.x 把 `git rev-parse HEAD` 放进 payload 第一行，于是任何 commit 都改变身份；该限制 v0.3.0 起解除。
 
-> **为什么指纹排除 `memory/`**：`changeset-log.md` 本身就在 `memory/` 里，由 QA 在记录结论时写。若不排除，QA 一落笔就把刚记下的结论算失效——这个控制会在第一次使用时自毁。排除它是正确的：`memory/` 是项目运行时状态，**不属于任何 ChangeSet**，也不随包分发。
-> 被否掉的两个替代方案：把日志移出主题仓库（会切断"日志与工作树同源"这个可追溯性），以及"先算指纹再写日志"（v0.2.1 及以前就是这么写的 —— 它只能让**同一轮**两次校验相等，任何**后续**重算仍然失配，例如 release-ops 复核或 §1.4 的失效判定）。
->
-> 🔴 **排除只挡得住工作树与暂存区，挡不住 `commit`（v0.2.2 第九轮实测）。** payload 的第一行是 `git rev-parse HEAD`，所以**把 `memory/` 的改动提交掉，HEAD 一变、指纹照样变**，同时 `BaseHeadSha` 也对不上——排除机制在它唯一存在的那个场景（QA 写 `changeset-log`）被绕过：QA 刚记完结论，有人顺手 `git commit memory/`，这条 ChangeSet 立刻变成 `Invalidated`，而主题一个字节都没动。实测：改 `memory/` 不变、`git add memory/` 不变、`git commit` **变**。
->
-> 所以这是一条硬规则：**`memory/` 的更新留在工作树，不单独 commit**；确需入库时，只能在 QA 记录结论**之前**连同本 ChangeSet 的主题改动一起提交，提交后重新生成 `BaseHeadSha` + `ChangeSetFingerprint` 并重跑 QA。**任何在 QA 结论之后发生的 `memory/` 提交都会使该结论失效**，这不是 bug 而是"指纹是仓库状态指纹、不是纯内容指纹"（`evidence-and-invalidation.md` §2.6）的必然结果——不要试图靠"它只是 memory 啊"放行。
->
-> 🔴 **排除换来的新风险，一句话挡住：`memory/` 下不得出现任何会影响店铺渲染的文件。** 它只放矩阵自己的项目状态记录（`模板清单.md` / `模块清单.md` / `全局已知偏差.md` / `changeset-log.md` 及同类 `.md`）。
-> 主题的可发布内容只在 `assets/` `blocks/` `config/` `layout/` `locales/` `sections/` `snippets/` `templates/` 这几个目录里，`memory/` 不是其中之一，所以正常情况下没有东西能藏进去。但**指纹一旦排除某个路径，那个路径就成了盲区**——任何 skill 在 `memory/` 下看到非 `.md` 文件、或看到被 Liquid / JSON 引用的文件，**一律停机**，不要自行判断"应该没事"。
-> 开工前的一条核对（`ReconMode` 判定时顺手跑）：
->
-> ```bash
-> # 应无输出。有输出即停机：指纹盲区里出现了非记录类文件
-> find memory -type f ! -name '*.md' 2>/dev/null
-> # 应无输出。有输出说明主题代码在引用 memory/ 下的东西
-> grep -rn "memory/" assets blocks config layout locales sections snippets templates 2>/dev/null | grep -v '\.md'
-> ```
+QA 通过后必须**再算一次** `ThemeTreeOid` 并记入 `changeset-log`；后续任何时刻三个字段与记录不符，该 QA 结论即失效。
 
-### 🔴 v0.2.3 不支持多 ChangeSet 同批发版
+**v0.2.x 的这些假失效，v0.3.0 起全部不再发生**（逐条实测）：
 
-`ChangeSetFingerprint` 绑的是**整个 HEAD + 整个工作树**，不是"这个 ChangeSet 涉及的那几个文件"。由此推出一个必然结果：
+| 场景 | v0.2.x | v0.3.0 |
+|---|---|---|
+| `git add` / `git reset`（内容不变） | 指纹变、QA 失效 | **不变** |
+| `git commit memory/` | 指纹变、QA 失效 | **不变** |
+| 主题改动 commit（内容一字未改） | 指纹变、QA 失效 | **不变**，且 oid 与 commit 的子树相同 |
+| 仓库根 scratch 临时文件（`tc-diff.js` / `node_modules` / `.env`） | 指纹变、QA 失效 | **不变**（不在可发布面） |
 
-> **同一工作树里第二个 ChangeSet 落盘的那一刻，第一个 ChangeSet 的 QA 结论就失效了**（工作树变了，指纹变了，§1.4 生效）。
+> 📎 **v0.2.2 第九轮那条硬规则「`memory/` 的更新留在工作树、不单独 commit」，v0.3.0 起解除。** 它存在的唯一原因是 HEAD 进了 payload；新模型的 payload 里没有 HEAD，实测「改 `memory/`」「`git add memory/`」「`git commit memory/`」三步之后 `ThemeTreeOid` 与 `ChangeSetScopeFingerprint` 逐字不变。**老用户不要继续遵守一条已经不存在的约束。**
 
-所以「N 个块各自 QA 通过 → 一起发版」在当前模型下**不成立**：发版时不可能同时持有 N 个仍然有效的 QA 结论。
+### 2.9 保留 / 退役 / 新增的门
 
-**曾经考虑过、但行不通的收口**：让合并方生成一个"集成 ChangeSet"（`ModifiedFiles` = 各块并集）再跑一次 QA。它跑不通——合并提交之后工作树是**干净的**，`git status` / `git diff HEAD` 拿到的是空集，与"各块并集"必然失配；若改用未提交的合并态过 QA，之后一提交 `HEAD` 就变，QA 又自动失效。**在绑工作树的模型下，没有一个稳定对象能从"已验证"走到"实际推送"。**
+全部 fail closed。
 
-**本版（v0.2.3）的处置：**
+**保留**（理由都是「tree 记的是 blob 字节，而 Shopify push 推的是工作树字节，两者不等就绑不住实际上线内容」）：
+
+| 门 | 触发条件 |
+|---|---|
+| `BYTE_FIDELITY_ATTR` | 任一待判路径的**生效属性**里有 `filter` / `text` / `eol` / `crlf` / `ident` / `working-tree-encoding` / `export-ignore` / `export-subst` |
+| `BYTE_FIDELITY_AUTOCRLF` | `core.autocrlf` 归一为真（含 `yes` / `on` / `1` / `input`、大小写变体、以及**裸键**），或取值不认识 |
+| `CORE_FILEMODE_FALSE` | `core.fileMode` 的**布尔归一值**为 `false` |
+| `SYMLINK_IN_*` | 可发布面 / 声明范围里存在 symlink（**已跟踪的也算**） |
+| `GITLINK_IN_*` | 存在嵌套 git 仓库 |
+| `NOT_REPO_ROOT` / `NO_THEME_DIRS` / `EMPTY_THEME_TREE` | 执行位置或仓库形态不对 |
+| `NEWLINE_IN_PATH` / `NEWLINE_IN_PATH_*` | 待判路径或 tree 条目里含换行 |
+| `GIT_TOO_OLD` | git < 2.25 |
+| `OBJECT_FORMAT_UNKNOWN` / `OID_LENGTH_MISMATCH` | object format 查不到或 oid 长度对不上 |
+
+**属性门的实现方式变了**：v0.2.x 是**扫 `.gitattributes` 文件**去 grep `filter=`；v0.3.0 是对**每条待判路径问 `git check-attr` 生效属性**。两个直接后果：
+
+- 堵上一个继承缺陷：扫文件的写法会漏掉**被 gitignore 的 `.gitattributes`**、漏掉 `.git/info/attributes` 与 `core.attributesFile`（三者实测都能绕过旧门）；
+- 不再误停机：filter 只作用于**非可发布目录**时（`tools/` 之类），扫文件的写法会停机，问生效属性的写法不会。
+
+**退役**（洞被构造性堵上，不再需要停机——每条都有实测）。📎 下表是 v0.2.x 这些门的**退役溯源记录**：门名在此出现属于历史说明，不是仍在生效的规则（核对脚本按 📎 豁免本节）。
+
+| 退役的门 | 为什么新模型不再需要它 | 实测 |
+|---|---|---|
+| 📎 `IGNORED_PUBLISHABLE_FILE` | `git add -A -f` 让这些文件直接进树，改它指纹就变 | 新增 / 改内容都 CHANGED |
+| 📎 `PATH_CASE_MISMATCH` | 空白索引从磁盘重扫，记的就是磁盘上的名字（不再沿用已有条目的大小写） | 纯大小写改名从 FAILED 变成正确捕获，树里记 `assets/A.css` |
+| 📎 `UNTRACKED_COUNT_MISMATCH` / `UNHASHABLE_UNTRACKED_DIR` | `git add -A` 自己枚举，不再有手写的未跟踪文件循环与行数核对 | 未跟踪目录正常算出且 CHANGED |
+| 📎 `assume-unchanged` / `skip-worktree` 补充门 | 索引标志在**用户的** index 上，新模型用的是空白临时索引，标志不生效 | 两种标志下改内容仍 CHANGED |
+
+**新增**：`STAGE_ROUNDTRIP_MISMATCH` / `STAGE_DST_INSIDE_REPO` / `STAGE_DST_NOT_EMPTY` / `STAGE_GIT_LEAKED` / `SCOPE_SET_MISMATCH` / `SCOPE_LIST_HAS_NUL` / `SCOPE_LIST_HAS_QUOTE` / `DECLARED_DIRECTORY` / `DECLARED_DIFF_ORPHAN` / `DECLARED_DIFF_UNCHANGED` / `DIFF_BASE_UNREACHABLE` / `DIFF_RAW_PARSE_MISALIGNED` / `DIFF_RAW_UNEXPECTED_RECORD`。
+
+**仍然存在、没有被解开的四项**：clean filter 与 `text` / `ident` / `working-tree-encoding` 家族、`core.fileMode` 假值、symlink、嵌套 git 仓库、路径含换行。它们**不是遗留缺陷，是 fail-closed 的设计**：这些机制下 tree 字节 ≠ 上线字节，算得出指纹反而更危险。
+
+> 🔴 **收回一项能力，写在这里以免以后有人以为它能用**：**路径含换行仍然 fail closed**。技术上能算，但 `git check-attr -z` 的三元组要按 NUL 切，而 macOS 自带 awk 不支持 `RS="\0"`（实测只读到一条记录），`tr '\0' '\n'` 又会把含换行的路径拆行、让三元组整体错位（实测把正常仓库误报成 6 条命中）。POSIX shell 里做不出可靠解析器，**所以不装这个能力**，与 v0.2.x 同口径。
+
+> 🔴 **不吹抗碰撞。** `ThemeTreeDigest` 只是包住 `ls-tree` 清单的 SHA-256，清单里的 oid 在 sha1 仓库里就是 sha1。它提供的是**人读 diff** 与**跨 object-format 防误判**，不是抗碰撞。威胁模型是「粗心的 agent」，不是攻击者；要更强就把仓库迁到 sha256。
+
+### 2.10 多 ChangeSet 同批发版
+
+v0.2.3 写的是「**不支持**」，理由是「合并提交之后工作树是干净的，`git status` / `git diff HEAD` 拿到的是空集，与各块并集必然失配」。**这条论证在 v0.3.0 下整个不成立**——身份不再来自 `status` / `diff`，而是来自 tree 对象；实测把改动 commit 掉，`ThemeTreeOid` 逐字不变，即「已验证对象」与「提交后要推送的对象」是同一个 oid。
+
+**本版支持情况：**
 
 | 场景 | 支持情况 |
 |---|---|
-| 单 ChangeSet 发版 | ✅ 正常。QA 结论有效期 = 工作树自 QA 收尾后未再变动 |
-| **多 ChangeSet 同批发版** | ❌ **本版不支持。** `plaud-theme-release-ops` 遇到 `ReleaseScope` 里有多于一个 `IncludedInThisPush: Yes` 的块 → **停机**，要求改为逐块串行发布（每块：实现 → 提测 → QA → 发版 → 下一块） |
-| 各块在独立分支 / worktree | 每块在自己的树里 QA 有效，但**合并到发布分支后那棵树没有被任何 QA 覆盖过** —— 仍按逐块串行处理 |
+| 单 ChangeSet 发版 | ✅ 该块自己的 QA 即可给 `ReadyForDelivery: Yes`，条件见 §2.11 |
+| **多 ChangeSet 同批发版** | ✅ **支持，但必须有集成 QA**（`QAScope: Integration`），且 §9.1.4 的 `ReleaseQARef` 指向它 |
+| 各块在独立分支 / worktree | ✅ 允许，合并后同样走集成 QA（合并是**人**做的，见 §2.12） |
 
-> 🟢 **为什么宁可不支持也不硬撑。** 硬给一套跑不通的流程，实际效果是使用者发现走不通之后自己找绕过路径——那比明说"这版不支持"危险得多。
->
-> **彻底解法留 v0.3.0**：把指纹从"工作树"改绑**不可变的 commit / tree 对象**（`git rev-parse HEAD^{tree}`），QA 验的是一个具体 tree oid，合并产生的新 tree 再验一次即可，"已验证对象 → 推送对象"之间就有了稳定标识。这是一次契约层改动，不适合在 v0.2.x 顺带做——v0.3.0 的设计与原型见 `_wip-v0.3.0-fingerprint-design/`。
+收口流程：
+
+```
+各块并行 Implement（Scope 身份互不干扰）
+  → 各块 QA（在各自的 workspace 快照里）→ ReadyForIntegration，**不是**交付许可
+  → 集成到一棵树（由人执行，矩阵只校验不 merge）
+  → 集成 QA（QAScope: Integration）→ 给 ReadyForDelivery: Yes
+  → release-ops：plaud_stage_verified 物化 → 从**物化目录**推站
+```
+
+🔴 **诚实的收益结算，不打折：**
+
+- 真收益：Implement 可并行；隔离快照上的块 QA 在满足 §2.12 条件时可并行；N 次发版动作合并成 1 次。
+- **集成 QA 这道串行屏障消不掉**，它是正确性成本。如果完整 QA 才是绝对瓶颈、而每块仍做一次完整 QA，那只是把瓶颈后移**并多做一次全量验证**。收益要从「块 QA 按该块的 `RequiredQAProfile` 裁剪，不必是全量」这里拿。
+- **新模型没有凭空造出「从混合工作树里还原单块快照」的能力。** A、B 已经同时落在活工作树上时，物化出来的是 A+B，不是 A-only。
+
+### 2.11 `ReadyForDelivery: Yes` 的条件
+
+> 交付权仍然只在 `plaud-theme-qa`（§1）。**`QAScope: SingleChangeSet` 与 `QAScope: Integration` 都可以给 `Yes`。**
+
+之所以不写成「只有集成 QA 能给 Yes」：矩阵的绝对多数流量是单 ChangeSet（orchestrator 的进入门槛本来就是「≥2 个可独立验收的 ChangeSet」，单块明确不走它）。那样写等于要求每一个普通 bugfix 都多跑一次全量集成 QA。
+
+真正的不变量是**「本次 QA 验过的那个 tree，就是 release 将要推送的那个 tree，且树里没有它没验过的东西」**。
+
+🔴 **但这个不变量要分两层落，不能全塞进 QA 的 `ReadyForDelivery`。** QA 出工件时 release 工件还不存在——把「`ReleaseSourceTreeOid` 等于 `VerifiedThemeTreeOid`」写成 QA 给 `Yes` 的前提，就成了「release 要 QA 的 Yes、QA 又要 release 的字段」的流程死循环。所以：
+
+**第一层 —— QA 侧（`ReadyForDelivery: Yes` 的全部条件，都是 QA 当场可验证的）**
+
+1. `QAAdmissionStatus: Accepted`；
+2. `ChangeSetIdMatched: Yes`（§2.8 的逐字比对）；
+3. `DeclaredDiffCheck: Passed`（§2.7）——树里只有本工件覆盖的 ChangeSet 声明的改动，没有兄弟块的半成品、没有无主改动；
+4. §5 的全部检查项为 `Passed` 或**带证据的** `NotApplicable`。
+
+**第二层 —— release 侧（发布门，`plaud-theme-release-ops` 执行，不满足即停机、不发版）**
+
+5. `ReleaseSourceTreeOid` **逐字等于** `ReleaseQARef` 那份工件的 `VerifiedThemeTreeOid`，且 `ObjectFormat` 相同；
+6. `ReleaseDeclaredDiffCheck: Passed`——以「`IncludedInThisPush: Yes` 的块的声明并集」为期望集合重跑一次（§2.14）；
+7. `PushCommandCompliance: Compliant`——禁用 `--only` / `--ignore`，且 `PushCommand` 必须逐字包含 `--path <ReleaseStageDir>`（否则推的可能根本不是被验证的那棵树）；
+8. 执行 push 命令**紧前**再复算一次物化目录并与 `ReleaseSourceTreeOid` 比对（§2.6）。
+
+第 5 条就是「单块 QA 之后、release 之前工作树又变了」的挡法：工作树一变，release 重新物化出的 `ReleaseSourceTreeOid` 就不再等于那份 QA 的 `VerifiedThemeTreeOid` → 停机。
+多块合并之后，**没有任何单块 QA 持有那棵合并树的 oid**，于是第 5 条在结构上必然要求一份集成 QA——不需要再单独规定。这是刻意的：用一条可机械核对的等式，代替一条靠自觉遵守的流程规定。
+
+> 🔴 **`ReadyForDelivery: Yes` 的语义因此是「这棵被验过的 tree 有资格被后续 release 使用」，不是「这次发布一定合法」。** 后者由第二层决定。不要在下游文档里把它写成「可以发了」。
+
+### 2.12 并行语义（不要无条件复述）
+
+| 阶段 | v0.2.3 | v0.3.0 |
+|---|---|---|
+| Assess（只读） | 可并行 | 可并行 |
+| **Implement + 身份生成** | 必须串行 | **可并行**，条件见下 |
+| **QA** | 必须串行 | **有条件并行**，条件见下 |
+| release | 串行 | 集成后一次 |
+
+**Implement 可并行的条件**（全部满足才算）：各块 `ModifiedFiles` **两两不重叠**、不共享 build 产物、不改同一 token / locale 键。
+🔴 `ChangeSetScopeFingerprint` 证明的是「声明路径的当前值」，**不证明作者归属**。派活前由 orchestrator 机械核对两两不重叠；`DeclaredDiffCheck` 在收口时兜底。
+🔴 **disjoint 只保证身份不互相失效，不保证可合并。** 共享 token、locale key、schema 值、生成产物与构建输入都可能逻辑冲突——那是集成 QA 要查的东西，不是 Scope 指纹能回答的。
+
+**QA 可并行的条件**：各块的 workspace 快照被物化时，**其它块的改动尚未落进同一棵树**（典型是各块在独立 worktree 里开发，或同树但按落盘时序抢先物化）。
+
+🔴 **不要写成无条件的。** A、B 已经同时落在同一棵活工作树上之后再物化，两份快照**都是 A+B**——那不是两次块 QA，而是一次集成 QA 的两个副本，必须按集成 QA 处理。这一条不用靠自觉：`DeclaredDiffCheck` 会把 B 的改动判成 A 的 `DECLARED_DIFF_ORPHAN` 并停机。
+
+### 2.13 集成者是谁
+
+**矩阵不做 merge。** orchestrator 写死「不自己实现任何代码改动」，qa 写死「不写代码」，三个实现 skill 各自只对自己的 ChangeSet 负责——**矩阵里没有「集成者」这个 skill，v0.3.0 也不新造一个。**
+
+因此：
+
+- `IntegrationPlan.Integrator` **填人**（用户 / 具体 owner），不填 skill 名。同树并行时集成是 no-op（各块本来就同树），独立 worktree 时是一次真 merge，由人执行。
+- 矩阵只做**校验**：集成完成后由 `plaud-theme-qa` 以 `QAScope: Integration` 取证，`DeclaredDiffCheck` 核对「最终 diff 恰好等于各块声明并集」。
+- **无人认领集成 → orchestrator 停机要授权**，不得自行 merge，也不得假装集成已完成。
+
+### 2.14 `IncludedInThisPush: No` 的块怎么办
+
+DESIGN 要求「`IncludedInThisPush: No` 的块不得留在物化目录里——整树 push 会把它一起发出去」。**必须说清：`plaud_stage_verified` 物化的是一个完整的 `ThemeTreeOid`，没有「减去某块」的能力**（与「不能从混合工作树还原单块快照」是同一个限制）。
+
+所以只有一条合法出路，**「停机」不是出路的全部**：
+
+> 该块的改动**必须从发布源树里撤掉**（由 §2.13 的集成者执行，撤法是 revert / stash / 换 base，属于人的动作），撤完之后**重新取证**（新的 `ThemeTreeOid`）并**重跑集成 QA**。
+> 撤不掉、或不愿撤 → 该块只能改判为 `IncludedInThisPush: Yes` 并补齐它的验收，否则**本次 cohort 不能发**。
+
+这条不靠自觉：release 前的 `DeclaredDiffCheck` 以「`IncludedInThisPush: Yes` 的块的声明并集」为期望集合，`No` 块的改动只要还在树里就会被判成 `DECLARED_DIFF_ORPHAN`。
+
+**残余风险如实记**：这等于把「同树并行 + 部分发版」的收益削掉一半——`No` 块要么提前别落进这棵树，要么就得撤销重验。新模型没有让这件事变便宜，只是让它变得**可检测**。
+
+### 2.15 `ReleaseSourceTreeOid` ≠ Shopify 实际上传集合
+
+`ThemeTreeOid` 标识的是**本地推送源**，不是远端最终状态。同一棵 source tree 推两个站点，实际的 upload / delete 集合可能不同（取决于远端现状、CLI 的文件投影、`.shopifyignore`、默认删除行为）。因此：
+
+- `.shopifyignore` **已进 `ThemeTreeOid`**（它改变上传集合，必须绑住）；
+- **禁用 `--only` / `--ignore`**（用了就等于 payload 与 `ReleaseSourceTreeOid` 不同源），`--nodelete` 必须显式记录在 `PushCommand` 里并在正文说明影响；
+- 记录 Shopify CLI 版本与完整命令参数；
+- 逐站点远端 checksum 复核，且**它决定 `PerSitePushResult[].Status`**，不是事后观察项；
+- 不同 `TargetSites` 的 ChangeSet **不共用一棵树推站**，按站点集合分 cohort；
+- 多站点 push **不是原子的**。远端校验失败时远端可能已经部分改变，`PushResult` 不得填 `NotExecuted`。
 
 ### 零改动任务（只读审计 / code review / A11y 审计）
 
@@ -467,17 +1136,22 @@ QA 通过后必须**再算一次**指纹并记入 `changeset-log`；后续任何
 否则可以先改代码、再输出 `ModifiedFiles: []` 并声称"这只是审计"，从而完全绕开 QA。审计**开始前**和**结束后**各取一次快照，两次必须完全一致：
 
 ```bash
-# 🔴 用 §2 那段 plaud_fingerprint 取快照，**不要**用 git status 文本做 hash。
-git rev-parse HEAD
-plaud_fingerprint          # 原样复制 §2 的函数
+# 🔴 用 §2 那两个函数取快照，**不要**用 git status 文本做 hash。
+# 只读通道**不需要** BaseHeadSha 相等（期间别人 commit 不影响本次是否只读），
+# 但两次的 ObjectFormat + ThemeTreeOid 必须逐字相等。
+plaud_theme_tree || { echo "THEME_TREE_FAILED"; exit 1; }   # 审计开始前
+# …… 执行审计 ……
+plaud_theme_tree || { echo "THEME_TREE_FAILED"; exit 1; }   # 审计结束后
 ```
 
 > 🔴 **v0.2.2 第五轮修：原来这里写的是 `git status --porcelain … | shasum`，它可以被绕过。**
 > `git status --porcelain` 只输出**状态码 + 路径**，不含内容。所以工作树**一开始就已经 dirty**（或已有未跟踪文件）时，审计过程中继续改**同一个文件的内容**，前后两次 hash **完全相同** —— 实测复现：`M f.txt` → 改内容 → 状态行仍是 `M f.txt`，hash 不变。
 > 后果是最坏的一种：agent 可以先改代码、再输出 `ChangeSetId: N/A` / `ModifiedFiles: []` 并附一份"两次一致"的 `ReadOnlyProof`，**完全绕开 QA**。这正是本节要堵的那件事，旧命令堵不住。
-> `plaud_fingerprint` 覆盖内容（`git diff HEAD --binary` + 未跟踪文件逐个 `hash-object`），改内容必然变。
+> `ThemeTreeOid` 是可发布内容的 tree oid，改内容必然变。
+>
+> 📎 **v0.3.0 的一处语义收窄，必须知道**：`ThemeTreeOid` 只覆盖**可发布面**。因此「只读审计期间改了 `src/` 下的 build 源、但没跑 build」这种情形，两次 `ThemeTreeOid` 会相等。这不是漏洞而是定义——build 源不上线；但一旦跑了 build、产物落进 `assets/`，就会被立刻抓到。只读通道的措辞禁令照旧：审计 skill 本来就不该动任何文件。
 
-在契约块里如实登记 `ReadOnlyProof`（两次的 HEAD 与 hash）。**两次不一致 = 这不是只读任务**：立即退出只读模式，生成正式 `ChangeSetId` 与 `ChangeSetFingerprint`，走完 Assess → Implement → Verify。不得以"只是顺手改了一点"为由留在只读通道里。
+在契约块里如实登记 `ReadOnlyProof`（两次的 `ObjectFormat` + `ThemeTreeOid`，以及取快照时的 `BaseHeadSha`）。**两次不一致 = 这不是只读任务**：立即退出只读模式，生成正式 `ChangeSetId` 与 §2.1 的三个身份字段，走完 Assess → Implement → Verify。不得以"只是顺手改了一点"为由留在只读通道里。
 
 ---
 
@@ -528,19 +1202,35 @@ ReadyForImplement:       # Yes | No
 
 ```yaml
 ChangeSetId:              # 见 §2；零改动任务填 N/A
-BaseHeadSha:              # 交付工件时的 git rev-parse HEAD；零改动填 N/A
-ChangeSetFingerprint:     # 见 §2，交付工件时当场生成；零改动填 N/A
-ReadOnlyProof:            # 仅零改动任务：审计前后两次快照的 HEAD + hash，必须一致；其余填 N/A
+BaseHeadSha:              # 🔴 **开工前（实施第一个字节之前）捕获的 baseline commit**，不是交付时的 HEAD。
+                          #   实测过的坑：写成「交付时 HEAD」时，实现者只要先 commit 再交工件，
+                          #   基准就已经含本次改动 → 所有声明路径落进 DECLARED_DIFF_UNCHANGED → QA 恒阻断，
+                          #   而这与「主题改动 commit 不再让身份失效」直接矛盾。零改动填 N/A
+                          #   🔴 v0.3.0 起**不再是失配判据**（不与当前 HEAD 比对），但**仍然必填**
+                          #   且必须是**可解析的 commit-ish**：§2.7 的 DeclaredDiffCheck 用它做 diff 基准，
+                          #   theme check 的 baseline 物化与若干条存量偏差举证要 git show <BaseHeadSha>:<file>。
+                          #   缺失 / 不可解析 → 那些检查填 Blocked（不是 Advisories、不是 N/A）
+ObjectFormat:             # sha1 | sha256 —— git rev-parse --show-object-format 的原样输出。
+                          #   下面两个 oid 都是在这个格式下算的；零改动填 N/A
+ThemeTreeOid:             # plaud_theme_tree 输出的第 2 段；零改动填 N/A
+ChangeSetScopeFingerprint: # plaud_changeset_scope 输出的第 2、3 段，形态 "<ScopeTreeOid> <ScopeDigest>"
+                          #   —— 两段必须一起逐字比：删除只体现在 ScopeDigest；零改动填 N/A
+ReadOnlyProof:            # 仅零改动任务：审计前后两次的 ObjectFormat + ThemeTreeOid（必须相等）
+                          #   + 取快照时的 BaseHeadSha；其余填 N/A
 AssessmentRef:            # 引用 §3 的工件；InlineLite 时填 InlineLite；只读填 N/A(ReadOnly)
 OriginTriageRef:          # 本块若由反馈返工产生：§9.1.3 的 TriageId + ItemId；否则 N/A
                           #   —— 返工轮次靠它统计，单块返工不必经 orchestrator
 Path:                     # A | B | C
 ReconMode:                # 与 Assess 一致；InlineLite 需附豁免理由；只读填 N/A(ReadOnly)
-ModifiedFiles:            # 逐个文件路径 + 一句话改动；必须与工作树一致；零改动填 []
+ModifiedFiles:            # 逐条 `- "<逐字路径>": <一句话改动>`；必须与工作树一致；零改动填 []
+                          #   🔴 **路径必须用双引号包住且逐字精确**（不 trim、不 glob、不写目录）：
+                          #   它同时是 ChangeSetScopeFingerprint 与 DeclaredDiffCheck 的**机器输入** ——
+                          #   下游把引号内的字符串逐字取出、每行一条喂给 plaud_changeset_scope /
+                          #   plaud_declared_diff。带尾空格的真实路径被 trim 掉，会让声明指错文件
+                          #   （改真实文件指纹不变）。路径本身含双引号 → 函数 fail closed，先重命名。
                           #   🔴 **不含 memory/ 下的文件**：memory/ 是项目运行时状态、不属于 ChangeSet，
-                          #   也已排除在 §2 指纹与 QA 的文件集合比对之外（三处范围必须一致）。
-                          #   Path C 的迁移日志/清单更新照常写 memory/，但**不列进 ModifiedFiles**；
-                          #   要交代那些更新时写在正文，或用 MemoryFilesUpdated 之类的正文小节，不进本字段。
+                          #   也不在可发布面内（三处范围必须一致）。
+                          #   Path C 的迁移日志/清单更新照常写 memory/，但**不列进 ModifiedFiles**。
 RootCause:                # 机制层根因（bugfix / 迁移偏差）；新建 section 填 N/A
 OptionsConsidered:        # 非平凡任务 ≥2 方案 + 取舍；平凡改动填 Trivial
 RequiredQAProfile:        # QA-A | QA-B | QA-C（可多选）。不要填 QA-Global——它由 QA 按 §5 恒执行，无需任何上游声明
@@ -566,6 +1256,9 @@ NextRequiredSkill: plaud-theme-qa-intake   # 见 §9.1.2；零改动任务填 No
 ReadyForDelivery: No      # 恒为 No，见 §1；零改动任务填 N/A(ReadOnly)
 ```
 
+> **本块共 22 个 key，顺序即上表顺序，是封闭集合**（v0.2.3 为 20 个）。多一个 key 或少一个 key 都由 QA 的结构核判违规。
+> 📎 v0.2.3 的 `ChangeSetFingerprint` **已废止**，不得再出现；用 `ObjectFormat` + `ThemeTreeOid` + `ChangeSetScopeFingerprint` 三元组取代。
+
 > ⚠️ 上面每个 `key:` 与注释之间都有空格。YAML 里 `Key:# 注释` 是解析错误（`#` 会被当成值的一部分或直接报错），照抄时不要压掉那个空格。
 
 ---
@@ -575,14 +1268,40 @@ ReadyForDelivery: No      # 恒为 No，见 §1；零改动任务填 N/A(ReadOnl
 每项检查的取值只能是 `Passed` / `Failed` / `Blocked` / `NotApplicable`，**不得**用勾选框或"已检查"。`Blocked` 必须附原因。
 
 ```yaml
-ChangeSetId:             # 被验的那个
-SubmissionId:            # 引用 §9.1.2 的提测包工件；无提测包要求时填 N/A
+VerificationId:          # VER-<YYYYMMDD>-<NN> —— **本份 QA 工件自己的稳定身份**（v0.3.0 新增）。
+                         # 🔴 **`<NN>` 由调用方（orchestrator 派活时 / 单块流程由用户）指定，QA 不自行推算**
+                         #    （v0.3.0 第三波验收补：此前没有定义分配方式，实施方一度想从 changeset-log
+                         #    推最大号 +1 —— 那个日志没有这一列，且**并行 QA 会读到同一个最大号、造出重复
+                         #    VerificationId**。日志推号这条路在并发下不成立，不要再走）。
+                         #    未指定 → **停机要号**，不得自造、不得复用任一成员块的 VerificationId。
+                         #   集成 QA 的 ChangeSetId 是 N/A(Integration)，没有它就没有任何东西
+                         #   可以被 §9.1.4 的 ReleaseQARef 指住
+QAScope:                 # SingleChangeSet | Integration
+ChangeSetId:             # 被验的那个；QAScope: Integration 时填 N/A(Integration)
+IntegrationOf:           # QAScope: Integration 时**必填非空**，逐块一条（见下方结构）；
+                         #   QAScope: SingleChangeSet 时填 N/A
+SubmissionId:            # 引用 §9.1.2 的提测包工件；集成 QA 引用**集成提测包**（§9.1.2 支持
+                         #   ChangeSetId: N/A(Integration)）；无提测包要求时填 N/A
 QAAdmissionStatus:       # Accepted | Blocked —— 提测包准入判定，早于一切检查（见 §9.1.2）
 QAAdmissionReason:       # Accepted 时填 Normal；Blocked 时填
                          #   PackageIncomplete | BindingMismatch | MissingArtifact | UserWaivedMaterials
-                         #   —— 决定后续跑不跑检查项，见 §5「准入门在最前」
-ChangeSetIdMatched:      # Yes | No —— 必须同时校验文件集合、ChangeSetFingerprint、BaseHeadSha（见 §2）
-FingerprintVerifiedAt:   # Step1(验证前) / Step2(验证后) 两次重算的指纹，必须都与工件一致
+ObjectFormat:            # sha1 | sha256 —— 本轮实际取证时的 object format。
+                         #   工件必须自含：release-ops 拿它与 ReleaseSourceTreeOid 的格式比对
+ChangeSetIdMatched:      # Yes | No —— 身份绑定是否逐字匹配（见 §2.8）。
+                         #   QAScope: SingleChangeSet → 与该块 Implement 工件的三元组逐字比；
+                         #   QAScope: Integration     → **IntegrationOf 每一项**的三元组都要逐字比，
+                         #                              任一项不匹配即 No
+VerifiedThemeTreeOid:    # 本轮 QA 实际验的那个 tree oid。release 的 ReleaseSourceTreeOid 必须逐字等于它
+DiffBaseTreeOid:         # DeclaredDiffCheck 的基准树 oid（plaud_declared_diff 输出的第 2 段）。
+                         #   SingleChangeSet 由 BaseHeadSha 推出；Integration 由
+                         #   IntegrationPlan.IntegrationBaseCommit 推出。取不到 → Unavailable(<原因>)
+DeclaredDiffCheck:       # Passed | Failed | Blocked | NotApplicable —— 见 §2.7。
+                         #   Failed：树里有无主改动或声明不实；Blocked：基准不可解析（不得降级成 Passed）
+                         #   NotApplicable **不适用于任何有改动的 ChangeSet**，填它必须附适用性证据
+StageDirRef:             # 本轮检查实际跑在哪个 workspace 快照（plaud_stage_workspace 的产物，绝对路径）。
+                         #   🔴 不是 release 物化目录：那里只有可发布面，跑不了 theme check / build
+FingerprintVerifiedAt:   # 三次重算的记录，必须都与工件一致：
+                         #   Step1(物化前) / Stage(物化回环复算) / Step5(收尾)
 QAProfilesRun:           # 实际跑了哪些 profile
 ThemeCheck:              # Passed | Failed | Blocked | NotApplicable
 ThemeCheckEvidence:      # CLI 版本 / 检查目录 / exit code / baseline 增量数（见 §6）
@@ -607,8 +1326,34 @@ ProfileSpecificResults:  # 各 profile 的逐项结果
 Advisories:              # DTC §2.2 软性项等**非阻断**观察；不得据此把 ReadyForDelivery 置 No
 Evidence:                # 命令原文 + 输出摘要；不接受"我看过了"
 BlockingGaps:
-ReadyForDelivery:        # Yes 仅当上述全部为 Passed 或 NotApplicable，且 QAAdmissionStatus: Accepted
+ReadyForIntegration:     # Yes | No | N/A(Integration) —— **块 QA 的终态**：这一块本身验过了。
+                         #   QAScope: Integration 时恒为 N/A(Integration)（集成工件不是任何一块的结论）。
+                         #   §9.1.4 的 ReleaseScope[].QAConclusion 逐块抄的就是它
+ReadyForDelivery:        # Yes | No —— 见 §2.11 的三道机械门。两种 QAScope 都可以取 Yes
 ```
+
+`IntegrationOf` 的结构（`QAScope: Integration` 时；`SingleChangeSet` 时整个字段填 `N/A`）：
+
+```yaml
+IntegrationOf:
+  PlanRef:                    # §9.1 那份 Coordination 工件的 OrchestrationId —— 本次集成依据的 IntegrationPlan
+  BaseTreeOid:                # 逐字抄 IntegrationPlan.IntegrationBaseTreeOid
+                              #   🔴 必须与本工件的 DiffBaseTreeOid **逐字相等**；不等即 DeclaredDiffCheck: Blocked。
+                              #      少了这道等式，可以记一个漂亮的 IntegrationBaseTreeOid、却拿另一个 commit 去算 diff
+  Members:                    # 非空；🔴 与 IntegrationPlan.MemberChangeSets **集合相等且无重复**，不等即停机
+    - ChangeSetId:              # 被集成的块
+      ImplementArtifactRef:     # 该块 §4 工件的出处
+      QARef:                    # 该块自己那份 QA 工件的 VerificationId（其 ReadyForIntegration 必须是 Yes）
+      SubmissionId:             # 该块的提测包（集成提测包由它们的并集构成，见 §9.1.2）
+      ObjectFormat:             # 该块 §4 工件里的取值
+      ThemeTreeOid:             # 该块 §4 工件里的取值（三元组比对要它，缺了 ChangeSetIdMatched 无从逐项判）
+      ChangeSetScopeFingerprint: # 该块 §4 工件里的取值，集成树里重算必须逐字相等
+```
+
+> **本块共 35 个 key，顺序即上表顺序，是封闭集合**（v0.2.3 为 26 个）。
+>
+> 🔴 **集成 QA 是独立工件，不是某一块的工件的改写。** 它有自己的 `VerificationId`、`ChangeSetId: N/A(Integration)`、非空的 `IntegrationOf`。**不得**把集成结论写进任何一块的 QA 工件里，也不得复用某一块的 `VerificationId`。
+> 之所以与块 QA 共用同一套 35 key 而不是另立一份模板：两套近似模板必然漂移，validator 也要维护两份——「独立」指的是**工件实例独立、身份独立**，不是 key 集合必须不同。
 
 ### 准入门在最前
 
@@ -784,7 +1529,7 @@ CLI 未安装、仓库不是 theme root、`shopify-common` build 产物缺失导
 |---|---|
 | **owner** | 封闭清单是**契约层文本**，唯一写入点是上面那张表（本文件 §8.1）。有权改它的只有**矩阵包 maintainer**，且只能在**切新版本快照**时改。`plaud-theme-qa` / 三个实现 skill / orchestrator / 任何 agent 在运行时**都不得**扩充、缩减或临时采信一份包外清单 |
 | **变更证据** | 两件**同时**具备才算变更完成：① 双周会的**书面结论**（纪要链接 + `YYYY-MM-DD` + 与会方，且须含 PLAUD 侧 PM / 设计 / 技术 owner——只有 agency 单方的纪要不成立）；② 该结论**已写进新版本包**的 §8.1 表。缺 ② 时清单**没有**变更 |
-| **必须伴随版本发布** | 是。本包按**全量快照**分发、各端靠 `install-macos-linux.sh` 安装，会议纪要**不随包分发**，agent 运行时读到的只有包内文本。只改纪要不发版本 = 四端各读各的旧清单，等于同一份 `memory/` 被两套规范处理。变更须走：新版本目录 → §8.1 表改写 → `ContractVersion` 与 `version-manifest.md` §1 同步 bump → `CHANGELOG.md` 记条目 → 四端安装并跑 README 的版本 + 内容双重核对 |
+| **必须伴随版本发布** | 是。本包按 **git tag** 分发、各端靠仓库根的 `install.sh` / `install.ps1` 按 tag 安装，会议纪要**不随包分发**，agent 运行时读到的只有包内文本。只改纪要不发版本 = 四端各读各的旧清单，等于同一份 `memory/` 被两套规范处理。变更须走：在仓库里改 → §8.1 表改写 → `ContractVersion` 与 `version-manifest.md` §1 同步 bump → `CHANGELOG.md` 记条目 → 四端安装并跑 README 的版本 + 内容双重核对 |
 | **纪要与包内文本不一致时** | 按 §7 **停机**报用户，**运行时仍按已安装包的清单判**。`ContractVersion` 漂移检查（`version-manifest.md` §1）是这条的兜底门 |
 
 🔴 **消歧「以双周会的书面结论为准」（本节开头那句）**：双周会对**分级本身**有最终解释权，但它决定的是**下一版包怎么写**，**不改变当前包运行时怎么判**。"会上同意了" 与 "清单里有了" 是两件事，agent 不得把前者当后者。
@@ -901,7 +1646,7 @@ DTC 原文写的是「年月日时间」，即**日期 + 时刻**。统一用 IS
 
 > 🔴 **`plaud-theme-shared` 的 `SharedContractCheck` / `ReferencesLoaded` 不是工件字段**（v0.2.2 第八轮补明）。它们是"我读过契约层、解析到哪条路径/阶段"的**正文自检块**，`plaud-theme-shared` 本身是 order 0 的被引用层，既不在阶段轴上、也不在 §0.1 那四个非阶段 skill 之内，因此**没有** `ArtifactKind`、也不出 §3/§4/§5 工件。三条硬约束：
 > 1. 自检块写在**正文里、阶段契约块之前**，回复的最后一个 yaml 块永远是阶段工件本身；
-> 2. **不得把这两个字段并进阶段契约块** —— §4 是 20 字段、§5 是 26 字段的**封闭集合**，多一个 key 就会被 QA 的结构核判违规；
+> 2. **不得把这两个字段并进阶段契约块** —— §4 是 22 字段、§5 是 35 字段的**封闭集合**，多一个 key 就会被 QA 的结构核判违规；
 > 3. **下游不得消费它们**。QA / qa-intake 的事实源只有 §3 / §4 / §9.1.x，没有任何判定可以建立在自检块上。
 
 ### 9.1 协调工件（`plaud-theme-orchestrator` 专用）
@@ -913,14 +1658,85 @@ ArtifactKind: Coordination
 OrchestrationId:          # ORCH-<YYYYMMDD>-<NN>
 PathResolved:             # A | B | C | Cross(B+C) | Cross(A+C)
 ChangeSetPlan:            # 拆出的每个 ChangeSet：编号 / 范围 / 归属 skill / 依赖关系
-ParallelSafe:             # 只描述 Assess 只读并行 / 可拆独立 worktree 的块。
-                          #   🔴 同一棵工作树里 Implement / 指纹 / QA / release 一律逐块串行
-                          #   （指纹绑全树，第二块落盘即让第一块失效）——**disjoint 不构成
-                          #   同树并行的理由**（v0.2.2 第九轮更正）
+ParallelSafe:             # 各块的并行判定，**必须区分阶段**（v0.3.0 语义反转，见 §2.12）：
+                          #   - Assess（只读）：可并行
+                          #   - Implement + 身份生成：**可同树并行**，前提是各块 ModifiedFiles 两两不重叠、
+                          #     不共享 build 产物、不改同一 token / locale 键
+                          #   - QA：**有条件并行** —— 只有各块 workspace 快照被物化时其它块尚未落进同一棵树
+                          #     才成立；已经同时落盘的，两个快照都是 A+B，必须按集成 QA 处理
+                          #   🔴 disjoint 只保证身份不互相失效，**不保证可合并**（token / locale / schema
+                          #      冲突是集成 QA 查的，Scope 指纹答不了）
+IntegrationPlan:          # 多块同批发版时**必填**；本工件天然只服务多块任务，不存在单块取值
+                          #   - Integrator:              🔴 **填人**（用户 / 具体 owner），不填 skill 名。
+                          #                              矩阵不做 merge（§2.13）；无人认领即停机要授权
+                          #   - IntegrationBaseCommit:   集成基准 commit-ish，**必须可解析**（DeclaredDiffCheck 用它）
+                          #   - IntegrationBaseTreeOid:  由上一行推出的可发布子树 oid + 与之配套的 ObjectFormat
+                          #                              —— 判据用的是**它**，commit 只是让基准对象可达的手段
+                          #     🔴 **构造命令写死，不许 agent 自己猜**（v0.3.0 第三轮复核补：原文只说
+                          #     「由上一行推出」，而 `git rev-parse <commit>^{tree}` 给的是**仓库根树**、
+                          #     不是可发布子树 —— 复核实测两者不等：root=737a… / base_theme=7a2e…。
+                          #     照 `^{tree}` 填进去，DeclaredDiffCheck 的基准就是错的，而两侧都"算得出值"）：
+                          #
+                          #       IntegrationBaseTreeOid=$(plaud_base_theme_tree "<IntegrationBaseCommit>")
+                          #                               # 输出一行：<ObjectFormat> <BaseTreeOid>
+                          #
+                          #     即：对基准 commit 跑 §2.5 的 `plaud_base_theme_tree`，取它输出的两段。
+                          #     🔴 **不是 `plaud_theme_tree "<IntegrationBaseCommit>"`**（v0.3.0 收尾验收
+                          #     修正：本行一度就是那样写的）—— `plaud_theme_tree` 是**无参函数**，函数体里
+                          #     根本没有 $1，传进去的 commit 被静默丢弃，返回的是**当前工作树**的 oid。
+                          #     那样写会让本字段与 DiffBaseTreeOid 恒不相等 → DeclaredDiffCheck 恒 Blocked
+                          #     → 多块集成结构性死锁，而两侧都"算得出值"、看不出错。
+                          #     取不到（commit 不可解析 / 函数失败）→ **停机**，不得退到 `^{tree}` 或任何近似值。
+                          #   - MemberChangeSets:        参与本次集成的 ChangeSetId 清单
+                          #   - IntegrationQAOwner:      由谁触发集成 QA（plaud-theme-qa，注明由谁调起）
+                          #   - IntegrationResultTreeOid: 🔴 **集成完成后的可发布树 oid + 配套 ObjectFormat**
+                          #     （v0.3.0 第三波验收补：这一格原来是**契约真空** —— 集成提测包的顶层
+                          #     `ObjectFormat` / `ThemeTreeOid` 没有任何 producer。qa-intake 对主题身份是
+                          #     **纯透传**（不是 producer 也不是 verifier），而集成没有 Implement 工件可透传；
+                          #     QA 只能重算比对、不能原创。结果是集成 QA 恒 `Blocked`、拿不到交付许可 —— 死锁。）
+                          #     **producer = `Integrator`（上面那个填人的角色）**：集成落盘后、提测之前，
+                          #     在集成后的工作树根目录跑
+                          #
+                          #       IntegrationResultTreeOid=$(plaud_theme_tree)
+                          #
+                          #     取值连同 ObjectFormat 记进本工件；qa-intake 从这里**原样透传**到集成提测包的
+                          #     顶层 `ObjectFormat` / `ThemeTreeOid`，QA 的 Step 1 再独立重算比对。
+                          #     🔴 三方约束：intake 透传值 == 本字段 == QA 重算值，任一不等即 `ChangeSetIdMatched: No` 停机。
+                          #     取不到（函数失败 / 集成者未提供）→ **停机**，不得由 intake 或 QA 代为生成 ——
+                          #     那会让"取证方与验证方相互独立"这个前提失效。
 ChangeSetStatus:          # 各 ChangeSet 当前阶段与 handoff 引用；含 SubmissionId（提测准入）与 TriageId（若该块由反馈回流产生）
 BlockingGaps:
-AllChangeSetsDelivered:   # Yes | No —— 全部下辖 ChangeSet 的 QA 均为 ReadyForDelivery: Yes 时才为 Yes
+AllChangeSetsDelivered:   # Yes | No —— **v0.3.0 改定义**：全部下辖 ChangeSet 的 ReadyForIntegration 均为 Yes，
+                          #   **且**存在一份集成 QA 工件且其 ReadyForDelivery 为 Yes。
+                          #   （v0.2.3 的定义是"全部块的 ReadyForDelivery 均为 Yes"。多块流程里各块的树
+                          #    含兄弟改动、DeclaredDiffCheck 必然不过，块 QA 的 ReadyForDelivery 恒为 No，
+                          #    照抄会让本字段永远取不到 Yes）
 ```
+
+> **本块共 9 个 key**（v0.2.3 为 8 个），顺序即上表顺序，是封闭集合。
+> `IntegrationPlan` 有 **6 个子字段**（`Integrator` / `IntegrationBaseCommit` / `IntegrationBaseTreeOid` /
+> `MemberChangeSets` / `IntegrationQAOwner` / `IntegrationResultTreeOid`）；子字段不计进 9 key。
+
+#### 🔴 `IntegrationPlan` 的两个时点（`IntegrationResultTreeOid` 的生命周期）
+
+本工件**不是一次写死的**。`IntegrationPlan` 的 6 个子字段分两个时点落：
+
+| 时点 | 谁写 | 写什么 |
+|---|---|---|
+| **规划期**（派活时） | `plaud-theme-orchestrator` | 前 5 项。`IntegrationResultTreeOid` **此刻不存在** |
+| **集成落盘后、集成提测之前** | `IntegrationPlan.Integrator`（**人**）把值交给 orchestrator，orchestrator 更新**同一个 `OrchestrationId`** 的这份工件 | 补上 `IntegrationResultTreeOid`（`plaud_theme_tree` 输出的第 1、2 段） |
+
+只有**已填第 6 项的那一版**协调工件可以被 `plaud-theme-qa-intake` / `plaud-theme-qa` 消费。配套停机条件：
+
+- 规划期**不得**为 `IntegrationResultTreeOid` 填任何值：不填 `N/A`、不填 `Pending` / `TBD`、不拿
+  `IntegrationBaseTreeOid` 或任一成员的 `ThemeTreeOid` 顶替。它此刻**不表示任何 oid**。
+- `plaud-theme-qa-intake` 读到的是**未填第 6 项的旧版**、或 `ObjectFormat` 与 oid 只有一半、或 oid 长度与
+  `ObjectFormat` 不符 → **停机，不产出 QAIntake 契约块**，要 `Integrator` 先补取证。**不得自己重算**，
+  也不得借用基准树 / 成员树 / QA 的 oid —— 那会让「取证方与验证方相互独立」这个前提失效。
+- `plaud-theme-qa` 拿到的 intake 顶层 `ObjectFormat` / `ThemeTreeOid` 与最终协调工件的
+  `IntegrationResultTreeOid` **不等** → `QAAdmissionStatus: Blocked` / `BindingMismatch`；缺失 →
+  `Blocked` / `MissingArtifact`。QA 自己重算的值与之不等 → `ChangeSetIdMatched: No` 并停机，
+  要 `Integrator` 重新确认结果树、更新协调工件、重出集成提测包。**QA 不得代为生成这个值。**
 
 `AllChangeSetsDelivered` 是**汇总读数，不是交付许可**。它只能反映各 ChangeSet 的 QA 结论，orchestrator 不得据此自行宣布可交付，也不得在任一 ChangeSet 的 QA 未通过时置 Yes。交付权仍然只在 `plaud-theme-qa`（§1）。
 
@@ -929,8 +1745,31 @@ AllChangeSetsDelivered:   # Yes | No —— 全部下辖 ChangeSet 的 QA 均为
 ```yaml
 ArtifactKind: QAIntake
 SubmissionId:             # SUB-<YYYYMMDD>-<NN>
-ChangeSetId:              # 本次提测对应的 ChangeSet（§2）
-ChangeSetFingerprint:     # 从 Implement 工件原样带过来，不重算、不改写
+ChangeSetId:              # 本次提测对应的 ChangeSet（§2）；**集成提测包**填 N/A(Integration)
+IntegrationOf:            # ChangeSetId: N/A(Integration) 时**必填非空**：本次集成覆盖的 ChangeSetId 清单，
+                          #   每项附该块的 SubmissionId —— 集成提测材料 = 各块材料的并集 + 集成本身的
+                          #   ReworkDelta。其余情形填 N/A
+                          #   🔴 没有这一项，集成 QA 结构上取不到任何 intake 工件 → 恒 Blocked/MissingArtifact
+                          #      → 恒拿不到交付许可。这是死锁，不是保守
+                          #   🔴 本清单必须与 IntegrationPlan.MemberChangeSets **集合相等且无重复**，
+                          #      且每项的 SubmissionId 必须真实存在且 SubmissionPackageStatus: Complete。
+                          #      少了这条等式，可以少列一个块、让它的材料整份缺席而 intake 照样 Complete
+                          #   🔴 **嵌套项 SubmissionId 取不到时怎么填（v0.3.0 第三波追认）**：本字段是嵌套
+                          #      结构，而「缺失即 Incomplete」原来只对**顶层**字段定义过 —— 嵌套项没有
+                          #      合法缺失值，照旧写法只能填个 N/A 蒙混过去。分两种情形，**不得混同**：
+                          #      · 该块**已提测但包非 Complete** → 照写它真实的 SubmissionId，顶层判
+                          #        SubmissionPackageStatus: Incomplete，BlockingGaps 指名是哪一块的哪一项；
+                          #      · 该块**从未提测**（根本没有 SubmissionId 这个对象）→ **停机**，不出集成包，
+                          #        要求先把该块提测。**不得**填 N/A / None / Pending 之类自造取值 ——
+                          #        那会让「每项 SubmissionId 必须真实存在」这条等式失去意义。
+                          #      判据只认对象是否存在，不认口述。
+ObjectFormat:             # 从 Implement 工件原样带过来；**集成提测包**改从
+                          #   IntegrationPlan.IntegrationResultTreeOid 原样透传（见 §9.1「两个时点」）
+ThemeTreeOid:             # 同上，不重算、不改写。🔴 本 skill 对这一对是**纯透传**，既不是 producer
+                          #   也不是 verifier：集成路径下**不得**自己跑 plaud_theme_tree 现算一个
+                          #   —— 那是把集成者的取证责任挪给材料装配方，责任链断在这里。
+                          #   协调工件没填 IntegrationResultTreeOid → **停机**，不出契约块
+ChangeSetScopeFingerprint: # 同上；集成提测包填 N/A(Integration)（逐块取值在 IntegrationOf 里）
 PackageRootRef:           # 提测材料所在位置：本地目录绝对路径 / 云端根文档 URI —— QA 据此复算
 PackageFingerprint:       # 见下方「包指纹」；提测材料本身的内容绑定
 TargetSites:              # 本次要推的站点清单（显式列出，不得写"相关站点"）
@@ -959,7 +1798,9 @@ BlockingGaps:             # 缺哪份材料、缺什么字段，逐项写清
 NextRequiredSkill: plaud-theme-qa
 ```
 
-> 🔴 **提测包必须与某个具体 ChangeSet 焊死，否则可以重放。** `ChangeSetId` + `ChangeSetFingerprint` 从 Implement 工件**原样带过来**，QA 在 Step 0 会拿它与当前 Implement 工件逐字比对——不比对的话，A 任务的 `Complete` 包可以直接拿去给 B 任务用；材料也可以在 intake 通过之后被替换（所以 QA 还要重算 `PackageFingerprint`）。
+> **本块共 26 个 key**（v0.2.3 为 23 个），顺序即上表顺序，是封闭集合。
+
+> 🔴 **提测包必须与某个具体 ChangeSet 焊死，否则可以重放。** `ChangeSetId` + `ObjectFormat` + `ThemeTreeOid` + `ChangeSetScopeFingerprint` 从 Implement 工件**原样带过来**，QA 在 Step 0 会拿它与当前 Implement 工件逐字比对——不比对的话，A 任务的 `Complete` 包可以直接拿去给 B 任务用；材料也可以在 intake 通过之后被替换（所以 QA 还要重算 `PackageFingerprint`）。
 
 **这个工件没有 `ReadyForDelivery` 字段，一个字都不许出现。** 它判的是「材料齐不齐」，不是「代码行不行」；语法上刻意与 `ReadyForDelivery` 拉开距离（`Complete/Incomplete` vs `Yes/No`），就是为了防止下游误读成第二个发布许可。
 
@@ -976,7 +1817,7 @@ NextRequiredSkill: plaud-theme-qa
 
 > 🔴 **提测截图不能替代 QA 自己的回归。** 这 8 张是给运营/PM 看的交付材料；QA 的 `BreakpointsCovered`（Path C 为 `PC / 1599 / 1279 / 767 / 375`）是 QA 自己实跑的，两者互不顶替。记 `PC` 时必须写出实际像素宽度，如 `PC(1920)`，光写 `PC` 无法复核。
 
-**包指纹 `PackageFingerprint`**：§2 的 `ChangeSetFingerprint` 只覆盖**主题仓库工作树**，对截图、配置文档、测试报告、预览 URL 一无所知。因此提测材料另算一份：
+**包指纹 `PackageFingerprint`**：§2 的三个身份字段只覆盖**主题仓库的可发布面**，对截图、配置文档、测试报告、预览 URL 一无所知。因此提测材料另算一份：
 
 ```bash
 # 在提测材料目录（不在主题仓库内）执行
@@ -1085,7 +1926,7 @@ plaud_package_fingerprint || { echo "PACKAGE_FINGERPRINT_FAILED"; exit 1; }
 
 > 🔴 **提测材料不得写进主题仓库。** 材料放仓库外的独立目录或云文档。
 >
-> 材料落进工作树的**常规位置**时 `ChangeSetFingerprint` 会变化，QA 的 Step 1 判 `ChangeSetIdMatched: No` 并停机。**但这不是一道门**（v0.2.2 第十轮实测更正：原文把这个副作用写成了强制机制「你会因为交了材料而过不了自己的准入门」）——放进任何**被 gitignore 的非发布目录**、或放进 `memory/` 且是 **`.md`**，指纹与 `git status` 都看不见，intake 与 QA 会双双看到一个干净的绑定，而材料事后被换掉没有任何机制会发现。真正的门是 `plaud-theme-qa-intake` Step 1 的**三条命令**（常规位置 / ignored 位置 / `memory/` 全量），必须逐条跑。
+> 材料落进**可发布目录**时 `ThemeTreeOid` 会变化，QA 的 Step 1 判 `ChangeSetIdMatched: No` 并停机。**但这不是一道门**（v0.2.2 第十轮实测更正：原文把这个副作用写成了强制机制「你会因为交了材料而过不了自己的准入门」）——放进任何**被 gitignore 的非发布目录**、或放进 `memory/` 且是 **`.md`**，指纹与 `git status` 都看不见，intake 与 QA 会双双看到一个干净的绑定，而材料事后被换掉没有任何机制会发现。真正的门是 `plaud-theme-qa-intake` Step 1 的**三条命令**（常规位置 / ignored 位置 / `memory/` 全量），必须逐条跑。
 
 ### 9.1.3 反馈分类工件（`plaud-theme-feedback-triage` 专用）
 
@@ -1136,14 +1977,56 @@ FeedbackItems:
 ArtifactKind: ReleaseOps
 ReleaseId:                # REL-<YYYYMMDD>-<NN>
 ReleaseScope:             # 见下：逐个 ChangeSet 的 QA 结论 + 验收状态，不用单个标量表达
+ReleaseQARef:             # 🔴 **本次发布许可的唯一来源**：那份 ReadyForDelivery: Yes 的 QA 工件的
+                          #   VerificationId + 出处。单块直发指向该块 QA；多块同批**必须**指向
+                          #   QAScope: Integration 的集成 QA。
+                          #   （字段名不叫 IntegrationQARef：单块场景它指的不是集成工件）
+ObjectFormat:             # sha1 | sha256 —— 与 ReleaseQARef 那份工件的取值必须相同，否则 oid 不可比
+ReleaseSourceTreeOid:     # 本次推送源的 tree oid。**必须逐字等于 ReleaseQARef 那份工件的
+                          #   VerifiedThemeTreeOid**；不等即停机（这是 §2.11 第 2 道门）
+ReleaseStageDir:          # plaud_stage_verified 物化出的目录绝对路径（只含可发布面）。
+                          #   🔴 不是 QA 的 StageDirRef（那是完整 workspace 快照，含 node_modules /
+                          #   .env / build 源，整树 push 会把它们全发上线）
+StagedAt:                 # 物化完成时间。**只记不判**（审计留痕），不构成任何判据
+ShopifyCliVersion:        # shopify CLI --version 原样输出；换版本可能改变文件投影与删除行为
+PushCommand:              # 完整命令原文，逐字。🔴 必须包含 `--path <ReleaseStageDir>` 且路径与该字段
+                          #   逐字相等 —— 否则推的可能根本不是被验证的那棵树（cwd 或 --path 指向别处时，
+                          #   命令里没有 --only/--ignore 也照样"合规"）
+PushCommandCompliance:    # Compliant | Violation —— 出现 --only / --ignore 即 Violation 并停机
+                          #   （用了就等于 payload 与 ReleaseSourceTreeOid 不同源）。
+                          #   --nodelete 不判 Violation，但必须出现在 PushCommand 里并在正文说明影响
+EffectivePayloadManifest: # 逐 cohort / 逐站点：实际上传集合 + 远端 base digest。**只记不判**，
+                          #   是给人看的推送凭证；判定由 RemoteVerifyResult 承担
+RemoteVerifyResult:       # 逐站点：Matched | Mismatched | Unavailable —— 远端 checksum 复核结论。
+                          #   它**决定** PerSitePushResult[].Status，不是事后观察项。
+                          #   🔴 两个**推站尚未发生**的合法取值（v0.3.0 收尾验收补：此前只有推后语义的
+                          #   三个值，而输出发版清单等授权的那一轮必然还没推 —— 逐站预填 Unavailable
+                          #   会被映射成 Unverified，凭空捏造一次没发生的推送）：
+                          #     · 整轮未推（PushResult: NotExecuted）→ 整个字段填 N/A(NotExecuted)
+                          #     · 已推但某站点根本没尝试（PushResult: PartiallyExecuted）→ 该站点填
+                          #       N/A(NotAttempted)，映射到 PerSitePushResult[].Status: NotAttempted
+                          #   🔴 TargetSites / RemoteVerifyResult / PerSitePushResult 三者必须**逐站点
+                          #   一一对应、无重复、且 TargetSites 非空**——空站点集合会让「每个站点都成功」
+                          #   在真空里成立，PushResult: Executed 就成了假读数
+ReleaseDiffBaseCommit:    # 归属复核的基准 commit-ish，必须可解析。单块直发抄该块 §4 的 BaseHeadSha；
+                          #   多块同批抄 IntegrationPlan.IntegrationBaseCommit
+ReleaseDeclaredDiffCheck: # Passed | Failed | Blocked | NotApplicable —— **推站前重跑一次** §2.7，
+                          #   期望集合是「IncludedInThisPush: Yes 的块的声明路径并集」。
+                          #   🔴 这是 §2.14「No 块不得留在发布源树里」的**唯一承载字段**：
+                          #      没有它，那条规则就只是正文要求、没有任何机械核对
 TargetSites:              # 二次确认后的推送站点清单，逐个显式列出
 ExcludedSites:            # 本次不推的站点 + 每个的原因
 ThemeIds:                 # 各目标站点对应的主题 ID
 SiteListConfirmedBy:      # 两次确认的出处（需求时 + 发版前），谁/在哪/什么时候
 PRRef:                    # agency 提供的 PR 链接
 AuthorizationRef:         # 用户显式授权执行推送的出处；未授权填 NotAuthorized
-PushResult:               # NotExecuted | Executed | PartiallyExecuted —— 实际推送结果
-PerSitePushResult:        # 逐站点：站点 / Succeeded|Failed|NotAttempted / 时间 / 失败原因
+PushResult:               # NotExecuted | Executed | PartiallyExecuted —— 实际推送结果。
+                          #   Executed 仅当**每个**站点都是 Succeeded；只要有一个不是且有一个是，
+                          #   就必须填 PartiallyExecuted（填 NotExecuted 会抹掉已发生的线上副作用）
+PerSitePushResult:        # 逐站点：站点 / Succeeded|Failed|Unverified|NotAttempted / 时间 / 原因。
+                          #   🔴 由 RemoteVerifyResult 逐站点决定：
+                          #     Matched → Succeeded ／ Mismatched → Failed ／ Unavailable → **Unverified**
+                          #   Unverified **不得**折算为 Succeeded，也不是 NotAttempted（推已经发生了）
 PushedAt:                 # 实际推送时间；NotExecuted 时填 N/A
 PostReleaseWatch:         # 上线后跟踪项：谁/在什么时间窗/看什么
 RegressionCasesAdded:     # 每个线上 bug 反推的回归用例（逐条：bug → 用例 ID）
@@ -1162,13 +2045,24 @@ BlockingGaps:
 ```yaml
 ReleaseScope:
   - ChangeSetId:
-    QAConclusion:       # QA 的 ReadyForDelivery 取值 + 出处；任一不是 Yes 则该块不得发版
+    QAConclusion:       # 🔴 v0.3.0 起逐块抄该块 QA 工件的 **ReadyForIntegration**（Yes | No）。
+                        #   任一 IncludedInThisPush: Yes 的块其 QAConclusion 不是 Yes → 该块不得发版。
+                        #   唯一的降级取值 N/A(NotIncluded)：**仅当** IncludedInThisPush: No **且**
+                        #   该块根本不存在可解析的块 QA 工件。块 QA 存在就必须照抄真实结论
+    QARef:              # 该块那份 QA 工件的 VerificationId + 出处。
+                        #   🔴 没有它，QAConclusion 就是一个无法追溯来源的标量，填 Yes 也证明不了来自哪份 QA。
+                        #   与 QAConclusion 同条件下可填 N/A(NotIncluded)；IncludedInThisPush: Yes 时为空即停机。
+                        #   本次的**交付许可**不在 ReleaseScope 里，在顶层的 ReleaseQARef
     AcceptanceStatus:   # Accepted | Pending —— 该块对应 section/page 的运营验收状态
     AcceptanceRef:      # 验收出处；Pending 时填 N/A
     IncludedInThisPush: # Yes | No —— Pending 的块填 No，留到下次
 ```
 
-> 🔴 **v0.2.3 只支持单块发布**（§2）：`IncludedInThisPush: Yes` 的块**至多一个**。多于一个 → `plaud-theme-release-ops` 停机，要求逐块串行发布。`ReleaseScope` 仍是列表结构，是为了让"这次发哪块、哪些块留到下次"能一起记清楚。
+> 📎 🔴 **v0.3.0 支持多块同批发布**（§2.10）。v0.2.3 那条「`IncludedInThisPush: Yes` 至多一个」的硬规则**已删除**。取而代之的是两条可机械核对的条件：
+> 1. `IncludedInThisPush: Yes` 多于一个时，`ReleaseQARef` **必须**指向 `QAScope: Integration` 的集成 QA 工件，且其 `VerifiedThemeTreeOid` 逐字等于 `ReleaseSourceTreeOid`；不满足即停机。
+> 2. 按 `TargetSites` 分 cohort：**站点集合不同的块不共用一棵树推站**。
+>
+> 🔴 **`IncludedInThisPush: No` 的块，其改动不得留在发布源树里**（§2.14）。`plaud_stage_verified` 物化的是一整棵 `ThemeTreeOid`，**没有「减去某块」的能力**——所以唯一出路是由集成者（人）把该块从树里撤掉、重新取证、重跑集成 QA。这条不靠自觉：`DeclaredDiffCheck` 以「`IncludedInThisPush: Yes` 的块的声明并集」为期望集合，`No` 块的改动只要还在树里就会被判成 `DECLARED_DIFF_ORPHAN`。
 
 > 🔴 **`AcceptanceStatus` 必须逐块给。** 顶层一个 `Accepted` 表达不了"A 验收了、B 还没"，而 DTC 要求的正是**只发已验收的部分**。用单标量时，要么把没验收的一起发了，要么把验收了的一起压住——两种都错。
 
@@ -1183,6 +2077,10 @@ ReleaseScope:
 
 发版本身（`git push` / Shopify theme push / 合并 PR）是**外部动作**，本 skill 只产出清单与判定，执行需用户显式授权。
 
+> **本块共 28 个 key**（v0.2.3 为 16 个），顺序即上表顺序，是封闭集合。
+>
+> 🔴 **执行 push 命令的紧前必须再复算一次**物化目录的 tree oid 并与 `ReleaseSourceTreeOid` 比对。普通目录不是真「不可变」，复算相等之后到 CLI 逐文件读完之间它还能被改。这道复算能抓到篡改，但**不创造原子性**——同权限进程在读取期间改目录，矩阵挡不住，这条残余风险如实记在这里（§2.6）。
+
 ### 9.2 字段取值枚举
 
 以下字段的取值是**封闭枚举**，不得自造：
@@ -1192,12 +2090,18 @@ ReleaseScope:
 | 字段 | 允许值 |
 |---|---|
 | `QAStatus` | `NotRun` \| `Skipped(UserWaived)` |
-| `ReadyForDelivery` | `Yes`（仅 QA）\| `No` \| `N/A(ReadOnly)` |
+| `ReadyForDelivery` | `Yes`（仅 QA，**两种 `QAScope` 都可取**，条件见 §2.11 的三道机械门）\| `No` \| `N/A(ReadOnly)` |
+| `ReadyForIntegration` | `Yes` \| `No` \| `N/A(Integration)`（**`QAScope: Integration` 时恒取此值**——集成工件不是任何一块的结论）。**v0.3.0 新增** |
+| `QAScope` | `SingleChangeSet` \| `Integration`。**v0.3.0 新增**。它是 §5 工件的判别式：`Integration` 时 `ChangeSetId` 必须是 `N/A(Integration)` 且 `IntegrationOf` 非空 |
+| `ObjectFormat` | `sha1` \| `sha256`（`git rev-parse --show-object-format` 的原样输出）\| `N/A`（仅零改动任务）。**v0.3.0 新增**。查不到时**不许回退默认值**——两种格式对同一内容算出的 oid 完全不同 |
+| `DeclaredDiffCheck` | `Passed` \| `Failed` \| `Blocked` \| `NotApplicable`。**v0.3.0 新增**（§2.7）。🔴 **基准不可解析是 `Blocked`，不是 `Passed` 也不是 `NotApplicable`**；`NotApplicable` 只对零改动任务成立且须附证据 |
+| `PushCommandCompliance` | `Compliant` \| `Violation`。**v0.3.0 新增**。`--only` / `--ignore` 出现即 `Violation` 并停机 |
+| `RemoteVerifyResult` | `Matched` \| `Mismatched` \| `Unavailable`（逐站点填）\| `N/A(NotExecuted)`（**整个字段**，仅当 `PushResult: NotExecuted`）\| `N/A(NotAttempted)`（**逐站点**，该站点根本没尝试推送）。**v0.3.0 新增**。🔴 前三个是**推后**语义，推站尚未发生时逐站预填 `Unavailable` = 凭空捏造一次没发生的推送（它会被映射成 `Unverified`「推已经发生了」） |
 | `ReadyForImplement` | `Yes` \| `No` |
-| `Path` | `A` \| `B` \| `C`（**v0.2.2 第七轮补**：QA 的结构核要按封闭枚举核 20 字段取值，此前这几项没有事实源，`Path: D` 之类既可能被放行、也可能被无依据地停机） |
+| `Path` | `A` \| `B` \| `C`（**v0.2.2 第七轮补**：QA 的结构核要按封闭枚举核 §4 全部字段取值，此前这几项没有事实源，`Path: D` 之类既可能被放行、也可能被无依据地停机） |
 | `ThemeCheckRequired` / `VisualRegressionRequired` / `BuildRequired` | `Yes` \| `No` |
 | `NextRequiredSkill` | `plaud-theme-qa-intake`（实现 skill 的正常下游）\| `plaud-theme-qa`（仅 qa-intake 工件填）\| `None`（零改动只读任务） |
-| `ChangeSetIdMatched` | `Yes` \| `No` |
+| `ChangeSetIdMatched` | `Yes` \| `No`。语义随 `QAScope` 变：`SingleChangeSet` 比该块 §4 工件的三元组；`Integration` 比 `IntegrationOf` **每一项**的三元组，任一不匹配即 `No` |
 | `ReconMode` | `LegacyImpact` \| `IntegrationSurface` \| `InlineLite` \| `N/A(ReadOnly)` |
 | `RiskTier` | `Low` \| `Medium` \| `High` |
 | `RequiredQAProfile` | `QA-A` \| `QA-B` \| `QA-C`（可多选）。**不含 `QA-Global`**——它由 QA 恒执行并记入 `QAProfilesRun`，任何上游工件写它都是违规 |
@@ -1220,10 +2124,11 @@ ReleaseScope:
 | `TestSetTrace` / `PreviousAcceptedTestSetTrace` | 自由文本，格式与判定**唯一事实源是 `package-checklist.md` §3**；此表只约束一点：**缺 `@<revision>`、或分号后为空 → 视为未提供**。`PreviousAcceptedTestSetTrace` 另可取 `None(FirstSubmission)` 或 `Unavailable(<原因>)`。**`Unavailable` 的成立条件是「找不到任何一条 `TestSetTrace` 非 `N/A` 的历史行，且用户也给不出上一轮已通过准入的工件」**——含三种情形：日志无此列（旧日志）/ 有列但历史行全是 `N/A` / 日志文件缺失。判定见 `package-checklist.md` §3 |
 | `TestSetMigrationRef` | 结构化迁移声明（`From=…; To=…; Reason=…; ReasonRef=…; CaseDisposition=…`）\| `N/A(SameDocument)` \| `N/A(NoPreviousTrace)`。其中 **`Reason` 是封闭枚举三值**：`PlatformMigration` \| `OwnerHandover` \| `Deprecated`（**刻意无 `Other` 兜底**，越界即 `SelfTestReportStatus: Incomplete` + `BlockingGaps: TestSetMigrationReasonOutsideClosedEnum`）；`CaseDisposition` 两形态：`Mapped(<locator>)` \| `BulkRetired(<locator>)`，且 locator **只能是 `Local(<相对路径>)`**（清单要核内容，云端 `Manifest(...)` 只能核到 revision/digest）。语法与判定**唯一事实源是 `package-checklist.md` §3.1**，此表只约束一点：**`From` 必须逐字等于本轮 `PreviousAcceptedTestSetTrace` 的 `ID@revision`、`To` 必须逐字等于本轮 `TestSetTrace` 的 `ID@revision`**。一拆多 / 多合一的迁移形状本版**不支持**，须停机（`BlockingGaps: TestSetMigrationShapeUnsupported`），不得挑一份旧文档冒充一对一 |
 | 红线分级标记（§8.1） | `🔴 红线` \| `🟠 EvidenceBased` \| `🟠 ApprovedException` \| `🟡 建议`。🟠 的两种**不可互换**：`ApprovedException` 缺 `ApprovalRef` 直接 `Failed`，`EvidenceBased` 缺证据是 `Blocked` |
-| `IncludedInThisPush` | `Yes` \| `No` |
+| `ReleaseScope[].QAConclusion` / `ReleaseScope[].QARef` | `QAConclusion`：`Yes` \| `No`（逐块抄该块 QA 的 `ReadyForIntegration`）\| `N/A(NotIncluded)`；`QARef`：该块 QA 的 `VerificationId` + 出处 \| `N/A(NotIncluded)`。**v0.3.0 新增**。🔴 `N/A(NotIncluded)` **仅当** `IncludedInThisPush: No` **且**该块不存在可解析的块 QA 工件；块 QA 存在就必须照抄真实结论与真实 `VerificationId`。`IncludedInThisPush: Yes` 的块两者都不得取它，`QARef` 为空即停机 |
+| `IncludedInThisPush` | 📎 `Yes` \| `No`。🔴 v0.2.3 的「`Yes` 至多一个」限制**已删除**（§9.1.4）；`No` 块的改动不得留在发布源树里（§2.14） |
 | `TestSetTraceAfterArchive` | 与 `TestSetTrace` **同格式且三段齐**（`Added` / `Updated` / `Removed` 都要出现，只新增时后两段写 `[]`；唯一事实源 `package-checklist.md` §3），另可取 `N/A(NoOnlineBug)`。**稳定文档 ID 与 QAIntake 那份不一致 → 视为未归档**。它不接受 `None(reason)`——归档轮次必然有新增用例 |
 | `PushResult` | `NotExecuted` \| `Executed` \| `PartiallyExecuted`（部分站点失败时**必须**用它，填 `NotExecuted` 会抹掉已发生的线上副作用、导致重复推送） |
-| `PerSitePushResult[].Status` | `Succeeded` \| `Failed` \| `NotAttempted` |
+| `PerSitePushResult[].Status` | `Succeeded` \| `Failed` \| `Unverified` \| `NotAttempted`。🔴 **由 `RemoteVerifyResult` 逐站点决定**：`Matched`→`Succeeded`／`Mismatched`→`Failed`／`Unavailable`→**`Unverified`**（**v0.3.0 新增取值**）。`Unverified` 不得折算为 `Succeeded`（复核不动 ≠ 推成功），也不是 `NotAttempted`（推已经发生了） |
 | `FeedbackSource` | `QA打回` \| `运营验收` \| `线上反馈` \| `内部发现` |
 
 > 🔴 **`Complete/Incomplete` 与 `Yes/No` 不可互换。** 提测包用前者、交付许可用后者，这是刻意的语法隔离（§9.1.2）。在提测工件里写 `Yes`、或在 QA 工件里写 `Complete`，都视为契约违规。
@@ -1237,6 +2142,7 @@ ReleaseScope:
 | 字段 | 允许值 | 位置 |
 |---|---|---|
 | `QAStatus` | `Pending` \| `Valid` \| `Invalidated` | `changeset-log.md` |
+| `ThemeTreeOid` / `ScopeFP` | 📎 **v0.3.0 新增的两列，取代 v0.2.3 的 `ChangeSetFingerprint` 一列**。`ThemeTreeOid` 记前 12 位，`ScopeFP` 记 `ChangeSetScopeFingerprint` 的 `ScopeTreeOid` 前 12 位；另需一列 `ObjectFormat`。**旧行不回填**：v0.2.3 及以前的行保留原 `ChangeSetFingerprint` 列并按旧语义阅读，新行一律用新列。🔴 同一棵 `memory/` 被两个版本的 spec 处理正是「客户端漂移」事故形态，四客户端必须**同时**升级 | `changeset-log.md` |
 | `TestSetTrace` | 该轮**已通过准入**（`QAAdmissionStatus: Accepted`）的测试集那一行原文（格式见 `plaud-theme-qa-intake/references/package-checklist.md` §3）\| `N/A(NotAccepted)`（该轮 `QAAdmissionStatus: Blocked`）\| `N/A(NoTestSet)` | `changeset-log.md`，**v0.2.2 新增列**，由 `plaud-theme-qa` 在写 log 时**原样抄自 `QAIntake` 工件**（列格式见 `plaud-theme-qa/references/evidence-and-invalidation.md`）—— 它是 `plaud-theme-qa-intake` 下一轮取 `PreviousAcceptedTestSetTrace` 的**首选权威来源**（取数路径①；日志不可得时走路径②的成对工件，见 `package-checklist.md` §3）。**旧日志不回填** |
 | `VisualAcceptance` | `Pending` \| `Accepted` | 迁移状态文件 |
 | 模块 / 模板迁移态 | `待办` \| `进行中` \| `已迁`（需 QA 背书，见 shared SKILL.md） | 模板/模块清单 |

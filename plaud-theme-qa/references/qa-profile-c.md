@@ -15,16 +15,19 @@ spec 数值一律以 `plaud-theme-shared/references/` 为准，本文件**不复
 **不要用 grep 做这件事。** `grep -B 1 '"disabled": true'` 假定了 JSON 字段顺序（`type` 恰好在 `disabled` 前一行），拿不到可靠的实例 ID，而且**发现不了 disabled 实例内部 setting 被改**——那正是最需要抓的违规。必须解析 JSON、以实例 ID 为 key 做深比较：
 
 ```bash
-cd <theme-root>
+REPO=<theme-root>                 # 原仓库（取 baseline 版本用，快照里没有 .git）
+STAGE="$StageDirRef"              # Step 1 物化出的 workspace 快照 —— 当前版本从这里读
 T=templates/<template>.json
 
-# HEAD 版本与工作树版本都解析（注意剥掉 Shopify 自动加的注释头）
+# 📎 baseline 版本取 <BaseHeadSha>，不是 HEAD（v0.3.0 起实施期间 commit 是合法的，
+#    用 HEAD 会把本次改动当成基线、disabled 实例的改动整片漏检）；
+#    当前版本从 StageDirRef 读，不读活工作树（TOCTOU，handoff-schema §2.6）。
 node -e '
 const fs=require("fs"), cp=require("child_process");
 const strip=(s)=>s.replace(/^\s*\/\*[\s\S]*?\*\//,"");
-const f=process.argv[1];
-const head=JSON.parse(strip(cp.execSync(`git show HEAD:${f}`,{encoding:"utf8"})));
-const cur =JSON.parse(strip(fs.readFileSync(f,"utf8")));
+const f=process.argv[1], repo=process.argv[2], stage=process.argv[3], base=process.argv[4];
+const head=JSON.parse(strip(cp.execSync(`git -C ${repo} show ${base}:${f}`,{encoding:"utf8"})));
+const cur =JSON.parse(strip(fs.readFileSync(`${stage}/${f}`,"utf8")));
 
 // 结构必须是 { sections: {id: {...}} }；不是就 Blocked，不得当成"没有 disabled 实例"
 const S=(j,tag)=>{
@@ -35,15 +38,15 @@ const S=(j,tag)=>{
   }
   return s;
 };
-const H=S(head,"HEAD"), C=S(cur,"工作树");
+const H=S(head,"BaseHeadSha"), C=S(cur,"快照");
 const disIds=(o)=>Object.entries(o).filter(([,v])=>v&&v.disabled===true).map(([k])=>k);
 
-console.log("== HEAD 中的 disabled 实例 ==");
+console.log("== BaseHeadSha 中的 disabled 实例 ==");
 for(const id of disIds(H)) console.log(`  ${id}  type=${H[id].type}`);
-console.log("== 工作树中的 disabled 实例 ==");
+console.log("== 快照（StageDirRef）中的 disabled 实例 ==");
 for(const id of disIds(C)) console.log(`  ${id}  type=${C[id].type}`);
 
-// 取两侧 disabled ID 的并集 —— 只遍历 HEAD 侧会漏掉「本轮才变成 disabled」和「本轮新增的 disabled 实例」
+// 取两侧 disabled ID 的并集 —— 只遍历 baseline 侧会漏掉「本轮才变成 disabled」和「本轮新增的 disabled 实例」
 console.log("== 违规（应为空） ==");
 for(const id of new Set([...disIds(H), ...disIds(C)])){
   const hv=H[id], cv=C[id];
@@ -54,8 +57,10 @@ for(const id of new Set([...disIds(H), ...disIds(C)])){
   if(JSON.stringify(hv)!==JSON.stringify(cv))
     console.log(`  CHANGED ${id} (type=${(cv||hv).type}) —— stored 值被改动`);
 }
-' "$T"
+' "$T" "$REPO" "$STAGE" "<BaseHeadSha>"
 ```
+
+> 🔴 `<BaseHeadSha>` 不可解析时本项 `Blocked`（拿不到改动前状态就没有可比对象），**不得**退回 `HEAD`。
 
 判定：
 
@@ -126,8 +131,8 @@ for(const [id,sec] of Object.entries(j.sections||{})){
 
 ```bash
 grep -lr '"type": "<module-name>"' <theme-root>/templates/ | wc -l   # 模板用量
-git diff HEAD --name-only                                            # 实际落在哪一层
-git diff HEAD -- <theme-root>/sections/<x>.liquid | grep -n '"options"'  # 是否动了 option values
+git -C <theme-root> diff --name-only <BaseHeadSha>                                            # 实际落在哪一层
+git -C <theme-root> diff <BaseHeadSha> -- sections/<x>.liquid | grep -n '"options"'  # 是否动了 option values
 ```
 
 判定：
@@ -204,8 +209,8 @@ node -e "const fs=require('fs');const s=fs.readFileSync('<template>.json','utf8'
 取证：
 
 ```bash
-git diff HEAD -- <日志文件路径>
-git status --porcelain | grep -i 'migration\|ux-spec'
+git -C <theme-root> diff <BaseHeadSha> -- <日志文件路径>
+git -C <theme-root> status --porcelain | grep -i 'migration\|ux-spec'    # 尚未提交的那部分
 ```
 
 判定：

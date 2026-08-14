@@ -90,13 +90,25 @@ description: >
 
 实现类 skill 恒输出 `ReadyForDelivery: No` + `QAStatus: NotRun`，且禁止使用「交付完成」「上线可用」「全部通过」「可以发布」等终态措辞。允许的说法是「改动已就位，待 QA」。
 
-`Blocked` / `NotRun` 不得折算为 pass。`NotApplicable` 是**合法终态**，但必须带适用性证据——无证据的按 `Blocked` 处理（详见 handoff-schema §1.3）。QA 通过后代码再变，原 QA 自动失效。
+`Blocked` / `NotRun` 不得折算为 pass。`NotApplicable` 是**合法终态**，但必须带适用性证据——无证据的按 `Blocked` 处理（详见 handoff-schema §1.3）。QA 通过后**可发布内容**再变，原 QA 自动失效（v0.3.0 起 `git add` / `commit` / 仓库根临时文件不再算"再变"，见 handoff-schema §2.8）。
 
-### 2. ChangeSetId 绑定内容，不只绑文件名
+> 🔴 **v0.3.0 起 `ReadyForDelivery: Yes` 有两个合法来源**：`QAScope: SingleChangeSet`（单块直发）与 `QAScope: Integration`（多块同批）。真正的门不是 scope，而是 handoff-schema §2.11 的三道机械等式——`DeclaredDiffCheck: Passed` + `ReleaseSourceTreeOid == VerifiedThemeTreeOid` + `PushCommandCompliance: Compliant`。多块合并后没有任何单块 QA 持有那棵合并树的 oid，于是**结构上必然**要求一份集成 QA。
 
-实现 skill 交付时**当场**生成三样：`ModifiedFiles`（文件集合）+ `ChangeSetFingerprint`（内容指纹）+ `BaseHeadSha`。QA 必须在**执行任何检查之前**三样全部重算比对，任一不符即 `ChangeSetIdMatched: No` + 停机。
+### 2. ChangeSetId 绑定的是不可变 git 对象，不只绑文件名
+
+实现 skill 交付时**当场**生成 `ModifiedFiles`（文件集合）+ **三个身份字段**：`ObjectFormat` + `ThemeTreeOid` + `ChangeSetScopeFingerprint`。QA 必须在**执行任何检查之前**全部重算逐字比对，任一不符即 `ChangeSetIdMatched: No` + 停机。
 
 只绑文件名挡不住"交付后偷改同一批文件"——集合没变、内容变了，校验照样通过。命令与失配处理见 handoff-schema §2。
+
+> 📎 🔴 **v0.3.0 的破坏性变更**：`ChangeSetFingerprint`（v0.2.x 的工作树状态文本 hash）**已废止**。新身份是 `plaud_theme_tree` / `plaud_changeset_scope` 用**空白临时索引 + `git write-tree`** 生成的 tree oid——不 commit、不动 HEAD / ref / 用户 index / 工作树，默认连 `.git/objects` 都不写。
+> 由此解开的：`git add` / `git reset` / `commit`（含 `commit memory/`）/ 仓库根 scratch 临时文件**都不再让 QA 结论失效**；同树可并行 Implement。
+> 由此新增的前提：**可写 `TMPDIR`**、**git ≥ 2.25**、**只支持 macOS / Linux 取证**（Windows 上两道字节保真门必然停机）。
+> `BaseHeadSha` 降级为**不再是失配判据**，但**仍然必填且必须是可解析的 commit-ish**——`DeclaredDiffCheck`、theme check baseline、存量偏差举证都要它。
+
+### 2.1 改动归属：`DeclaredDiffCheck`
+
+指纹能证明"树是什么"，证明不了"这些改动是谁的"。`plaud_declared_diff` 用四元组比对：**相对基准真正变化的可发布路径集合，必须恰好等于本工件覆盖的 ChangeSet 声明的可发布路径集合**。多出来的是无主改动 → 停机；少掉的是声明不实 → 停机。
+这是同树并行下"把别人的半成品一起推上线"的唯一机械防线，也是 `IncludedInThisPush: No` 的块被剔除干净的唯一验证手段。详见 handoff-schema §2.7 / §2.14。
 
 ### 3. 证据，不是声明
 
@@ -186,10 +198,19 @@ Path A 改一个 JS timer 时**不需要**加载完整字体字阶表。按当�
 
 ### 🔴 完成态必须由 QA 背书
 
-`模板清单.md` / `模块清单.md` / `全局已知偏差.md` 里的完成态标记（`✅ DONE`、`已迁`、`已修`）**只能**在同时满足以下两条时写入：
+`模板清单.md` / `模块清单.md` / `全局已知偏差.md` 里的完成态标记（`✅ DONE`、`已迁`、`已修`）**只能**在同时满足以下三条时写入：
 
-1. `memory/changeset-log.md` 中存在对应的 `ChangeSetId`，且其 `ReadyForDelivery: Yes`
-2. 该记录的 `ChangeSetFingerprint` 与当前工作树一致（未失效）
+1. `memory/changeset-log.md` 中存在对应的 `ChangeSetId`（日志只做**追溯索引**，判据不在日志里取）
+2. 该块的 QA 工件 `ReadyForIntegration: Yes`，**并且存在一份覆盖它的、`ReadyForDelivery: Yes` 的 QA 工件**
+   —— 单块直发时就是该块自己那份；多块批次里是那份 `IntegrationOf.Members` 含本块的 `QAScope: Integration` 集成 QA 工件
+3. 该记录的 `ObjectFormat` + `ThemeTreeOid` + `ChangeSetScopeFingerprint` 与当前重算结果逐字一致（未失效）
+
+> 🔴 **v0.3.0 改判据**（此前第 1 条写的是「日志中该 `ChangeSetId` 的 `ReadyForDelivery: Yes`」，两处都错）：
+> ① `changeset-log.md` **没有 `ReadyForDelivery` 这一列**（列见 §9.2「`memory/` 记录字段」），那是一条查不到的判据；
+> ② 多块批次里每一块的树都含兄弟改动，块 QA 的 `ReadyForDelivery` **恒为 `No`**，照旧判据没有任何模块能被标成
+> `已迁` —— 那正是 handoff-schema R-BLOCK-3 拆成两层门要解决的死锁。`plaud-theme-ux-migration` 全套已按新判据落地，本节与它一致。
+> 🔴 第 3 条比的是**该块自己的 `ChangeSetScopeFingerprint`**（在当前树里重算），**不是**要求当前整树的
+> `ThemeTreeOid` 仍等于该块交付时的值 —— 集成之后整树必然因兄弟块而不同，那是合法的。
 
 **用户的视觉验收不等于 QA 通过**——它们是正交的两件事。用户说"看着对了"只能写成 `视觉已确认，待 QA`，不得推进为完成态。否则未经验证的代码会被永久记录为"已迁"，后续 agent 把它当事实源，漏检就此固化下来。
 
@@ -206,12 +227,12 @@ Path A 改一个 JS timer 时**不需要**加载完整字体字阶表。按当�
 
 ## SharedContractCheck
 
-> 🔴 **这是正文自检块，不是阶段工件**（handoff-schema §9）：写在阶段契约块**之前**，**不得**把它的字段并进 §3/§4/§5 契约块（那两个是 20 / 26 字段的封闭集合，多一个 key 即结构违规），下游也**不得**拿它当事实源。
+> 🔴 **这是正文自检块，不是阶段工件**（handoff-schema §9）：写在阶段契约块**之前**，**不得**把它的字段并进 §3/§4/§5 契约块（那两个是 22 / 35 字段的封闭集合，多一个 key 即结构违规），下游也**不得**拿它当事实源。
 
 被其它 skill 引用时，输出：
 
 ```yaml
-ContractVersion: v0.2.3
+ContractVersion: v0.3.0
 PathResolved:            # A | B | C | Cross(B+C) | Cross(A+C)
 StageResolved:           # Assess | Implement | Verify | N/A(NonStage)（后者用于 §0.1 的四个非阶段 skill；v0.2.2 第九轮与 matrix-contract 对齐）
 RequiredSkill:           # 当前阶段应由哪个 skill 执行
@@ -222,12 +243,12 @@ BlockingGaps:
 
 ## HandoffContract
 
-> 🔴 **这不是 canonical 工件，是本层的引用回执**（v0.2.2 第九轮补明）。`plaud-theme-shared` 是 order 0 的被引用层，不在阶段轴上、也不是 §0.1 的四个非阶段 skill 之一，所以它既不出 §3/§4/§5，也没有 `ArtifactKind`。`ProducerSkill` / `ConsumerSkill` / `ReadyForNextSkill` 这几个名字在 canonical §9.2 里没有定义，**不得**被当成阶段字段：不并进任何阶段契约块（§4 是 20 字段、§5 是 26 字段的封闭集合），下游也不得据 `ReadyForNextSkill` 做阶段门——阶段推进的唯一依据是 §3 的 `ReadyForImplement`、§4 的 `QAStatus` / `NextRequiredSkill`、§5 的 `ReadyForDelivery`。
+> 🔴 **这不是 canonical 工件，是本层的引用回执**（v0.2.2 第九轮补明）。`plaud-theme-shared` 是 order 0 的被引用层，不在阶段轴上、也不是 §0.1 的四个非阶段 skill 之一，所以它既不出 §3/§4/§5，也没有 `ArtifactKind`。`ProducerSkill` / `ConsumerSkill` / `ReadyForNextSkill` 这几个名字在 canonical §9.2 里没有定义，**不得**被当成阶段字段：不并进任何阶段契约块（§4 是 22 字段、§5 是 35 字段的封闭集合），下游也不得据 `ReadyForNextSkill` 做阶段门——阶段推进的唯一依据是 §3 的 `ReadyForImplement`、§4 的 `QAStatus` / `NextRequiredSkill`、§5 的 `ReadyForDelivery`。
 
 ```yaml
 ProducerSkill: plaud-theme-shared
 ConsumerSkill:           # 引用本层的 skill
-ContractVersion: v0.2.3
+ContractVersion: v0.3.0
 BlockingGaps:
 ReadyForNextSkill:       # Yes | No
 ```

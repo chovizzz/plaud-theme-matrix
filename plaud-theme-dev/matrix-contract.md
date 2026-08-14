@@ -21,7 +21,7 @@
 
 | 去向 | 传出 | 约束 |
 |---|---|---|
-| `plaud-theme-qa`（Verify） | `handoff-schema.md` §4 的 Implement 工件 | 绑定凭据是 `ChangeSetId` + `BaseHeadSha` + `ChangeSetFingerprint` 三者：`ModifiedFiles` 必须与工作树一致，且指纹必须由**交付当刻**生成。QA 在任何检查之前重算比对，任一不符 → `ChangeSetIdMatched: No` 并停机 |
+| `plaud-theme-qa`（Verify） | `handoff-schema.md` §4 的 Implement 工件 | 绑定凭据是 `ChangeSetId` + 身份三元组（`ObjectFormat` + `ThemeTreeOid` + `ChangeSetScopeFingerprint`）；`BaseHeadSha` 是开工前 baseline，required 且必须可解析，但不再是失配判据：`ModifiedFiles` 必须与工作树一致，且指纹必须由**交付当刻**生成。QA 在任何检查之前重算比对，任一不符 → `ChangeSetIdMatched: No` 并停机 |
 
 `NextRequiredSkill` 恒为 `plaud-theme-qa-intake`（唯一例外是零改动只读任务，填 `None`——§2 明文规定零改动免 QA）。**有改动的任务任何情况下不得跳过 Verify。**
 
@@ -77,9 +77,9 @@ ReadyForDelivery: No
 
 **取值全部由 `handoff-schema.md` §2「零改动任务」规定，本节只做转述，不覆盖 shared、不新增约定。冲突时以 shared 为准。**
 
-`ChangeSetId: N/A`、`BaseHeadSha: N/A`、`ChangeSetFingerprint: N/A`、`ModifiedFiles: []`、`AssessmentRef: N/A(ReadOnly)`、`ReconMode: N/A(ReadOnly)`、`ThemeCheckRequired: No`、`VisualRegressionRequired: No`、`BuildRequired: No`、`OptionsConsidered: Trivial`、`QAStatus: NotRun`、`NextRequiredSkill: None`、`ReadyForDelivery: N/A(ReadOnly)`。
+`ChangeSetId: N/A`、`BaseHeadSha: N/A`、`ObjectFormat: N/A`、`ThemeTreeOid: N/A`、`ChangeSetScopeFingerprint: N/A`、`ModifiedFiles: []`、`AssessmentRef: N/A(ReadOnly)`、`ReconMode: N/A(ReadOnly)`、`ThemeCheckRequired: No`、`VisualRegressionRequired: No`、`BuildRequired: No`、`OptionsConsidered: Trivial`、`QAStatus: NotRun`、`NextRequiredSkill: None`、`ReadyForDelivery: N/A(ReadOnly)`。
 
-`ReadOnlyProof` **必填**：审计前后各取一次 `git rev-parse HEAD` + **§2 的 `plaud_fingerprint`**（原样复制；**不得**用 `git status | shasum`——它不含内容、可被绕过，见 handoff-schema §2 零改动小节），两次必须一致。不一致 = 这不是只读任务 → 退出只读通道，生成正式 `ChangeSetId` + 指纹，走完 Assess → Implement → Verify。
+`ReadOnlyProof` **必填**：审计前后各跑一次 **§2.5 的 `plaud_theme_tree`**（整段原样复制；**不得**用 `git status | shasum`——它不含内容、可被绕过，见 handoff-schema §2 零改动小节），判据是两次的 `ObjectFormat` + `ThemeTreeOid` 逐字相等（**不比 HEAD**：期间别人 commit 不影响本次是否只读），两次必须一致。不一致 = 这不是只读任务 → 退出只读通道，生成正式 `ChangeSetId` + 指纹，走完 Assess → Implement → Verify。
 
 **不得借用 `ReconMode: InlineLite`** 表示只读（§2 明文禁止）。
 

@@ -1,6 +1,113 @@
 # Changelog — PLAUD Shopify Theme Matrix
 
-版本按**全量快照**发布：切新版本 = 整包复制到新目录再改，不做原地修改。
+版本按 **git tag** 发布：仓库根就是一个版本的内容，切新版本 = 在仓库里改 + `git tag vX.Y.Z`。
+（v0.2.3 及更早是全量快照目录发布，历史版本已逐字节灌进 git 历史，见 `RELEASING.md`。）
+
+---
+
+## v0.3.0 — 2026-08-14 · 契约层破坏性变更（canonical + 其余九个 skill 全部落地，已过跨 skill 一致性验收）
+
+**ChangeSet 指纹从「工作树状态文本的 SHA-256」改绑「不可变 git tree 对象的 oid」。** 这是 v0.2.3 §2 里那条「彻底解法留 v0.3.0」的兑现，也是一次**跨版本不兼容**的契约改动。
+
+> **为什么必须整包切快照、不能在 v0.2.x 增量落地**（四条，逐条成立）：
+> 1. **工件跨版本不兼容**。`ChangeSetFingerprint` 消失、`BaseHeadSha` 从判据降为溯源、`ReadyForDelivery` 的产出条件重写——producer 与 verifier 算的必须是同一个规范对象，包里出现「一半新一半旧」时 QA 会把正常交付全判成失配。
+> 2. **并行语义是反转的**。v0.2.2 刚用第八、第九两轮把「同树一律串行」统一到六处，v0.3.0 要把它们全部反过来。增量落地必然出现两处口径并存。
+> 3. **`memory/changeset-log.md` 的列变了**。同一棵 `memory/` 被两个版本的 spec 处理，正是本项目记录在案的客户端漂移事故形态。
+> 4. 包本身的发布约定就是全拷贝快照。
+
+### 🔴 破坏性变更清单
+
+| # | 变更 | 迁移口径 |
+|---|---|---|
+| 1 | **`ChangeSetFingerprint` 废止** | 身份改为三元组 `ObjectFormat` + `ThemeTreeOid` + `ChangeSetScopeFingerprint`。旧工件里的该字段**不可换算**为新值（算法与范围都变了）——**在途的 ChangeSet 必须重新生成身份并重跑 QA**，不得手工映射 |
+| 2 | **`plaud_fingerprint()` 废止** | 换成六个函数：`plaud_theme_tree` / `plaud_changeset_scope` / `plaud_declared_diff` / **`plaud_base_theme_tree`** / `plaud_stage_workspace` / `plaud_stage_verified`（canonical §2.5，**逐字原样复制**）。第六支是收尾验收补的，见下方「第四步」 |
+| 3 | **`BaseHeadSha` 降级 + 时间语义改变** | **不再是失配判据**（不与当前 HEAD 比对），但**仍然必填、且必须是可解析的 commit-ish**，并且**语义从「交付工件时的 HEAD」改为「开工前捕获的 baseline commit」**（否则先 commit 再交工件会让所有声明路径落进 `DECLARED_DIFF_UNCHANGED`、QA 恒阻断）。缺失/不可解析 → `DeclaredDiffCheck` / theme check baseline / 存量偏差举证全部 `Blocked`（**不是 `Advisories`、不是 `N/A`**） |
+| 4 | **指纹范围从「全树排除 `memory/`」改成「只收可发布面」** | `assets blocks config layout locales sections snippets templates` + 仓库根 `.shopifyignore`。`memory/` 不再需要「显式排除」，它天然落在范围外；`impact` 的两条开工核对命令**保留**，但语义从「指纹盲区」改为「不在可发布面 = 不会上线，若真会上线说明目录放错了」 |
+| 5 | **「不支持多 ChangeSet 同批发版」整节删除** | 改写为 canonical §2.10–§2.15。多块同批发版**支持**，但必须有集成 QA（`QAScope: Integration`）；`IncludedInThisPush: Yes` 至多一个的限制删除 |
+| 6 | **工件字段数全变** | §4 20→**22**、§5 26→**35**、§9.1 Coordination 8→**9**、§9.1.2 QAIntake 23→**26**、§9.1.4 ReleaseOps 16→**28**。§3（15）与 §9.1.3（7）不变。六条 `yaml-block-exact-keys` validator 全改 + release-ops 新建一条 —— **validator 与其余九个 skill 的改动是第三波的施工要求，本波未落地** |
+| 7 | **`ModifiedFiles` 格式收紧** | 逐条 `- "<逐字路径>": <一句话改动>`。路径必须用双引号包住且**逐字精确**（不 trim、不 glob、不写目录）——它同时是 `ChangeSetScopeFingerprint` 与 `DeclaredDiffCheck` 的**机器输入**。路径含双引号 → 函数 fail closed |
+| 8 | **`changeset-log.md` 的列变了** | `ChangeSetFingerprint` 一列 → `ObjectFormat` + `ThemeTreeOid`（前 12 位）+ `ScopeFP` 三列。**旧行不回填**，按旧语义阅读。🔴 四客户端必须**同时**升级（不要用 `--clients` 收窄） |
+| 9 | **新增三条运行环境前提** | 可写 `TMPDIR`、git ≥ 2.25、**取证只支持 macOS / Linux**。Windows 上 Git 默认 `core.fileMode=false` + `core.autocrlf=true`，两道字节保真门必然停机 → 取证不可用 |
+| 10 | **`ReadyForDelivery: Yes` 的条件重写** | 两种 `QAScope` 都可取 `Yes`，门**分两层**：QA 侧（准入 + 身份匹配 + `DeclaredDiffCheck: Passed` + 全部检查项通过，都是 QA 当场可验证的）与 release 侧（`ReleaseSourceTreeOid == VerifiedThemeTreeOid` + `ReleaseDeclaredDiffCheck: Passed` + `PushCommandCompliance: Compliant` + 推站紧前复算）。**没有采纳设计文档「只有集成 QA 能给 Yes」的写法**——那会要求每个普通 bugfix 都多跑一次全量集成 QA。`Yes` 的语义是「这棵被验过的 tree 有资格被后续 release 使用」，**不是「可以发了」** |
+| 11 | **枚举增删** | 新增 `QAScope` / `ReadyForIntegration` / `ObjectFormat` / `DeclaredDiffCheck` / `PushCommandCompliance` / `RemoteVerifyResult`；`PerSitePushResult[].Status` 新增 `Unverified`；`RemoteVerifyResult` 另收 `N/A(NotExecuted)`（整字段，仅推站未发生）与 `N/A(NotAttempted)`（逐站点）；`ReleaseScope[].QAConclusion` / `.QARef` 另收 `N/A(NotIncluded)` |
+| 12 | **`IntegrationPlan` 是一份要被更新两次的工件** | 6 个子字段分两个时点落：规划期写前 5 项；`IntegrationResultTreeOid` 只有集成落盘后才存在，由 `Integrator`（人）跑 `plaud_theme_tree` 取值、orchestrator 更新**同一个 `OrchestrationId`** 的工件补上。**只有已补第 6 项的那一版**可被 qa-intake / QA 消费；规划期这一项不得预填任何值（含 `N/A` / `Pending`） |
+| 13 | **`memory/` 完成态判据改口径** | `✅ DONE` / `已迁` / `已修` 的第 1 条判据从「`changeset-log` 中该 `ChangeSetId` 的 `ReadyForDelivery: Yes`」改为「该块 QA 的 `ReadyForIntegration: Yes` **且**存在覆盖它的 `ReadyForDelivery: Yes` 工件」。旧判据在 v0.3.0 下**两头都不成立**：日志没有那一列，且多块批次里块 QA 的 `ReadyForDelivery` 恒为 `No` |
+
+### v0.2.x 的这些「假失效」全部消失（逐条实测）
+
+| 场景 | v0.2.x | v0.3.0 |
+|---|---|---|
+| `git add` / `git reset`（内容不变） | 指纹变、QA 失效 | **不变** |
+| `git commit memory/` | 指纹变、QA 失效 | **不变** |
+| 主题改动 commit（内容一字未改） | 指纹变、QA 失效 | **不变**，oid 与 commit 的子树相同 |
+| 仓库根 scratch 文件 / `node_modules` / `.env` | 指纹变、QA 失效 | **不变**（不在可发布面） |
+| 纯大小写改名 | **停机**（算不出） | **正确捕获**（树里记磁盘真名） |
+| ignored 的可发布文件 | **停机** | **进树**（`git add -A -f`），改它指纹就变 |
+| `assume-unchanged` / `skip-worktree` | 需要补充门 | 标志在**用户的** index 上，空白临时索引免疫 |
+
+> 📎 **v0.2.2 第九轮那条硬规则「`memory/` 的更新留在工作树、不单独 commit」，v0.3.0 起解除。** 它存在的唯一原因是 HEAD 进了 payload。老用户不要继续遵守一条已经不存在的约束。
+
+### 补上的两个洞
+
+| 洞 | v0.2.x 行为 | v0.3.0 |
+|---|---|---|
+| **已跟踪 symlink 内容盲** | 放行且内容盲——改目标文件内容指纹一字不变，而 Shopify CLI 上传的是**目标内容** | 一律 fail closed |
+| **`core.autocrlf` 无门** | `core.autocrlf=true` 下照样算出正常 hash | fail closed（含 `yes` / `on` / `1` / `input`、大小写变体、**裸键**） |
+
+### 本轮落地时新发现并修掉的两个 fail-open（设计原型里都有）
+
+1. **`core.autocrlf` 裸键。** `.git/config` 里写一个**没有等号的** `autocrlf`，git 语义上当 **true**——实测 CRLF 文件进 tree 时真的被转成 LF（工作树 `a\r\nb\r\n`，blob `a\nb\n`）——而 `git config --get core.autocrlf` 打印**空串且 rc=0**。原型把空串当「未设置」→ **放行**。
+   修法：读 config 的函数返回三态 `UNSET` / `SET:<值>` / 查询失败。**不能用 `--type=bool` 替代**：合法取值 `input` 会 `fatal: bad boolean config value`（rc=128），把一个真实存在的危险配置变成「查询失败」。
+2. **`core.fileMode` 空值。** `core.fileMode=`（有等号、值为空）被 git 归一为 **false**（实测 0755 的文件被记成 100644），而**裸键** `fileMode` 归一为 **true**。两者 `--get` 下都是空串。
+   修法：`core.fileMode` 必须走 `--type=bool`，**不能与 `core.autocrlf` 共用同一个读法**。
+
+### 新增的能力（不是文档承诺，是可跑函数）
+
+- **`plaud_declared_diff`** —— 改动归属。四元组（path / old mode+blob / new mode+blob）比对，相对基准真正变化的可发布路径集合必须**恰好等于**声明集合；多出的 `DECLARED_DIFF_ORPHAN`、少掉的 `DECLARED_DIFF_UNCHANGED`，都停机。
+  基准取 `BaseHeadSha` 的可发布子树而不是「开工前算的那个 oid」——后者在默认模式下**不是可达对象**（scratch 对象库算完即删），记下来会是个死字段；用 commit 做基准还顺带堵上「开工前就已经躺在工作树里的别人的半成品」这个洞。
+  用 `--raw -z --no-renames` 而不是 `--name-status`：后者证明不了 mode 与新旧 blob，还会被 rename 推断改写成一条 `R` 记录。
+- **`plaud_stage_workspace`** —— 完整工作区副本（除仓库根的 `.git`），QA 的所有检查跑在这里。设计文档里 `IntegrationWorkspaceSnapshot` 那一层原本只有设计没有原型，**照 MIGRATION ⑤ 直写会变成「要求在一个跑不了 theme check 的目录里跑 theme check」**；本轮把它落成了函数。
+- **`plaud_stage_verified`** —— 只含可发布面的 release 物化目录，只用于推站。两者的 `ThemeTreeOid` 必须相同。
+
+### 明说做不到的
+
+- **没有「从混合工作树里还原单块快照」的能力。** A、B 同时落盘之后物化出来的是 A+B。因此块 QA 可并行**有条件**：各块快照被物化时其它块尚未落进同一棵树才成立。
+- **`IncludedInThisPush: No` 的块无法从物化目录里「减掉」。** 唯一出路是由集成者（人）从树里撤掉、重新取证、重跑集成 QA；撤不掉就只能改判 `Yes` 并补验收，否则本次 cohort 不能发。这把「同树并行 + 部分发版」的收益削掉一半——新模型没有让这件事变便宜，只是让它**变得可检测**（`DeclaredDiffCheck` 会把它判成 `DECLARED_DIFF_ORPHAN`）。
+- **集成 QA 这道串行屏障消不掉**，它是正确性成本。收益要从「块 QA 按该块的 `RequiredQAProfile` 裁剪」拿，不是从「省掉一次全量验证」拿。
+- **矩阵不做 merge。** `IntegrationPlan.Integrator` 填**人**；无人认领集成 → orchestrator 停机要授权。
+- **物化目录不是真不可变**，推站前复算能抓到篡改但**不创造原子性**；**多站点 push 不是原子的**；**sha1 仓库只适合非对抗威胁模型**（`ThemeTreeDigest` 不提供抗碰撞）。
+- **workspace 快照也不是不可变快照**：只有可发布面有回环复算背书，非发布面（`.theme-check.yml` / lockfile / build 源 / `memory/`）没有原子保证，非发布 symlink 按 `cp -RP` 保留因而仍指向外部可变对象，非发布目录下的嵌套 `.git` 会被一起拷进去。
+- **`DeclaredDiffCheck` 判的是可发布路径集合，不是逐项四元组**：raw 记录只用于格式守卫，「路径没变但 mode / 内容变了」由 `ChangeSetScopeFingerprint` 承担。
+- **非可发布面的改动**（build 源、`.theme-check.yml`、lockfile）不改变 `ThemeTreeOid`，但会改变 QA / build 结果——它们在归属核对之外。
+- **QA 工件本身没有不可变引用或 digest**：`ReleaseQARef` 指向 `VerificationId`，工件内容若被事后改写，引用仍然"有效"。本波无解法。
+- **路径含换行仍然 fail closed**（`git check-attr -z` 的三元组在 POSIX shell 里做不出可靠解析器），与 v0.2.x 同口径。
+- **`ThemeTreeOid` ≠ Shopify 实际上传集合。** CLI 版本、文件投影、`.shopifyignore`、`--nodelete`、远端现状都是额外输入。`EffectivePayloadManifest` **只记不判**，是给人看的推送凭证，**不能**被描述成对实际上传集合的机械保证——判定由 `RemoteVerifyResult` 承担。
+- **disjoint 不保证可合并。** 共享 token / locale key / schema 值 / 生成产物 / 构建输入都可能逻辑冲突；Scope 指纹答不了这个问题，那是集成 QA 查的。
+- **`core.precomposeUnicode` 是覆盖范围外的外部输入。** 本机实测翻转它不影响指纹（文件系统已归一），但跨文件系统（如 Linux ext4 上的 NFD 路径）**尚未回归，不要声称已覆盖**。
+- **QA 的 `ReadyForDelivery` 不替代**运营验收、站点清单二次确认与推站授权（canonical §1.1）。它的语义只是「这棵被验过的 tree 有资格被后续 release 使用」。
+
+### 本轮的验证
+
+契约里写的每一段 shell 都在 **bash 3.2 与 zsh 下实跑**，**197 条断言全通过、两家输出逐字节一致**。覆盖正常改动 / 多块 disjoint 并行 / 索引抖动 / commit / 未跟踪 / 权限 / 删除 / 大小写改名 / symlink（含 3000 量级的 SIGPIPE 族回归）/ 嵌套 repo / clean filter **五个来源**（仓库根、子目录、**被 gitignore 的**、`.git/info/attributes`、`core.attributesFile`）/ 属性家族全覆盖 / `core.autocrlf` 全部别名与裸键 / `core.fileMode` 全部假值与空值 / `GIT_CONFIG_*` 注入 / 含换行、空格、TAB、尾空格、glob 元字符的路径 / sha256 仓库 / 多 locale / `precomposeUnicode` / 8 路并发物化 / 诱饵 scratch 目录 / 以及注入恒失败的 `git` `sort` `mktemp` `shasum` `tr` `wc` `awk` `sed` `cut` `grep` `diff` `comm`。
+
+### 第四步 · 跨 skill 一致性验收修掉的四处（机械核对脚本查不到的那一层）
+
+第三波九个 skill 交付、机械核对脚本全绿之后，又做了一轮**跨 skill 一致性验收**。四处缺陷，共同形态都是「两侧都算得出值、都能出一份自洽的工件，错误只在跨 skill 对齐时才暴露」——脚本查的是字段在不在、key 数对不对，查不了「这个命令真的能产出这个值吗」。
+
+| # | 缺陷 | agent 会因此做出的错误动作 | 处置 |
+|---|---|---|---|
+| 1 | `IntegrationBaseTreeOid` 的构造命令写成 `$(plaud_theme_tree "<IntegrationBaseCommit>")`，而 `plaud_theme_tree` 是**无参函数**，函数体里没有 `$1` | 参数被静默丢弃 → 返回**当前工作树**的 oid 却记成「基准树 oid」。§5 那道三方等式恒不成立 → `DeclaredDiffCheck` 恒 `Blocked` → **多块集成结构性死锁**；而两侧都"算得出值"，谁也不报错 | canonical §2.5 **新增第六支函数 `plaud_base_theme_tree <commit-ish>`**（输出 `<ObjectFormat> <BaseTreeOid>`），并把 `plaud_declared_diff` 的 base 建树段抽成共用的内部实现 `_plaud_base_tree_build`——两份拷贝必然漂移，而漂移的表现正好是「等式恒不成立」。orchestrator 四处调用点全改 |
+| 2 | `IntegrationPlan.IntegrationResultTreeOid`（集成结果树的 oid）只写在 canonical，三个下游各持一套互斥模型：orchestrator 的模板只有 5 个子字段、qa-intake 自己现算、qa 写着「这一对没有 producer、该项恒 `Blocked`」 | 照 qa 走 = 集成 QA 恒 `Blocked`、永远拿不到交付许可（死锁）；照 intake 走 = 材料装配方自证，集成者事后改了树再叫提测照样得到一份自洽的包 | 统一往 canonical 收敛：**producer = `Integrator`（人）→ qa-intake 原样透传 → QA 独立重算比对**，三者逐字相等才成立。并补 `IntegrationPlan` 的**两个时点**生命周期与各自的停机条件 |
+| 3 | `plaud-theme-shared/SKILL.md`（order 0，所有 skill 都读）的「完成态必须由 QA 背书」仍是 v0.2.3 判据 | ① 它要求去 `changeset-log` 查一列**根本不存在**的 `ReadyForDelivery`；② 多块批次里块 QA 的 `ReadyForDelivery` 恒 `No` → **没有任何模块能被标成 `已迁`**，正是 R-BLOCK-3 要解决的死锁。`ux-migration` 全套 11 处已改，只有 shared 没改 | shared 收敛到 R-BLOCK-3 的连带条款，并写明失效判据比的是**该块自己的 Scope 指纹**、不是当前整树的 `ThemeTreeOid`（集成后整树必然因兄弟块而不同，那是合法的） |
+| 4 | `RemoteVerifyResult` / `ReleaseScope[].QAConclusion` / `.QARef` 的**诚实降级取值**只写在 release-ops 侧，canonical §9.1.4 与 §9.2 封闭枚举都没收录 | 按包自己的规矩「阶段契约字段出现枚举外的值一律视为违规」，**每一份推前发版清单都是违规工件**；反过来照枚举填，就只能给没推过的站点编一个推后语义的值（`Unavailable` 会被映射成 `Unverified`「推已经发生了」），凭空捏造一次没发生的推送 | 三个取值连同适用条件收进 canonical。另补 `N/A(NotAttempted)`：`PartiallyExecuted` 且某站点根本没尝试时，此前「逐站点一一对应」与既有的 `NotAttempted` 无法同时成立 |
+
+新增的 `plaud_base_theme_tree` 与重构后的 `plaud_declared_diff` 在 **bash 3.2 与 zsh 下各跑一遍**共 37 条断言全通过：正常（helper 输出与 `plaud_declared_diff` 第 2 段逐字相等）/ 工作树已改而基准 oid 不变 / 无参、空参、多参 / 基准不可达 / 传 tree 而非 commit / 非仓库根 / 基准里没有任何可发布目录 / 基准的 `.shopifyignore` 是 symlink / 可发布面含 symlink / 含 gitlink / `.shopifyignore` 是 100755（mode 必须从 base tree 读）/ hook 不被执行 / `TMPDIR` 不可写 / scratch 无残留 / sha256 仓库 / 以及 `plaud_declared_diff` 自身的 ORPHAN / UNCHANGED / autocrlf fail-closed 回归。
+
+### 第三波（其余九个 skill）的唯一输入
+
+`plaud-theme-shared/references/CONTRACT-FREEZE.md` —— 最终字段清单与顺序、枚举增删、六个函数的签名与环境要求、**11 条阻断项的逐条裁决**、每个下游 skill 的接线清单、必须删的 6 条 `forbidden` 与必须反转的 3 条 eval（**已在新模型上实测确认再反转**，不是凭推演删门）。
+
+---
 
 ---
 

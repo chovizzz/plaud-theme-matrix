@@ -1,6 +1,6 @@
 {
   "skill_name": "plaud-theme-shared",
-  "contract_version": "v0.2.3",
+  "contract_version": "v0.3.0",
   "evals": [
     {
       "id": "v13-overrides-vendor-container-padding",
@@ -447,13 +447,13 @@
     {
       "id": "shared-contract-check-output",
       "prompt": "引用 plaud-theme-shared 之后要回报什么？",
-      "expected_output": "输出 SharedContractCheck：ContractVersion v0.2.3、PathResolved、StageResolved、RequiredSkill、ReferencesLoaded、RedlinesApplicable、BlockingGaps。",
+      "expected_output": "输出 SharedContractCheck：ContractVersion v0.3.0、PathResolved、StageResolved、RequiredSkill、ReferencesLoaded、RedlinesApplicable、BlockingGaps。",
       "assertions": [
         "包含 SharedContractCheck",
         "包含 ContractVersion",
         "包含 ReferencesLoaded",
         "包含 RedlinesApplicable",
-        "包含 v0.2.3"
+        "包含 v0.3.0"
       ]
     },
     {
@@ -656,6 +656,128 @@
         "把 left 改名成 start 是允许的做法",
         "纯新增 option 无需任何验证即可通过",
         "修改既有 value 只要写明理由即可放行"
+      ]
+    },
+    {
+      "id": "identity-triple-not-single-fingerprint",
+      "prompt": "实现 skill 交付时要生成什么来把 ChangeSet 焊死？我记得是 ChangeSetFingerprint。",
+      "expected_output": "📎 v0.3.0 起 ChangeSetFingerprint 已废止。身份是三元组：ObjectFormat + ThemeTreeOid + ChangeSetScopeFingerprint，由 plaud_theme_tree 与 plaud_changeset_scope 当场生成，三个一起构成身份、缺一不可。ThemeTreeOid 单独表达不了声明范围，ChangeSetScopeFingerprint 单独表达不了整树，ObjectFormat 不比会把换仓库误判成内容变了。ChangeSetScopeFingerprint 是 ScopeTreeOid 与 ScopeDigest 两段，必须一起逐字比——删除只体现在 ScopeDigest。",
+      "assertions": [
+        "包含 ObjectFormat",
+        "包含 ThemeTreeOid",
+        "包含 ChangeSetScopeFingerprint",
+        "包含 废止 或 已废止",
+        "包含 ScopeDigest"
+      ],
+      "forbidden": [
+        "ChangeSetFingerprint: "
+      ]
+    },
+    {
+      "id": "no-commit-required",
+      "prompt": "新的指纹要绑 git 对象，那我是不是得先把改动 commit 掉？commit 到哪个分支？要干净工作树吗？",
+      "expected_output": "都不需要。矩阵不产生 commit，也不要求干净工作树——脏工作树正是被固化的那个状态。做法是 git add 到一个 GIT_INDEX_FILE 指向 scratch 的空白临时索引，再 git write-tree，用户的 .git/index、HEAD、任何 ref 都不动，默认连 .git/objects 都不写。新增的前提是可写 TMPDIR 与 git 2.25 以上，且取证只支持 macOS/Linux。",
+      "assertions": [
+        "包含 不产生 commit 或 不要求 commit 或 没人",
+        "包含 临时索引 或 write-tree",
+        "包含 TMPDIR",
+        "包含 2.25",
+        "包含 macOS"
+      ],
+      "forbidden": [
+        "提交到 develop",
+        "请先 git commit -m"
+      ]
+    },
+    {
+      "id": "commit-memory-no-longer-invalidates",
+      "prompt": "QA 刚写完 changeset-log，有人顺手 git commit memory/。这条 ChangeSet 的 QA 结论还有效吗？",
+      "expected_output": "仍然有效。v0.3.0 的 payload 里没有 HEAD，实测改 memory/、git add memory/、git commit memory/ 三步之后 ThemeTreeOid 与 ChangeSetScopeFingerprint 逐字不变。v0.2.2 第九轮那条硬规则「memory/ 的更新留在工作树、不单独 commit」已经解除，不要继续遵守。同理 git add、git reset、主题改动 commit、仓库根 scratch 临时文件都不再造成失效。",
+      "assertions": [
+        "包含 仍然有效 或 有效",
+        "包含 ThemeTreeOid",
+        "包含 解除 或 不再",
+        "包含 HEAD"
+      ],
+      "forbidden": [
+        "Invalidated",
+        "该 QA 结论已失效"
+      ]
+    },
+    {
+      "id": "ready-for-delivery-two-scopes",
+      "prompt": "v0.3.0 是不是只有集成 QA（QAScope: Integration）才能给 ReadyForDelivery: Yes？我这次只有一个 ChangeSet。",
+      "expected_output": "不是。SingleChangeSet 与 Integration 两种 QAScope 都可以给 ReadyForDelivery: Yes。真正的条件是三道机械门：DeclaredDiffCheck 为 Passed、ReleaseSourceTreeOid 逐字等于所引用 QA 工件的 VerifiedThemeTreeOid 且 ObjectFormat 相同、PushCommandCompliance 为 Compliant。多块合并之后没有任何单块 QA 持有那棵合并树的 oid，所以结构上必然要求一份集成 QA，不需要再单独规定。",
+      "assertions": [
+        "包含 SingleChangeSet",
+        "包含 Integration",
+        "包含 DeclaredDiffCheck",
+        "包含 VerifiedThemeTreeOid",
+        "包含 ReleaseSourceTreeOid"
+      ],
+      "forbidden": [
+        "只有 QAScope: Integration 才能",
+        "ReadyForDelivery: N/A(Single"
+      ]
+    },
+    {
+      "id": "declared-diff-ownership",
+      "prompt": "同一棵树里 A、B 两块都改完了，A 的 QA 能不能只对 A 出结论就发版？",
+      "expected_output": "不能靠自觉，要靠 DeclaredDiffCheck。它用 plaud_declared_diff 做四元组比对：相对基准真正变化的可发布路径集合必须恰好等于本工件覆盖的 ChangeSet 声明的可发布路径集合。B 的改动会被判成 DECLARED_DIFF_ORPHAN 并停机。基准是 BaseHeadSha 的可发布子树，必须可解析；不可解析时 DeclaredDiffCheck 填 Blocked，不得降级放行。",
+      "assertions": [
+        "包含 DeclaredDiffCheck",
+        "包含 DECLARED_DIFF_ORPHAN 或 无主",
+        "包含 BaseHeadSha",
+        "包含 Blocked"
+      ],
+      "forbidden": [
+        "DeclaredDiffCheck: NotApplicable"
+      ]
+    },
+    {
+      "id": "two-stage-layers",
+      "prompt": "QA 要在物化目录里跑检查，那 theme check 也在 plaud_stage_verified 出来的目录里跑吗？",
+      "expected_output": "不。两层物化不可互换：QA 的所有检查跑在 plaud_stage_workspace 产出的完整工作区快照里（StageDirRef），它含 .theme-check.yml、build 源、lockfile；plaud_stage_verified 产出的目录只含可发布面，只用于推站，里面跑不了 theme check 也跑不了 build。两者的 ThemeTreeOid 必须相同，不同即停机。",
+      "assertions": [
+        "包含 plaud_stage_workspace",
+        "包含 plaud_stage_verified",
+        "包含 StageDirRef",
+        "包含 ThemeTreeOid",
+        "包含 theme-check.yml 或 theme check"
+      ],
+      "forbidden": [
+        "StageDirRef 指向 ReleaseStageDir"
+      ]
+    },
+    {
+      "id": "parallel-semantics-conditional",
+      "prompt": "v0.3.0 是不是同一棵工作树里各块都能并行了？包括 QA。",
+      "expected_output": "分阶段答。Assess 可并行。Implement 与身份生成可同树并行，前提是各块 ModifiedFiles 两两不重叠、不共享 build 产物、不改同一 token 或 locale 键。QA 只有有条件并行：各块 workspace 快照被物化时其它块的改动尚未落进同一棵树才成立；已经同时落盘的，两个快照都是 A+B，必须按集成 QA 处理。disjoint 只保证身份不互相失效，不保证可合并。",
+      "assertions": [
+        "包含 Assess",
+        "包含 Implement",
+        "包含 ModifiedFiles",
+        "包含 快照",
+        "包含 集成 QA"
+      ],
+      "forbidden": [
+        "QA 也可以无条件并行"
+      ]
+    },
+    {
+      "id": "byte-fidelity-gates-are-design",
+      "prompt": "仓库里 assets/ 下有个已跟踪的 symlink，指纹算不出来，能不能放行？还有 core.autocrlf 我这边是裸键没写值。",
+      "expected_output": "都不能放行，两条都是 fail closed 的设计而不是遗留缺陷。tree 只记链接目标字符串，而 Shopify CLI 解引用上传目标内容——改目标内容指纹不会变，所以已跟踪 symlink 同样停机，先改成真实文件。core.autocrlf 的裸键被 git 视为 true，实测会把 CRLF 转成 LF，工作树字节与 blob 字节不等就绑不住实际上线内容，同样 fail closed。",
+      "assertions": [
+        "包含 symlink",
+        "包含 fail closed 或 停机",
+        "包含 解引用 或 目标内容",
+        "包含 autocrlf",
+        "包含 true"
+      ],
+      "forbidden": [
+        "已跟踪的 symlink 不受影响",
+        "可以先放行"
       ]
     }
   ],

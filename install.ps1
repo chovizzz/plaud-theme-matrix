@@ -1,6 +1,6 @@
 # PLAUD Shopify Theme Matrix — one-command installer (Windows PowerShell)
 #
-#   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.ps1))) -Ref v0.2.3
+#   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.ps1))) -Ref v0.3.0
 #
 # `irm ... | iex` CANNOT pass parameters. Use the scriptblock form above.
 #
@@ -43,11 +43,23 @@ $SkillPrefix      = 'plaud-theme-'
 $LegacySkills     = @('plaud-shopify-theme')
 $ClientNames      = @('cursor', 'claude', 'codex', 'agents')
 
+# NOTE (v0.3.0): this port itself is UNVERIFIED on Windows (see README's known
+# limitations — it has never been executed there, not even parsed). Separately, and
+# independently of that: the matrix's ChangeSet identity forensics (ObjectFormat /
+# ThemeTreeOid / ChangeSetScopeFingerprint) are NOT supported on Windows at all. Git on
+# Windows defaults to core.fileMode=false + core.autocrlf=true, which trips both
+# byte-fidelity gates, so the forensic commands halt by design. Run them on macOS/Linux.
+
 function Show-Usage {
   @"
 $PackageName installer $InstallerVersion (Windows)
 
-  & ([scriptblock]::Create((irm https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.ps1))) -Ref v0.2.3
+  & ([scriptblock]::Create((irm https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.ps1))) -Ref v0.3.0
+
+NOTE: this port is UNVERIFIED on Windows — run -DryRun first, then -Check, before any
+real install. Separately: v0.3.0 ChangeSet identity forensics are NOT supported on
+Windows (Git for Windows defaults trip both byte-fidelity gates) — run those on
+macOS/Linux.
 
 Parameters (same names and meaning as the sh port's long options):
   -Ref TAG             Release tag (vMAJOR.MINOR.PATCH). Default: newest tag.
@@ -743,7 +755,7 @@ try {
       Say "Resolving the newest release tag of $Repo ..."
       $Ref = Resolve-LatestTag -RepoUrl $Repo
       if (-not $Ref) {
-        Die "could not resolve the newest release tag (offline, rate-limited, or no tags).`n       Pass an explicit tag, e.g.:  -Ref v0.2.3`n       Tags: $Repo/tags"
+        Die "could not resolve the newest release tag (offline, rate-limited, or no tags).`n       Pass an explicit tag, e.g.:  -Ref v0.3.0`n       Tags: $Repo/tags"
       }
       Say "Newest release tag: $Ref"
     }

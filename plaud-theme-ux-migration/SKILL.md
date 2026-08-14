@@ -138,15 +138,18 @@ memory/全局已知偏差.md  — 跨模板共享的待评估项与已修项
    ↓
 用户视觉验收通过 → VisualAcceptance: Accepted，写迁移日志、memory 状态记为「视觉已确认，待 QA」
    ↓
-plaud-theme-qa 给出 ReadyForDelivery: Yes 且指纹未失效 → 才把 memory 里的状态推进为完成态（✅ DONE / 已迁 / 已修）
+plaud-theme-qa 给出该块 ReadyForIntegration: Yes + 覆盖它的 ReadyForDelivery: Yes 工件存在
+且身份三元组未失效 → 才把 memory 里的状态推进为完成态（✅ DONE / 已迁 / 已修）
 ```
 
 ### 🔴 完成态必须由 QA 背书（`plaud-theme-shared/SKILL.md`）
 
 `模板清单.md` / `模块清单.md` / `全局已知偏差.md` 里的完成态标记（`✅ DONE`、`已迁`、`已修`）**只能**在同时满足以下两条时写入：
 
-1. `memory/changeset-log.md` 中存在对应的 `ChangeSetId`，且其 `ReadyForDelivery: Yes`
-2. 该记录的 `ChangeSetFingerprint` 与当前工作树一致（未失效）
+1. `memory/changeset-log.md` 中存在对应的 `ChangeSetId`，且该块 QA 工件的 `ReadyForIntegration: Yes`，**并且存在一份覆盖它的、`ReadyForDelivery: Yes` 的 QA 工件**（单块直发时就是该块自己那份；多块批次里是那份 `QAScope: Integration` 的集成 QA 工件）
+2. 该记录的身份三元组（`ObjectFormat` + `ThemeTreeOid` + `ChangeSetScopeFingerprint`）与当前逐字相等（未失效）
+   📎 **v0.3.0 起「别的块把改动落进同一棵工作树」不算失效**：`ChangeSetScopeFingerprint` 只覆盖本块的声明路径；`git add` / `git reset` / commit（含 commit `memory/`）与仓库根 scratch 文件同样不再让它变。真正会让它失效的只有**本块声明范围或可发布面的内容变化**。
+   🔴 **`ReadyForDelivery: Yes` 的语义是「这棵被验过的 tree 有资格被后续 release 使用」，不是「可以发了」**——发布门另有一层在 `plaud-theme-release-ops`（shared §2.11）。
 
 > **用户的视觉验收 ≠ QA 通过。** 用户说"看着对了"只能写成 `视觉已确认，待 QA`，**不得**推进为完成态。否则未经验证的代码会被永久记录为"已迁"，后续 agent 把它当事实源，漏检就此固化。
 
@@ -271,23 +274,45 @@ plaud-theme-qa 给出 ReadyForDelivery: Yes 且指纹未失效 → 才把 memory
 
 ## 输出契约
 
-### 交付工件时**当场**生成指纹（`handoff-schema.md` §2）
+### 交付工件时**当场**生成身份三元组（`handoff-schema.md` §2）
 
-只绑 `ModifiedFiles` 的**文件名集合**挡不住"交付后、QA 前偷改同一批文件"——文件集合不变、校验照样通过。所以**在写下面这个 yaml 块的那一刻**跑，把结果填进 `BaseHeadSha` / `ChangeSetFingerprint`：
+`ChangeSetId` 只绑 `ModifiedFiles` 的**文件名集合**是不够的：交出工件之后、QA 开始之前，如果同一批文件的**内容**又被改过，文件集合仍然一致，QA 会错误地判 `ChangeSetIdMatched: Yes`，验的是一批它从未见过的代码。v0.3.0 起身份是 `ObjectFormat` + `ThemeTreeOid` + `ChangeSetScopeFingerprint` **三元组**（绑不可变 git tree 对象），三个一起才构成身份：`ThemeTreeOid` 单独表达不了声明范围，`ChangeSetScopeFingerprint` 单独表达不了整树，`ObjectFormat` 不比就会把「换了个仓库」误判成「内容变了」。
+
+🔴 **`BaseHeadSha` 是「开工前（写下第一个字节之前）捕获的 baseline commit」，不是「交付工件时的 HEAD」。**
+写成后者的实测后果：实现者只要先 commit 再交工件，基准里就已经含本次改动 → 所有声明路径落进 `DECLARED_DIFF_UNCHANGED` → QA 恒阻断，而这与「主题改动 commit 不再让身份失效」直接矛盾。所以**开工第一件事**就是 `git rev-parse HEAD` 并记下来；中途 commit / rebase / checkout **都不改这个值**，事后也不得用当时的 HEAD 覆盖它。
+它 v0.3.0 起**不再是失配判据**（不与当前 HEAD 比对），但**仍然 required、且必须是可解析的 commit-ish**：QA 的 `DeclaredDiffCheck`、theme check 的 baseline 物化、以及若干条存量偏差举证都要 `git show <BaseHeadSha>:<file>`。缺失或不可解析时那些检查一律 `Blocked`（**不是 `Advisories`、不是 `N/A`**），`Blocked` 不得折算为 pass → 该轮拿不到交付许可。零改动只读任务填 `N/A`。
+
+因此在**开工前**取 ① ，在**写下面这个 yaml 块的那一刻**（不是改动开始时、不是估算）跑 ②：
 
 ```bash
-# BaseHeadSha
+# ① 开工前 —— BaseHeadSha
 git rev-parse HEAD
+
+# ② 交付工件那一刻 —— 在**仓库根**跑（先原样复制 §2.5 的整段函数定义）
+# 🔴 原样抄这两行，**不要只抄第一行**：旧写法只有 `plaud_theme_tree || echo "..."`，
+#    它打印了错误串却让整段 rc=0 —— 任何按 `$?` 分支、或跑在 `set -e` 下的调用方都会
+#    认为这道门通过了。判定既要看输出、也要看退出码。
+# PATHLIST：本块声明的逐字路径清单，每行一条（= ModifiedFiles 双引号里的字符串）
+plaud_theme_tree                  || { echo "THEME_TREE_FAILED"; exit 1; }
+plaud_changeset_scope "$PATHLIST" || { echo "SCOPE_FAILED";      exit 1; }
 ```
 
-🔴 **`ChangeSetFingerprint` 的命令不在本文件里，只在 `plaud-theme-shared/references/handoff-schema.md` §2。**
-去那里**原样复制**那段 `plaud_fingerprint()` 执行，不要凭记忆敲、不要用任何别处看到的版本。
+`plaud_theme_tree` 输出 `<ObjectFormat> <ThemeTreeOid> <ThemeTreeDigest>`——前两段进工件，**`ThemeTreeDigest` 不进任何工件**（它只用于人读 diff 与跨 object-format 防误判，**不提供抗碰撞**）。`plaud_changeset_scope` 输出 `<ObjectFormat> <ScopeTreeOid> <ScopeDigest>`，`ChangeSetScopeFingerprint` 填**后两段合起来的 `"<ScopeTreeOid> <ScopeDigest>"`**：删除只体现在 `ScopeDigest`，两段必须一起逐字比。三元组一律**逐字原样记录**，不得缩写 oid、不得假定 `sha1`、不得自己重算或换别的命令算。
 
-> **为什么这里不再内嵌一份副本**（v0.2.2 删除）：本节以前抄了一份，附一句"冲突时以 §2 为准"——但那句话拦不住任何人：命令是**可执行**的，抄本一旦落后就会真的算出另一个指纹。这份抄本当时落后了整整两代，仍在用 `--find-renames=false`、`printf "$(git hash-object …)"`（命令替换吞错）、`{ … } | shasum`（子 shell 吞错）、且不排除 `memory/`。
-> 后果不是"多阻断"，而是**producer 算出一个假指纹、QA 用 canonical 重算必然失配**——正常交付会被永久判 `ChangeSetIdMatched: No`；反过来若两边都用旧抄本，则未跟踪文件与 `memory/` 之外的改动可能压根不进指纹。
-> 指纹类命令**只允许有一处事实源**。
+🔴 **这三个函数的定义不在本文件里，只在 `plaud-theme-shared/references/handoff-schema.md` §2.5。**
+去那里**原样复制整段**（含全部 `_plaud_*` 内部函数与全部注释）执行，不要凭记忆敲、不要用任何别处看到的版本、**不要删注释**。
 
-QA 在**执行任何检查之前**用同一命令重算并精确比对，任一不符 → `ChangeSetIdMatched: No` + 停机。**生成指纹后不要再动工作树**——Path C 尤其容易踩：等验收期间"顺手再调一档间距"就会让指纹失效，必须重新生成 `ChangeSetId`。
+> **为什么这里不再内嵌一份副本**（v0.2.2 删除，v0.3.0 加重）：本节以前抄了一份，附一句"冲突时以 §2 为准"——但那句话拦不住任何人：命令是**可执行**的，抄本一旦落后就会真的算出另一个值。
+> 后果不是"多阻断"：producer 算出一个假身份、QA 用 canonical 重算必然失配，正常交付会被永久判 `ChangeSetIdMatched: No`；两边都用同一份旧抄本时，未跟踪文件、被 gitignore 的可发布文件、纯大小写改名可能压根不进身份。
+> 🔴 **v0.3.0 起后果还多一档，且严重一个量级**：这几个函数内部会跑 `git add`，而 `git add` 会触发 `post-index-change` hook（实测复现）。canonical 的每一条内部 git 调用都带 `-c core.hooksPath=/dev/null -c core.fsmonitor=false`，clean filter 这个同族入口由**字节保真门在 `git add` 之前**拦下。**一个漏掉 `-c core.hooksPath=/dev/null`、或删掉那道字节保真门的抄本，等于让取证动作执行仓库里的任意脚本**——比 v0.2.x 的「算出一个假指纹」严重一个量级。
+> 身份类命令**只允许有一处事实源**。
+
+QA 会在**执行任何检查之前**用同一段 canonical 函数重算三元组并**逐字精确比对**，任一不符即 `ChangeSetIdMatched: No` + 停机。函数本身失败（`TMPDIR` 不可写、git < 2.25、Windows、命中任一 fail-closed 门）→ 相关检查项填 `Blocked`，**不得**填 `Passed` / `NotApplicable`，也不得改用自己写的命令降级取值。**生成三元组之后不要再改可发布面的内容。**
+
+📎 **v0.3.0 起这些动作不再让身份失效**（逐条实测；旧文档里「别 `git add`，会让指纹失配」「`memory/` 的更新不要单独 commit」之类的说法**已过时，不要继续遵守**）：`git add` / `git reset`（内容不变）、`git commit`（含 commit `memory/`、含把本次主题改动 commit 掉）、仓库根的 scratch 临时文件（`tc-diff.js` / `node_modules` / `.env`）。真正会让它变的只有**可发布面的内容变化**。
+🔴 **但这不是对这些动作的授权，也不改变 `BaseHeadSha` 的取值**：它仍然是开工前那一个 commit，不得因为中途 commit 过就换成新的 HEAD。canonical 内部的 `git add` 用的是隔离的临时索引，**不动用户的 `.git/index`**。
+
+**Path C 尤其容易踩**：等预览验收期间「顺手再调一档间距」会让 `ThemeTreeOid` 与 `ChangeSetScopeFingerprint` 当场失配，必须重新生成 `ChangeSetId` 重走一轮。要改就明确开新一轮，不要在已交付的 ChangeSet 上补。
 
 ### HandoffContract
 
@@ -296,15 +321,26 @@ QA 在**执行任何检查之前**用同一命令重算并精确比对，任一�
 
 ```yaml
 ChangeSetId:              # CS-<YYYYMMDD>-C<NN>，NN 为当日 Path C 序号，从 01 起；零改动任务填 N/A
-BaseHeadSha:              # 交付工件时的 git rev-parse HEAD；零改动填 N/A
-ChangeSetFingerprint:     # 见上，交付工件时当场生成；零改动填 N/A
-ReadOnlyProof:            # 仅零改动任务：审计前后两次快照的 HEAD + hash，必须一致；其余填 N/A
+BaseHeadSha:              # 🔴 **开工前（写下第一个字节之前）捕获的 baseline commit**，不是交付时的 HEAD；
+                          #   零改动填 N/A。v0.3.0 起不再是失配判据，但 required 且必须可解析：
+                          #   缺失 / 不可解析 → DeclaredDiffCheck 等检查填 Blocked（不是 Advisories、不是 N/A）
+ObjectFormat:             # sha1 | sha256 —— git rev-parse --show-object-format 的原样输出；零改动填 N/A
+ThemeTreeOid:             # plaud_theme_tree 输出的第 2 段；零改动填 N/A
+ChangeSetScopeFingerprint: # plaud_changeset_scope 输出的第 2、3 段，形态 "<ScopeTreeOid> <ScopeDigest>"
+                          #   —— 两段必须一起逐字比：删除只体现在 ScopeDigest；零改动填 N/A
+ReadOnlyProof:            # 仅零改动任务：审计前后两次的 ObjectFormat + ThemeTreeOid（必须相等）
+                          #   + 取快照时的 BaseHeadSha；其余填 N/A
 AssessmentRef:            # 引用 Assess 工件；InlineLite 时填 InlineLite；只读填 N/A(ReadOnly)
 OriginTriageRef:          # 本块若由反馈返工产生：TriageId + ItemId；否则 N/A
 Path: C
 ReconMode:                # 与 Assess 一致；InlineLite 需附豁免理由；只读填 N/A(ReadOnly)
-ModifiedFiles:            # 逐个文件路径 + 一句话改动；必须与工作树一致；零改动填 []
-                          #   🔴 **不含 memory/ 下的文件**（不属于 ChangeSet，已排除在 §2 指纹与 QA 集合比对之外）
+ModifiedFiles:            # 逐条 `- "<逐字路径>": <一句话改动>`；必须与工作树一致；零改动填 []
+                          #   🔴 **路径必须用双引号包住且逐字精确**（不 trim、不 glob、不写目录）：
+                          #   它同时是 ChangeSetScopeFingerprint 与 DeclaredDiffCheck 的**机器输入**，
+                          #   下游把引号内的字符串逐字取出、每行一条喂给那两个函数。带尾空格的真实
+                          #   路径被 trim 掉会让声明指错文件；路径含双引号 → 函数 fail closed，先重命名
+                          #   🔴 **不含 memory/ 下的文件**：memory/ 不属于 ChangeSet，也不在可发布面内
+                          #   Path C 的迁移日志 / 清单更新照常写 memory/，但**不列进 ModifiedFiles**
 RootCause:                # 机制层迁移偏差根因（为什么这个模块偏离 spec）
 OptionsConsidered:        # 非平凡任务 ≥2 方案 + 取舍；平凡改动填 Trivial
 RequiredQAProfile:        # 原样继承 AssessmentRef，必须含 QA-C。🔴 不得写 QA-Global——QA 按 §5 恒执行

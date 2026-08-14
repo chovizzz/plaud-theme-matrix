@@ -7,7 +7,7 @@
 > 用户视觉验收通过 → 可以写日志；但**仍不得**输出 `ReadyForDelivery: Yes`（那是 QA 的唯一权限）。
 >
 > 🔴 **更重要的是：视觉验收也不能把 `memory/` 里的状态推进为完成态。**
-> `✅ DONE` / `已迁` / `已修` 需 QA 背书（changeset-log 中对应 `ChangeSetId` 的 `ReadyForDelivery: Yes` 且指纹未失效），
+> `✅ DONE` / `已迁` / `已修` 需 QA 背书（changeset-log 中对应 `ChangeSetId` 的 `ReadyForIntegration: Yes` + 覆盖它的 `ReadyForDelivery: Yes` 工件存在，且身份三元组未失效），
 > 只有视觉验收时写 `视觉已确认，待 QA（<ChangeSetId>）`。规则见 `plaud-theme-shared/SKILL.md` 与 `project-state-schema.md`。
 > **日志可以写，完成态不能写**——这两件事的门槛不同。
 

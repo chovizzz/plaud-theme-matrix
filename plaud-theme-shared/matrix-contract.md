@@ -28,7 +28,7 @@
 任何 skill 引用本层后，在自己的正文里回报一次：
 
 ```yaml
-ContractVersion: v0.2.3
+ContractVersion: v0.3.0
 PathResolved:            # A | B | C | Cross(B+C) | Cross(A+C)
 StageResolved:           # Assess | Implement | Verify | N/A(NonStage)
                          #   ↑ 后者用于 §0.1 的四个非阶段 skill：orchestrator /
@@ -43,12 +43,12 @@ BlockingGaps:
 
 本层自身的 `HandoffContract`：
 
-> 🔴 **这不是 canonical 工件，是本层的引用回执**（v0.2.2 第九轮补明）。`plaud-theme-shared` 是 order 0 的被引用层，不在阶段轴上、也不是 §0.1 的四个非阶段 skill 之一，所以它既不出 §3/§4/§5，也没有 `ArtifactKind`。`ProducerSkill` / `ConsumerSkill` / `ReadyForNextSkill` 这几个名字在 canonical §9.2 里没有定义，**不得**被当成阶段字段：不并进任何阶段契约块（§4 是 20 字段、§5 是 26 字段的封闭集合），下游也不得据 `ReadyForNextSkill` 做阶段门——阶段推进的唯一依据是 §3 的 `ReadyForImplement`、§4 的 `QAStatus` / `NextRequiredSkill`、§5 的 `ReadyForDelivery`。
+> 🔴 **这不是 canonical 工件，是本层的引用回执**（v0.2.2 第九轮补明）。`plaud-theme-shared` 是 order 0 的被引用层，不在阶段轴上、也不是 §0.1 的四个非阶段 skill 之一，所以它既不出 §3/§4/§5，也没有 `ArtifactKind`。`ProducerSkill` / `ConsumerSkill` / `ReadyForNextSkill` 这几个名字在 canonical §9.2 里没有定义，**不得**被当成阶段字段：不并进任何阶段契约块（§4 是 22 字段、§5 是 35 字段的封闭集合），下游也不得据 `ReadyForNextSkill` 做阶段门——阶段推进的唯一依据是 §3 的 `ReadyForImplement`、§4 的 `QAStatus` / `NextRequiredSkill`、§5 的 `ReadyForDelivery`。
 
 ```yaml
 ProducerSkill: plaud-theme-shared
 ConsumerSkill:           # 引用本层的 skill
-ContractVersion: v0.2.3
+ContractVersion: v0.3.0
 BlockingGaps:
 ReadyForNextSkill:       # Yes | No
 ```
@@ -61,17 +61,23 @@ ReadyForNextSkill:       # Yes | No
 
 | 消费者 | 必读 | 常用 |
 |---|---|---|
-| `plaud-theme-orchestrator` | handoff-schema、version-manifest | — |
+| `plaud-theme-orchestrator` | handoff-schema（**§2.12 并行语义 / §2.13 集成者 / §2.14 剔除规则**）、version-manifest | — |
 | `plaud-theme-impact` | handoff-schema | responsive-and-spacing（判断断点/token 传播面）、colors-and-schemes §5.1（scheme 真实影响收敛） |
 | `plaud-theme-dev` | handoff-schema | javascript-swiper、liquid-schema-format、media-quality、a11y |
 | `plaud-theme-section-build` | handoff-schema | 全部 7 个（新建 section 会同时碰字体/颜色/间距/媒体/schema/JS/A11y） |
 | `plaud-theme-ux-migration` | handoff-schema | typography、colors-and-schemes、responsive-and-spacing、media-quality |
-| `plaud-theme-qa-intake` | handoff-schema（§0.1 / §9.1.2） | — （**不读**视觉数值文件：它不判样式） |
-| `plaud-theme-qa` | handoff-schema | 按被验 `ChangeSetId` 的 `ModifiedFiles` 涉及面加载；`a11y.md` 恒读（QA-Global 含 A11yCheck + Advisories allowlist） |
+| `plaud-theme-qa-intake` | handoff-schema（§0.1 / §2.1 / §9.1.2，含**集成提测包**） | — （**不读**视觉数值文件：它不判样式） |
+| `plaud-theme-qa` | handoff-schema（**§2 全节**：六个函数、两层物化、`DeclaredDiffCheck`、§2.11 的三道交付门） | 按被验 `ChangeSetId` 的 `ModifiedFiles` 涉及面加载；`a11y.md` 恒读（QA-Global 含 A11yCheck + Advisories allowlist） |
 | `plaud-theme-feedback-triage` | handoff-schema（§9.1.3） | 按反馈涉及的维度加载对应数值文件——判「是否违反 Spec」必须现读，不得凭记忆 |
-| `plaud-theme-release-ops` | handoff-schema（§1.1 / §9.1.4） | — （**不读**视觉数值文件：它不判样式） |
+| `plaud-theme-release-ops` | handoff-schema（§1.1 / §2.6 / §2.11 / §2.14 / §2.15 / §9.1.4） | — （**不读**视觉数值文件：它不判样式） |
 
 **反面**：Path A 改一个 JS timer 时加载完整字阶表 = 重演单 skill 时代的注意力稀释。
+
+### 3.1 v0.3.0 新增：契约冻结件
+
+`references/CONTRACT-FREEZE.md` 是**第三波（其余九个 skill 落地 v0.3.0）的唯一输入**：最终字段清单与顺序、枚举增删、六个规范函数的签名与环境要求、11 条阻断项的逐条裁决、每个下游 skill 的接线清单。
+
+> 🔴 **它不是运行时事实源。** agent 判定时读 `handoff-schema.md`，不读它。两者冲突时以 `handoff-schema.md` 为准。落地完成后它转为历史记录，不再被消费。
 
 ---
 
@@ -137,6 +143,8 @@ spec 一升级，多副本必然漂移，随后两个 skill 会用两套值处�
 - 不做根因分析、不出方案、不做验收判定
 - 不替代 `plaud-theme-impact` 的影响面评估
 - 不输出 `ReadyForDelivery: Yes`（那是 `plaud-theme-qa` 的唯一特权）
+- **不做 merge、不做集成**（v0.3.0：矩阵里没有「集成者」这个 skill，`IntegrationPlan.Integrator` 填人，见 handoff-schema §2.13）
+- **不产生 commit**（v0.3.0 的取证用空白临时索引 + `git write-tree`，不动 HEAD / ref / 用户 index / 工作树）
 - 不持有项目运行时状态（模板清单 / 模块清单 / 已知偏差 / changeset log 在项目侧 `memory/`）
 
 ---

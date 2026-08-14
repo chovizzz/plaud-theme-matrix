@@ -115,9 +115,9 @@ Liquid / CSS / JS 质量规则（细则见 shared `liquid-schema-format.md` 与 
 
 ### 输出块
 
-按 `handoff-schema.md` §2「零改动任务」取值：`ChangeSetId: N/A`、`BaseHeadSha: N/A`、`ChangeSetFingerprint: N/A`、`ModifiedFiles: []`、`AssessmentRef: N/A(ReadOnly)`、`ReconMode: N/A(ReadOnly)`（**不得借用 `InlineLite`**）、`RootCause` 写审计范围内的共性根因（无则 `N/A`）、`OptionsConsidered: Trivial`（只读任务无实现方案）、`ThemeCheckRequired: No`、`VisualRegressionRequired: No`、`BuildRequired: No`、`QAStatus: NotRun`、`NextRequiredSkill: None`、`ReadyForDelivery: N/A(ReadOnly)`。
+按 `handoff-schema.md` §2「零改动任务」取值：`ChangeSetId: N/A`、`BaseHeadSha: N/A`、`ObjectFormat: N/A`、`ThemeTreeOid: N/A`、`ChangeSetScopeFingerprint: N/A`、`ModifiedFiles: []`、`AssessmentRef: N/A(ReadOnly)`、`ReconMode: N/A(ReadOnly)`（**不得借用 `InlineLite`**）、`RootCause` 写审计范围内的共性根因（无则 `N/A`）、`OptionsConsidered: Trivial`（只读任务无实现方案）、`ThemeCheckRequired: No`、`VisualRegressionRequired: No`、`BuildRequired: No`、`QAStatus: NotRun`、`NextRequiredSkill: None`、`ReadyForDelivery: N/A(ReadOnly)`。
 
-`ReadOnlyProof` **必填**：审计前后各一次 `git rev-parse HEAD` + **§2 的 `plaud_fingerprint`**（handoff-schema §2 原样复制），两次必须一致；不一致即退出只读通道，生成正式 ChangeSet 走全流程。
+`ReadOnlyProof` **必填**：审计前后各跑一次 **§2.5 的 `plaud_theme_tree`**（handoff-schema §2.5 整段原样复制），两次的 `ObjectFormat` + `ThemeTreeOid` 必须逐字相等（**不比 HEAD**）；不一致即退出只读通道，生成正式 ChangeSet 走全流程。
 🔴 **不要用 `git status --porcelain | shasum` 做这个快照**：它只含状态码与路径、不含内容，工作树一开始就 dirty 时改同一文件的内容前后 hash 相同——等于给「先改代码再声称只读」开了后门（v0.2.2 第五轮实测复现）。
 
 **审计"没发现问题"也不等于可交付**——只能陈述发现了什么，不得断言"这个模块没问题 / 可以上线"。

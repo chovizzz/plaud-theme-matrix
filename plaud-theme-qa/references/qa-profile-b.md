@@ -103,7 +103,10 @@ grep -nE '\-\-sa-[a-z-]+(-m|-pc)?[[:space:]]*:' <theme-root>/assets/sa-*.css
 
 ```bash
 grep -nE "asset_url|assets/[^\"']+\.(png|jpe?g|svg|webp|gif|mp4)" <theme-root>/sections/sa-*.liquid <theme-root>/assets/sa-*.css
-git status --porcelain <theme-root>/assets/ | grep -iE '\.(png|jpe?g|svg|webp|gif|mp4)$'
+# 🔴 相对 BaseHeadSha 取，不用 git status：v0.3.0 起实施期间 commit 是合法的（§2.8），
+#    工作树干净不等于本次没往 assets/ 里塞图
+git -C <theme-root> diff --name-status <BaseHeadSha> -- assets/ | grep -iE '\.(png|jpe?g|svg|webp|gif|mp4)$'
+git -C <theme-root> status --porcelain -- assets/ | grep -iE '\.(png|jpe?g|svg|webp|gif|mp4)$'   # 尚未提交的那部分
 ```
 
 - 命中内容型素材 → `Failed`。

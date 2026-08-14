@@ -231,9 +231,107 @@ TestSetMigrationRef: N/A(NoPreviousTrace)
 
 ## 汇总判定
 
+**下表是单块提测包的判定。集成提测包（`ChangeSetId: N/A(Integration)`）**在此之上**还要满足 §7 的全部追加条件，六项全绿也不够 —— 见 §7.3 / §7.4 / §7.5 / §7.6。**
+
 | `SubmissionPackageStatus` | 条件 |
 |---|---|
-| `Complete` | **六项 Status** 全为 `Complete`（`ConfigurationGuideStatus` / `ReworkDeltaStatus` 可为 `NotApplicable` + 理由），且 `PreviewManifestStatus: Complete`（两条链接实测可访问） |
+| `Complete` | **六项 Status** 全为 `Complete`（`ConfigurationGuideStatus` / `ReworkDeltaStatus` 可为 `NotApplicable` + 理由），且 `PreviewManifestStatus: Complete`（两条链接实测可访问）**；集成包另须 §7 全部条件成立** |
 | `Incomplete` | 其余任何情况 |
 
 **没有中间态**。「大部分齐了」「就差截图」一律 `Incomplete` —— DTC 的原文是「缺一不进验收」。
+
+---
+
+## 7. 集成提测包的 `IntegrationOf`（v0.3.0 新增，R-BLOCK-1）
+
+集成 QA（`QAScope: Integration`）**结构上取不到任何一块的提测包**——每块的包绑的是那一块的树。裁决是由本 skill 出一份**集成提测包**：`ChangeSetId: N/A(Integration)`、`ChangeSetScopeFingerprint: N/A(Integration)`、`IntegrationOf` 非空，材料 = **各块材料的并集 + 集成本身的 ReworkDelta**。
+
+### 7.1 语法
+
+```
+IntegrationOf:
+  - ChangeSetId: CS-20260812-A02
+    SubmissionId: SUB-20260813-04
+  - ChangeSetId: CS-20260812-B01
+    SubmissionId: SUB-20260813-05
+```
+
+- 逐块一条，**每条两段齐**（`ChangeSetId` + `SubmissionId`），缺段即 `Incomplete`。
+- 顶层 `SubmissionId` 是**新开的**集成包 ID，🔴 **不得复用任何成员的 `SubmissionId`**。
+
+### 7.2 每一段的取数路径与降级取值
+
+🔴 **这一节存在的理由**：本 skill 历史上最贵的一族缺陷是「写了一条控制，但它依赖的数据根本取不到」（`PreviousAcceptedTestSetTrace` 曾写成「从 `changeset-log` 取」，而那个文件没有承载它的列）。所以每一段都必须回答三问：**谁写的？schema 放得下吗？取不到时填什么？**
+
+| 段 | 唯一事实源（谁写的 / 放得下吗） | 取不到时填什么 |
+|---|---|---|
+| 成员 `ChangeSetId` 全集 | §9.1 Coordination 工件的 `IntegrationPlan.MemberChangeSets`，producer = `plaud-theme-orchestrator`，schema 明确承载 | **没有 `IntegrationPlan`** → 停机回 orchestrator。**没有降级值**：本 skill 不自行拟定成员清单 |
+| 每块的 `SubmissionId` | ① §9.1 Coordination 工件的 `ChangeSetStatus`（canonical 原文「含 `SubmissionId`（提测准入）」）；② 用户直接给出该块那份 `QAIntake` 工件原文——它才是 `SubmissionPackageStatus` 的一手承载者 | **分两种情形**（见 §7.3）：ID 拿得到但那份包不是 `Complete` → 照写真实 ID + 整包 `Incomplete`；该块**根本没有提测包** → **停机不出契约块**，🔴 不得自造占位取值 |
+
+🔴 **`memory/changeset-log.md` 不是 `SubmissionId` 的取数路径。** 它的列定义（handoff-schema §9.2「`memory/` 记录字段」+ `plaud-theme-qa/references/evidence-and-invalidation.md` 的表头）里**没有 `SubmissionId` 这一列**——写「从 changeset-log 取」就是又写了一条查不了的规则。
+
+🔴 **该块的单块 QA §5 工件里的 `SubmissionId` 只是派生指针**，可以用来**定位**那份包，但**不能单独用来证明**「包仍然存在且 `Complete`」——仍要回查那份 `QAIntake` 工件本身。
+
+### 7.3 成员包不齐时怎么办（两种情形，处置不同）
+
+canonical 要求每项「真实存在**且** `SubmissionPackageStatus: Complete`」，两个条件缺一不可。**但这两个条件失败的方式不一样，必须分开处置**——混成一条就会逼出一个契约里根本没有的取值：
+
+| 情形 | 处置 |
+|---|---|
+| **A. `SubmissionId` 已知，但那份包不是 `Complete`** | **出工件**：`IntegrationOf` 里照写**那个真实的 `SubmissionId`**（它确实存在，不许改写成别的东西）；顶层 `SubmissionPackageStatus: Incomplete`；`BlockingGaps` 指名「哪一块的包缺哪一项 Status」；下游集成 QA 填 `QAAdmissionStatus: Blocked` + `QAAdmissionReason: PackageIncomplete`。**完全可序列化，这就是 R-BLOCK-1 说的降级** |
+| **B. 该块根本没有提测包**（`ChangeSetStatus` 与用户手上都拿不到该块的 `SubmissionId`） | **停机，不出契约块**。26 key 契约要求 `IntegrationOf` 每项都有 `SubmissionId`，而这个值**不存在**。`BlockingGaps` 写进正文，指名是哪一块从未提测，要它**先补一次单块提测**拿到真 ID 与 `Complete` 的包 |
+
+🔴 **情形 B 不得自造占位取值。** `Unavailable(...)` / `N/A` / `TBD` 一概不行：canonical §9.1.2 与 §9.2 都**没有**为这个位置定义"取不到"的取值，自造一个就是给封闭契约开口子，而且它必然被下游当成一个"我处理过了"的信号。本 skill 既有的同族做法正是停机：拿不到 `ChangeSetId` 停机不编，`PACKAGE_FINGERPRINT_FAILED` 停机不用占位符。
+
+🔴 **两种情形都不许把那一块从 `IntegrationOf` 里删掉**（A 里它必须在场，B 里压根不出块）。删掉之后集合等式变成与一份被裁剪过的成员清单比，那一块的材料**整份缺席而 intake 照样 `Complete`**——正是 canonical 点名要堵的洞。
+
+**怎么核"那份包确实存在且 `Complete`"**：拿到一个 ID 不算数。顺着 `ChangeSetStatus` 里该块的 handoff 引用、或用户提供的该块 `QAIntake` 工件原文，逐项核 `ChangeSetId` / `SubmissionId` / `SubmissionPackageStatus` 三者自洽。**原工件读不到 → 顶层 `Incomplete` + `BlockingGaps` 指名**；🔴 **"读不到"不得当成"核过了"**。
+
+> 📌 **上报给 shared 的缺口**：R-BLOCK-1 写的是「任一块 `SubmissionId` 缺失 → `SubmissionPackageStatus: Incomplete`」，但 §9.1.2 / §9.2 没有为**嵌套项**定义缺失时的合法表达，因此"缺失"这一格在本版只能落成停机（情形 B）。要让它也能出 `Incomplete` 工件，需要 shared 先定义该 nested 字段的合法 blocked 取值。**本 skill 不自行定义。**
+
+### 7.4 集合等式与三条结构门
+
+| 门 | 判据 | 不满足 |
+|---|---|---|
+| 集合相等 | `IntegrationOf` 的 `ChangeSetId` 集合与 `IntegrationPlan.MemberChangeSets` **逐项相等** | 停机 |
+| 本侧无重复 | `IntegrationOf` 里 `ChangeSetId` 不得重复 | 停机 |
+| **计划侧无重复** | `IntegrationPlan.MemberChangeSets` **自身**不得有重复项。🔴 只核集合相等挡不住它：`MemberChangeSets: [A, A]` 与 `IntegrationOf: [A]` 的**集合**是相等的，等式照样成立，而那份集成计划本身已经是坏的 | 停机**回 orchestrator**（这是计划的错，不是提测包的错，本 skill 不替它去重） |
+| `SubmissionId` 互异 | 两块不得引用同一个 `SubmissionId`——一个包绑的是一块的树，不可能同时是两块的材料；且都不得等于本集成包顶层的 `SubmissionId` | 停机 |
+
+### 7.5 材料并集：真拷贝，不许 symlink
+
+集成包的材料根必须**真的**含各块材料（截图 / 配置文档 / 自测报告 / 影响范围说明）+ 集成本身的 ReworkDelta。
+
+🔴 **不得用 symlink 把各块材料"链"进集成材料根。** 说精确：`plaud_package_fingerprint` 对 symlink 是 fail closed —— 它**直接报 `UNSUPPORTED_MATERIAL_OBJECT` 并返回 1，一个指纹都算不出来**，不是"算出一个漏掉 symlink 内容的指纹"。所以后果不是"绑定弱"而是"整包出不了指纹 → 停机"。要并集就**真拷贝**。
+
+**并集怎么核**：
+
+1. 对 `IntegrationOf` 里**每一块**，用它的 `SubmissionId` 找回那份 `QAIntake` 工件，读它的 **`PackageRootRef`**（这是 26 key 里真实存在的字段）；
+2. 从该 `PackageRootRef` **枚举**该块的材料（本地目录直接列；材料在云端时列它的 `materials.tsv`），再与集成材料根逐条对；
+3. 任一块的 `QAIntake` 工件或它的 `PackageRootRef` **读不到** → `BlockingGaps` 指名是哪一块无法核对。🔴 **"读不到"不得当成"核过了"**，也不得当成"那块没有材料所以不用核"。
+
+🔴 **这道门的强度取决于第 2 步能不能枚举，必须如实分档，不要混为一谈**：
+
+| 情况 | 这道门是什么 |
+|---|---|
+| 该块 `PackageRootRef` 可达、材料可枚举 | **硬门**：少了某块的截图 / 自测报告 → 相应项 `Incomplete` |
+| `PackageRootRef` 不可达（目录已删、云端无权限） | **降为 advisory**：记进 `BlockingGaps` 说明"该块材料并集未能核对"，**不得**据此判"并集没问题"，也不得据此单独判 `Complete` |
+
+> 📌 **为什么只能做到这一步**：`QAIntake` 的 26 key 里**没有材料清单/inventory 字段**，`PackageFingerprint` 也**反推不出**文件清单（它是单向 hash）。所以"成员材料 → 集成材料"的逐条映射在本版没有受契约绑定的承载物。**已上报 shared**。
+
+> **矩阵能保证的到此为止，多的不要声称。** 上面这套是**逐项人读核对**：它能发现"某块的材料整份没进来"，但不能机械证明"进来的那份就是该块当初提测的那份字节"——集成包只有**一个** `PackageRootRef` / `PackageFingerprint`，`IntegrationOf` 只承载 `ChangeSetId` + `SubmissionId`，**没有**逐成员的包根或包指纹。矩阵能机械证明的只有「集成材料根自准入以来没被替换」。**不要把它写成、也不要读成指纹级保证。**
+
+
+### 7.6 集成包的 `ReworkDeltaStatus`
+
+集成包**没有单一的 `OriginTriageRef`**，所以不走 §6 那张首轮/返工判据表。它判的是**集成本身的 ReworkDelta**：合并过程中为消解冲突所做的改动（token / locale 键 / schema 值的取舍）。
+
+**事实源固定**（🔴 不能靠口述，否则这条又是一个"写了但不可执行"的控制）：由 `IntegrationPlan.Integrator`（人）交一份**冲突消解记录**，放进**集成材料根**因而进 `PackageFingerprint`；no-op 合并同样要交一份写明"本次集成未做任何冲突消解改动"的记录。
+
+| 情况 | `ReworkDeltaStatus` |
+|---|---|
+| 有记录且逐条可对（改了什么 / 在哪个文件 / 为什么） | `Complete` |
+| 记录里写明本次集成为 no-op 合并 | `NotApplicable` |
+| **没有任何记录**（只有口头"没改什么"） | 🔴 `Incomplete` —— **不得凭口述填 `NotApplicable`**：那等于让集成过程中最容易出问题的一步不留痕 |
+
+**各块自己的返工 delta 已经在各块的包里，不在这里重收。**

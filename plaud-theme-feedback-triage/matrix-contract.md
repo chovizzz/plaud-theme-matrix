@@ -45,7 +45,7 @@ QA 打回 ──┐
 >
 > 单块返工**不必经过 orchestrator**：直接 `plaud-theme-impact` → 实现 skill 即可，实现工件里记 `OriginTriageRef`（本工件的 `TriageId`）以便算返工轮次。
 
-> 🔴 **判为缺陷不得直接回实现 skill 打补丁。** handoff-schema §1.4：QA 通过后代码再变，原 QA 自动失效。复用旧 `ChangeSetId` 会让 QA 验一批没见过的代码——正是 `ChangeSetFingerprint` 要堵的洞。
+> 🔴 **判为缺陷不得直接回实现 skill 打补丁。** handoff-schema §2.8 失效语义：QA 通过后代码再变，原 QA 自动失效。复用旧 `ChangeSetId` 会让 QA 验一批没见过的代码——正是身份三元组（`ObjectFormat` / `ThemeTreeOid` / `ChangeSetScopeFingerprint`，📎 v0.3.0 取代 v0.2.3 的单字段 `ChangeSetFingerprint`）要堵的洞。改动落在可发布面之外时身份可能不变，但**复用旧 ChangeSet 本身即违规，不以身份是否变化为条件**。
 
 ## 不做的事
 
@@ -64,7 +64,7 @@ QA 打回 ──┐
 |---|---|
 | §0.1 非阶段 skill | 本 skill 是其中之一，产出 `ArtifactKind: FeedbackTriage` |
 | §1.1 交付权边界 | 明确「QA 通过 ≠ PM 验收」——本 skill 处理的正是 QA 通过之后仍被判缺陷的那类反馈 |
-| §1.4 QA 结论失效 | 缺陷必须新开 ChangeSet 的根据 |
+| §2.8 失效语义 | 缺陷必须新开 ChangeSet 的根据（QA 通过后代码再变，原结论自动失效） |
 | §7 Stop, don't guess | 反馈含糊、拿不到 PRD/Figma → `Undetermined` + `BlockingGaps`，不脑补依据 |
 | §8.1 运营协作红线（DTC §三，**三档**） | 判定时按 🔴 / 🟠 / 🟡 分级引用；🟡 与存量复用豁免项不单独构成 `DeliveryDefect`（§3.1）。**另**：DTC **§2.1 样式硬规则 10 条**仍是逐条可查的直接依据（§3），与本行的 §三 是两套不同条款 |
 | §9.1.3 反馈分类工件 | 输出契约，字段一字不差 |

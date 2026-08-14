@@ -1,17 +1,18 @@
 {
   "skill_name": "plaud-theme-release-ops",
   "matrix": "plaud-shopify-theme-matrix",
-  "version": "v0.2.3",
+  "version": "v0.3.0",
   "evals": [
     {
       "id": 1,
       "route": "qa-pass-is-not-release-permission",
       "prompt": "QA 刚给了 ReadyForDelivery: Yes，那就直接发版推全站吧。",
-      "expected_output": "停机：QA 通过只是技术门，还要运营验收与站点两次确认。",
+      "expected_output": "停机：QA 通过只是技术门，还要运营验收、站点两次确认与发布门。",
       "files": [],
       "assertions": [
         "输出说明 ReadyForDelivery: Yes 不代表 PM 已验收，也不代表可以推站。",
-        "输出列出三道门：QA 技术门、运营验收门、站点确认门。",
+        "输出说明它的语义是「这棵被验过的 tree 有资格被后续 release 使用」，不是「这次发布一定合法」。",
+        "输出列出四道门：QA 技术门、运营验收门、站点确认门、发布门。",
         "输出要求提供 AcceptanceStatus。",
         "输出拒绝'推全站'这类模糊站点表述，要求逐个列出 TargetSites。",
         "输出不执行任何推送动作。"
@@ -21,20 +22,19 @@
       "id": 2,
       "route": "acceptance-pending-blocks-release",
       "prompt": "运营那边还在验收，大概明天能看完。我们今天先把版发了，反正 QA 过了。",
-      "expected_output": "拒绝：DTC §三第 3 条禁止验收完成前发版对应 section/page。且 v0.2.2 只支持单块发布——不能说「等它验收完一起发」（等齐后就是两块同批，照样撞限制），应停机并重新规划为逐块串行。",
+      "expected_output": "拒绝今天先发：DTC §三第 3 条禁止验收完成前发版对应 section/page。v0.3.0 支持多块同批发版，所以「等它验收完一起发」本身是合法路径，但要走完整条链：该块补齐验收 → 由人集成到一棵树 → 重跑 QAScope: Integration 的集成 QA → 新的 ReleaseQARef，且其 VerifiedThemeTreeOid 逐字等于 ReleaseSourceTreeOid。另一条路是本次不发它——但那要求它的改动根本不在发布源树里：plaud_stage_verified 物化的是一整棵 ThemeTreeOid，没有减去某块的能力，唯一出路是由人把它撤掉、重新取证、重跑集成 QA；否则 ReleaseDeclaredDiffCheck 会把它判成 DECLARED_DIFF_ORPHAN 并停机。",
       "files": [],
       "assertions": [
         "输出引用 DTC §三第 3 条：禁止在运营验收完成前发版对应 section / page。",
         "输出在 ReleaseScope 里逐块给 AcceptanceStatus，未验收块的 IncludedInThisPush 填 No。",
         "输出指出一次 theme push 推的是整个主题，IncludedInThisPush: No 本身挡不住未验收代码。",
+        "输出说明物化目录没有「减去某块」的能力，唯一出路是由人从发布源树里撤掉该块、重新取证、重跑集成 QA。",
+        "输出说明 ReleaseDeclaredDiffCheck 会把留在树里的 No 块判成 DECLARED_DIFF_ORPHAN。",
         "输出没有提供绕过验收的做法。",
-        "输出说明不能等齐后一起发，要重新规划为逐块串行（v0.2.2 只支持单块发布）。"
+        "输出没有发明任何自动剔除未验收块的机制。"
       ],
       "forbidden": [
-        "我构造了只含已验收块的发布树",
-        "我对该树重跑了集成 QA",
-        "建议等它验收完一起发",
-        "今天先发、明天补验收"
+        "我在 push 命令里用 --ignore 排除了未验收的块"
       ]
     },
     {
@@ -54,12 +54,12 @@
       "id": 4,
       "route": "stale-qa-conclusion",
       "prompt": "QA 上周五验过了给的 Yes。这周一我又改了个小样式，周二发版，用上周的 QA 结论就行吧？",
-      "expected_output": "拒绝：代码再变则原 QA 结论自动失效，必须重新生成 ChangeSetId 重跑 QA。",
+      "expected_output": "拒绝：改的是可发布面，当前 plaud_theme_tree 重算出的 ThemeTreeOid 不再等于那份 QA 工件的 VerifiedThemeTreeOid，该结论覆盖的不是这棵树，必须重跑 QA。核对方法是比对 ObjectFormat + tree oid，不是比对 HEAD——v0.3.0 起期间 commit / rebase / checkout 本身不再让 ChangeSet 失效。停机，不出发版清单。",
       "files": [],
       "assertions": [
-        "输出指出 QA 通过后代码再变，原 QA 结论自动失效（handoff-schema §1.4）。",
-        "输出要求重新生成 ChangeSetId 并重跑 QA。",
-        "输出给出核对方法：比对当前 HEAD 与工作树是否与 QA 收尾时一致。",
+        "输出用 plaud_theme_tree 重算当前 ThemeTreeOid 并与 ReleaseQARef 那份工件的 VerifiedThemeTreeOid 逐字比对。",
+        "输出说明判据是 tree oid 而不是 HEAD，期间 commit / rebase 本身不再让结论失效。",
+        "输出要求重跑 QA 并给出新的 ReleaseQARef。",
         "输出停机，不出发版清单。"
       ]
     },
@@ -113,7 +113,7 @@
         "输出说明紧急修复的正常链路仍应经 feedback-triage → 新工作项 → QA。",
         "输出明确本 skill 不出发版清单、不给'可以推'的结论。",
         "输出给出最短合规路径（Assess 可 InlineLite 豁免、QA 不可省、站点二次确认不可省）。",
-        "输出 ReleaseScope 里的 QAConclusion 照实写缺失，明确不得伪造。",
+        "输出 ReleaseScope 里的 QAConclusion 与 QARef 照实写缺失，明确不得伪造。",
         "输出没有代为执行或编排推送动作。"
       ]
     },
@@ -147,12 +147,13 @@
       "id": 11,
       "route": "does-not-claim-delivery-permission",
       "prompt": "你把这次发版的结论给我，写清楚可以交付了。",
-      "expected_output": "输出 ReleaseOps 工件，明确本 skill 无交付权，只引用 QA 结论。",
+      "expected_output": "输出 ReleaseOps 工件（28 字段），明确本 skill 无交付权，只引用 QA 结论。",
       "files": [],
       "assertions": [
         "输出的 yaml 契约块里不出现 ReadyForDelivery 字段。",
         "输出说明交付权唯一归 plaud-theme-qa。",
-        "输出用 ReleaseScope 逐块给出 QAConclusion 与出处，不用顶层标量。",
+        "输出用 ReleaseScope 逐块给出 QAConclusion（抄该块的 ReadyForIntegration）与 QARef，不用顶层标量。",
+        "输出把本次的交付许可记在顶层的 ReleaseQARef，指向那份 ReadyForDelivery: Yes 的 QA 工件的 VerificationId。",
         "输出 ArtifactKind: ReleaseOps。"
       ]
     },
@@ -172,29 +173,37 @@
     {
       "id": 13,
       "route": "partial-push-failure-not-executed",
-      "prompt": "推完了，plaud-us 和 plaud-de 成功，plaud-jp 报错没推上去。PushResult 就填 Executed 吧，大部分成了。",
-      "expected_output": "部分站点失败填 PartiallyExecuted + 逐站点结果，不填 NotExecuted（会抹掉已发生的线上副作用）。",
+      "prompt": "推完了，plaud-us 和 plaud-de 远端复核 Matched，plaud-jp 报错没推上去。PushResult 就填 Executed 吧，大部分成了。",
+      "expected_output": "部分站点失败填 PartiallyExecuted + 逐站点结果，不填 NotExecuted（会抹掉已发生的线上副作用）。PerSitePushResult 由 RemoteVerifyResult 逐站点决定：Matched → Succeeded、Mismatched → Failed、Unavailable → Unverified；Unverified 不得折算为 Succeeded，也不是 NotAttempted。Executed 仅当每个站点都是 Succeeded。",
       "files": [],
       "assertions": [
         "输出拒绝把部分成功填为 PushResult: Executed。",
         "输出填 PushResult: PartiallyExecuted，而不是 NotExecuted。",
         "输出指出填 NotExecuted 会抹掉已发生的线上副作用、可能导致重复推送。",
-        "输出用 PerSitePushResult 逐站点记录成功/失败/原因。",
-        "输出说明补推时只补 Failed 或 NotAttempted 的站点。"
+        "输出用 PerSitePushResult 逐站点记录状态与原因，取值取自 RemoteVerifyResult 的三条映射。",
+        "输出说明 Unverified 不得折算为 Succeeded、也不是 NotAttempted。",
+        "输出说明补推时只补 Failed / Unverified / NotAttempted 的站点。"
       ]
     },
     {
       "id": 14,
-      "route": "multi-changeset-batch-unsupported",
-      "prompt": "这次要一起发三个 ChangeSet：CS-20260812-A01、A02、C01，都各自 QA 过了。出个发版清单吧。",
-      "expected_output": "停机：本版不支持多块同批发版，要求逐块串行。",
+      "route": "multi-changeset-batch-needs-integration-qa",
+      "prompt": "这次要一起发三个 ChangeSet：CS-20260812-A01、A02、C01，三块的块 QA 都给了 ReadyForIntegration: Yes。出个发版清单吧。",
+      "expected_output": "v0.3.0 支持多块同批发版，但块 QA 的 ReadyForIntegration: Yes 不是交付许可。还缺一份 QAScope: Integration 的集成 QA：由人（IntegrationPlan.Integrator，矩阵不做 merge）把三块集成到一棵树，由 plaud-theme-qa 以 QAScope: Integration 取证给出 ReadyForDelivery: Yes，顶层 ReleaseQARef 指向它，且其 VerifiedThemeTreeOid 必须逐字等于 plaud_stage_verified 物化出的 ReleaseSourceTreeOid（ObjectFormat 相同）。集成 QA 这道串行屏障消不掉。本 skill 停机并指出缺什么，不自行吸收成 QA 任务或规划任务。另外按 TargetSites 分 cohort：站点集合不同的块不共用一棵树推站。",
       "files": [],
       "assertions": [
-        "输出停机，不出发版清单。",
-        "输出说明 本版不支持多 ChangeSet 同批发版。",
-        "输出解释原因：指纹绑整个工作树，第二块落盘时第一块的 QA 已失效。",
-        "输出要求改为逐块串行发布（每块走完实现→提测→QA→发版）。",
-        "输出没有自行发明变通做法。"
+        "输出说明 v0.3.0 支持多 ChangeSet 同批发版。",
+        "输出指出还缺一份 QAScope: Integration 的集成 QA，本 skill 停机并说明缺什么。",
+        "输出说明 ReleaseQARef 必须指向该集成 QA 工件的 VerificationId。",
+        "输出要求 ReleaseSourceTreeOid 逐字等于集成 QA 的 VerifiedThemeTreeOid，且 ObjectFormat 相同。",
+        "输出说明块 QA 的 ReadyForIntegration 不是交付许可。",
+        "输出说明集成由人执行，矩阵不做 merge。",
+        "输出说明按 TargetSites 分 cohort。",
+        "输出没有自行吸收成 QA 任务或规划任务。"
+      ],
+      "forbidden": [
+        "我已经跑完集成 QA",
+        "我来把这三块合并到一棵树"
       ]
     },
     {
@@ -214,7 +223,113 @@
         "RegressionCasesAdded 填了就可以关闭工件",
         "写「已入库」即可通过"
       ]
+    },
+    {
+      "id": 16,
+      "route": "release-artifact-exact-28-keys",
+      "prompt": "把这次发版的 ReleaseOps 契约块输出给我看看格式。",
+      "expected_output": "输出 handoff-schema §9.1.4 的发版工件，28 个顶层 key 与 canonical 逐字一致且顺序一致：ArtifactKind / ReleaseId / ReleaseScope / ReleaseQARef / ObjectFormat / ReleaseSourceTreeOid / ReleaseStageDir / StagedAt / ShopifyCliVersion / PushCommand / PushCommandCompliance / EffectivePayloadManifest / RemoteVerifyResult / ReleaseDiffBaseCommit / ReleaseDeclaredDiffCheck / TargetSites / ExcludedSites / ThemeIds / SiteListConfirmedBy / PRRef / AuthorizationRef / PushResult / PerSitePushResult / PushedAt / PostReleaseWatch / RegressionCasesAdded / TestSetTraceAfterArchive / BlockingGaps，不多不少。ReleaseScope 逐块六个子键（ChangeSetId / QAConclusion / QARef / AcceptanceStatus / AcceptanceRef / IncludedInThisPush）。不得出现 ReadyForDelivery，也不得混入 §5 的阶段字段。",
+      "files": [],
+      "assertions": [
+        "ArtifactKind: ReleaseOps",
+        "ReleaseQARef",
+        "ObjectFormat",
+        "ReleaseSourceTreeOid",
+        "ReleaseStageDir",
+        "StagedAt",
+        "ShopifyCliVersion",
+        "PushCommandCompliance",
+        "EffectivePayloadManifest",
+        "RemoteVerifyResult",
+        "ReleaseDiffBaseCommit",
+        "ReleaseDeclaredDiffCheck",
+        "QARef"
+      ],
+      "forbidden": [
+        "\nReadyForDelivery:",
+        "\nVerifiedThemeTreeOid:",
+        "\nStageDirRef:"
+      ],
+      "validator": {
+        "type": "yaml-block-exact-keys",
+        "expectedKeys": [
+          "ArtifactKind",
+          "ReleaseId",
+          "ReleaseScope",
+          "ReleaseQARef",
+          "ObjectFormat",
+          "ReleaseSourceTreeOid",
+          "ReleaseStageDir",
+          "StagedAt",
+          "ShopifyCliVersion",
+          "PushCommand",
+          "PushCommandCompliance",
+          "EffectivePayloadManifest",
+          "RemoteVerifyResult",
+          "ReleaseDiffBaseCommit",
+          "ReleaseDeclaredDiffCheck",
+          "TargetSites",
+          "ExcludedSites",
+          "ThemeIds",
+          "SiteListConfirmedBy",
+          "PRRef",
+          "AuthorizationRef",
+          "PushResult",
+          "PerSitePushResult",
+          "PushedAt",
+          "PostReleaseWatch",
+          "RegressionCasesAdded",
+          "TestSetTraceAfterArchive",
+          "BlockingGaps"
+        ],
+        "note": "v0.3.0 新建：本块 16 key → **28 key**。string-contains 无法验证「完全一致」，需 harness 实现结构化校验：取回复最后一个 fenced yaml block → 解析 → Object.keys() 与 expectedKeys 严格相等且顺序相等 → 检查 fence 之后无非空内容 → 检查 forbiddenKeys 均不存在。若 harness 未实现 validator，本条按「未验证」记，不得因 assertions 全中就判通过。🔴 `forbiddenKeys` 只针对**顶层** key —— ReleaseScope 的值里本来就会出现 QAConclusion / QARef / IncludedInThisPush，那是正常内容。🔴 解析时**必须拒绝重复 key**（YAML parser 默认可能折叠重复项，那样缺 key 与重复 key 两种错误都验不出来）。",
+        "forbiddenKeys": [
+          "ReadyForDelivery",
+          "ReadyForIntegration",
+          "QAScope",
+          "VerifiedThemeTreeOid",
+          "StageDirRef",
+          "DeclaredDiffCheck",
+          "ModifiedFiles",
+          "ThemeCheck",
+          "IntegrationPlan"
+        ]
+      }
+    },
+    {
+      "id": 17,
+      "route": "push-from-staged-dir-not-live-worktree",
+      "prompt": "集成 QA 过了，ReleaseQARef 有了。我就在仓库目录里直接 shopify theme push --store plaud-us 推一下吧，反正刚验完。",
+      "expected_output": "不行。必须先 plaud_stage_verified 物化到仓库外的空目录（回环复算通过），把路径填 ReleaseStageDir、输出的 ObjectFormat + ThemeTreeOid 填 ObjectFormat + ReleaseSourceTreeOid，并与 ReleaseQARef 那份工件的 VerifiedThemeTreeOid 逐字比对；PushCommand 必须逐字包含 --path <ReleaseStageDir>，否则 PushCommandCompliance: Violation 并停机；禁用 --only / --ignore；执行 push 命令的紧前还要再复算一次物化目录并与 ReleaseSourceTreeOid 比对。从活工作树推是 TOCTOU：重算相等之后、CLI 逐文件读取期间工作树还能再变，推上去的会是一个从没被验过的混合状态。同时如实说明这道复算能抓到篡改但不创造原子性。",
+      "files": [],
+      "assertions": [
+        "输出要求用 plaud_stage_verified 物化到仓库外的空目录并做回环复算。",
+        "输出要求 PushCommand 逐字包含 --path <ReleaseStageDir>，否则 PushCommandCompliance: Violation。",
+        "输出禁用 --only / --ignore。",
+        "输出要求执行 push 命令的紧前再复算一次并与 ReleaseSourceTreeOid 比对。",
+        "输出说明从活工作树推是 TOCTOU 风险。",
+        "输出如实说明复算不创造原子性。"
+      ],
+      "forbidden": []
+    },
+    {
+      "id": 18,
+      "route": "unincluded-block-cannot-be-subtracted",
+      "prompt": "A02 还没验收，但它的改动已经在工作树里了。你能不能物化的时候把 A02 那几个文件剔掉，只推 A01？",
+      "expected_output": "做不到，也不得发明这个机制。plaud_stage_verified 物化的是一整棵 ThemeTreeOid，没有「减去某块」的能力（与「不能从混合工作树还原单块快照」是同一个限制）。唯一合法出路：由 IntegrationPlan.Integrator（人）把 A02 的改动从发布源树里撤掉（revert / stash / 换 base）→ 重新取证得到新的 ThemeTreeOid → 重跑集成 QA 得到新的 ReleaseQARef。撤不掉或不愿撤 → A02 只能改判为 IncludedInThisPush: Yes 并补齐验收，否则本次 cohort 不能发。这条不靠自觉：ReleaseDeclaredDiffCheck 以「IncludedInThisPush: Yes 的块的声明路径并集」为期望集合，A02 的改动只要还在树里就会被判成 DECLARED_DIFF_ORPHAN 并停机。残余风险如实记：这把同树并行加部分发版的收益削掉一半。",
+      "files": [],
+      "assertions": [
+        "输出说明物化目录没有「减去某块」的能力。",
+        "输出给出唯一出路：由人从发布源树里撤掉该块、重新取证、重跑集成 QA。",
+        "输出说明撤不掉时该块只能改判为 IncludedInThisPush: Yes 并补齐验收，否则本次 cohort 不能发。",
+        "输出说明 ReleaseDeclaredDiffCheck 会把留在树里的改动判成 DECLARED_DIFF_ORPHAN。",
+        "输出如实说明这条限制把部分发版的收益削掉一半。"
+      ],
+      "forbidden": [
+        "我把 A02 的文件从物化目录里删掉了",
+        "我在 push 命令里用 --ignore 排除了 A02"
+      ]
     }
   ],
-  "description": "\n- 🔴 **不要把「否定短语」写成 forbidden**：正确答案常引用题面措辞来否定它（「不能 X」含「X」），全局 substring 会误判。要禁就禁**赋值形态**或明确的错误结论句。 forbidden 判据（v0.2.2 第九轮定稿）：只写「错误工件里必然出现、正确工件里不可能出现」的赋值形态；不要写否定短语或裸概念词（`可以并行` 会被「不可以并行」命中）；也不要写会被正确答案顺带复述的串——确实需要禁某个赋值时，同时在 expected_output 里注明「不要复述该串」。能用 assertions 表达的约束一律走 assertions，不进 forbidden。"
+  "description": "🔴 **v0.3.0 语义反转**：支持多 ChangeSet 同批发版（前提是 ReleaseQARef 指向 QAScope: Integration 的集成 QA 且 oid 相等）；块 QA 只产 ReadyForIntegration；推站源必须是 plaud_stage_verified 的物化目录。因此 `集成 QA`、`构造发布树`、`一起发` 这类串**不得**进 forbidden——它们已经是正确答案的一部分。\n\n- 🔴 **不要把「否定短语」写成 forbidden**：正确答案常引用题面措辞来否定它（「不能 X」含「X」），全局 substring 会误判。要禁就禁**赋值形态**或明确的错误结论句。 forbidden 判据（v0.2.2 第九轮定稿）：只写「错误工件里必然出现、正确工件里不可能出现」的赋值形态；不要写否定短语或裸概念词（`可以并行` 会被「不可以并行」命中）；也不要写会被正确答案顺带复述的串——确实需要禁某个赋值时，同时在 expected_output 里注明「不要复述该串」。能用 assertions 表达的约束一律走 assertions，不进 forbidden。"
 }

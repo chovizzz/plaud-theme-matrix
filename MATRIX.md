@@ -1,8 +1,8 @@
 # Skill Matrix — PLAUD Shopify Theme
 
-All listed skills live directly under the package root. The outer
-`plaud-shopify-theme-matrix-v0.2.3` directory is a distribution package, **not** an
-installable skill — never copy the package root itself into a skills directory.
+All listed skills live directly under the repository root. The repository root itself
+is the package, **not** an installable skill — never copy the repo root into a skills
+directory. A version is a git tag; `v0.3.0` is the current release.
 
 ## Order
 
@@ -80,7 +80,7 @@ Path A 的质量规则（全路径红线）全局继承，永远适用。
 | 阶段 | 产出方 | 关键工件 | 消费方 |
 |---|---|---|---|
 | Assess | `plaud-theme-impact` | `AssessmentRef`（`ASMT-<YYYYMMDD>-<NN>`）、`ReadyForImplement` | 实现 skill / orchestrator |
-| Implement | dev / section-build / ux-migration | `ChangeSetId`（`CS-<YYYYMMDD>-<path><NN>`）、`ModifiedFiles`、`BaseHeadSha`、`ChangeSetFingerprint`、`RequiredQAProfile`、`ApprovedExceptions`（共 20 字段） | **`plaud-theme-qa-intake`** |
+| Implement | dev / section-build / ux-migration | `ChangeSetId`（`CS-<YYYYMMDD>-<path><NN>`）、`ModifiedFiles`、`BaseHeadSha`（开工前 baseline）、身份三元组 `ObjectFormat` / `ThemeTreeOid` / `ChangeSetScopeFingerprint`、`RequiredQAProfile`、`ApprovedExceptions`（共 **22** 字段） | **`plaud-theme-qa-intake`** |
 | 提测（过渡） | `plaud-theme-qa-intake` | `SubmissionId`（`SUB-<YYYYMMDD>-<NN>`）、`PackageFingerprint`、`TargetSites`、`ThemeIds`、六项材料的 `Complete/Incomplete` | `plaud-theme-qa` |
 | Verify | `plaud-theme-qa` | `QAAdmissionStatus`、`ChangeSetIdMatched`、逐项 Passed/Failed/Blocked/NotApplicable、`ApprovedExceptionsChecked`、`Advisories`、`ReadyForDelivery`（共 26 字段） | 用户 / `release-ops` / 回退到实现 skill |
 | 反馈（事件） | `plaud-theme-feedback-triage` | `TriageId`（`TRI-…`）、`ClassificationRecommendation`、`EvidenceRefs`、`PMDecision`、`NextRoute` | PM / 新工作项回 Assess |
@@ -201,8 +201,8 @@ QA 通过后代码再变，原 QA 自动失效，须重新生成 `ChangeSetId` �
 - 格式 `CS-<YYYYMMDD>-<path><NN>`，`<path>` ∈ `A`/`B`/`C`
 - 生成方：实现 skill；消费方：`plaud-theme-qa`（回填 `ChangeSetIdMatched`）
 - 追踪方：`plaud-theme-orchestrator`（只记台账，不生成、不改写）
-- **内容绑定**：除文件集合外还绑 `BaseHeadSha`（当时的 HEAD）与 `ChangeSetFingerprint`（覆盖内容、权限、删除态、未跟踪文件）。QA 在执行任何检查**之前**重算并精确比对——文件没多没少但内容变了，只绑文件名会漏掉
-- 文件集合、`ChangeSetFingerprint`、`BaseHeadSha` 任一不符 → QA 停机，**不得**「顺便把新改动一起验了」
+- **内容绑定**：除文件集合外还绑**不可变 git tree 对象**——身份三元组 `ObjectFormat` + `ThemeTreeOid` + `ChangeSetScopeFingerprint`（v0.3.0 起；由空白临时索引 + `git write-tree` 生成，不 commit、不动 HEAD/ref/用户 index）。`BaseHeadSha` 降级为**开工前 baseline**，只记不判。QA 在执行任何检查**之前**重算并精确比对——文件没多没少但内容变了，只绑文件名会漏掉
+- 文件集合、身份三元组、声明路径集合任一不符 → QA 停机，**不得**「顺便把新改动一起验了」。🔴 注意 `ThemeTreeOid` 变而本块 `ChangeSetScopeFingerprint` 不变**也是失配**（别块的改动落进了同一棵树）
 - 项目侧 `memory/changeset-log.md` 由 `plaud-theme-qa` 维护
 
 ## Theme Check 门

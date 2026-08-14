@@ -108,6 +108,8 @@ grep -B 1 '"disabled": true' templates/<template>.json | grep '"type"'
 平台检测：macOS / Linux 用 **Bash**、Windows 用 **PowerShell**。
 本包所有命令示例为 Bash（`grep` / `awk` / `sed`），Windows 下**按平台替换**，不要原样假跑。
 
+🔴 **但身份取证是例外，不存在"平台替换"这条路**：`handoff-schema.md` §2.5 的 `plaud_theme_tree` / `plaud_changeset_scope` / `plaud_declared_diff` **只支持 macOS / Linux**（用了 `set -o pipefail`、POSIX 文件模式、`git check-attr -z` 的解析约定；Windows 上典型的 `core.fileMode` 假值与 `core.autocrlf` 为真还会直接命中两道字节保真门）。**不得自己写一份 PowerShell 等价物**——那会是一份行为不同的抄本，算出的 oid 与 QA 用 canonical 重算的必然不等。Windows 环境下取证不可用：对应的 QA / release 检查项填 `Blocked`，理由写「平台不支持 / 字节保真前提不满足」，`Blocked` 不得折算为 pass。
+
 ### 必读文件（各自的定位，别找错地方）
 
 | 文件 | 是什么 | 注意 |
@@ -128,6 +130,8 @@ grep -B 1 '"disabled": true' templates/<template>.json | grep '"type"'
 - [ ] **已确认运行平台**：macOS / Linux 用 Bash、Windows 用 PowerShell。本包所有命令示例都是 **Bash**；
       在 Windows 下 `grep` / `awk` / `sed` **必须换成 PowerShell 等价命令**（`Select-String` 等），
       🔴 **不得原样贴一条跑不了的命令然后当成"已核查"**
+- [ ] **已确认取证平台**：§2.5 的三个身份函数只支持 macOS / Linux；在 Windows 上**不得**改写成 PowerShell 版本降级生成，
+      身份相关检查项一律 `Blocked`（见上「运行平台」）
 - [ ] **已确认必读文件的定位**（下节「必读文件」表）
 - [ ] 已读 `memory/模板清单.md` / `memory/模块清单.md` / `memory/全局已知偏差.md`（缺失 → 按 `plaud-theme-shared/SKILL.md`「缺失时的唯一初始化规则」：**默认停机问用户，不得凭空重建**；仅用户确认"首次接入无历史状态"后才可复制 `memory-seed/` 种子）
 - [ ] 已拿到 `AssessmentRef`（或已自证 `InlineLite` 豁免），blast radius 数据来自 impact 而非自行重算

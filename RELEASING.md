@@ -54,8 +54,16 @@ grep -rn 'v0\.2\.3' --include='*.md' . | grep -v CHANGELOG.md
 **不要跳过这步。** tag 一旦推上去就是别人 `--ref` 会装到的东西。
 
 ```bash
-HOME=/tmp/plaud-rehearse ./install.sh --source . --create-missing all
-HOME=/tmp/plaud-rehearse ./install.sh --source . --check
+# 🔴 必须是**物理**路径。macOS 的 /tmp 是指向 /private/tmp 的符号链接，
+# 安装器的 symlink-traversal 护栏会拒绝装到祖先含链接的目标（这是防「整目录替换
+# 顺着链接跑到另一棵树」的护栏，不该为演练放宽）。
+# macOS：/tmp 是指向 /private/tmp 的符号链接，必须用物理路径
+REH="$(mktemp -d /private/tmp/plaud-rehearse.XXXXXX)"
+# Linux / WSL：没有 /private/tmp，/tmp 本身就是物理目录
+# REH="$(mktemp -d /tmp/plaud-rehearse.XXXXXX)"
+
+HOME="$REH" ./install.sh --source . --create-missing all
+HOME="$REH" ./install.sh --source . --check
 ```
 
 `--source .` 装的是**工作树**（marker 里会如实标 `UNVERIFIED PROVENANCE`），
@@ -63,16 +71,23 @@ HOME=/tmp/plaud-rehearse ./install.sh --source . --check
 
 想连发布链路一起演练，用本地仓库当远端：
 
+🔴 **顺序不能反**：`git archive` 取的是 **tag 指向的 commit**，不是工作树。
+先打 tag 再提交，archive 出来的是**提交前**的内容，而第 3 步再打同名 tag 还会直接失败。
+所以这一段必须放在第 3 步的 commit **之后**：
+
 ```bash
-git tag vX.Y.Z+1                  # 先在本地打
-HOME=/tmp/plaud-rehearse2 ./install.sh --repo "$PWD" --ref vX.Y.Z+1 --create-missing all
-HOME=/tmp/plaud-rehearse2 ./install.sh --repo "$PWD" --check
+REH2="$(mktemp -d /private/tmp/plaud-rehearse.XXXXXX)"   # Linux/WSL 用 /tmp
+# 前提：第 3 步的 commit 与 tag 都已在本地打好，但还没 push
+HOME="$REH2" ./install.sh --repo "$PWD" --ref vX.Y.Z+1 --create-missing all
+HOME="$REH2" ./install.sh --repo "$PWD" --check
 ```
 
 `--repo <本地路径>` 走 `git archive` 生成归档包，之后的解包、暂存、比对、写 marker
 与线上路径**是同一段代码**。
 
-### 3. 提交 + 打 tag
+### 3. 提交 + 打 tag + 推送
+
+**推送是最后一步**：先提交、再打 tag、再回到第 2 步做本地 archive 演练，通过了才 push。
 
 ```bash
 git add -A                        # 不要只 add 新文件：版本之间是有文件删除的
@@ -80,6 +95,9 @@ git commit -m "vX.Y.Z+1 — <一句话>
 
 <CHANGELOG 首段要点，几条>"
 git tag -a vX.Y.Z+1 -m "vX.Y.Z+1"
+
+# ← 在这里回去跑第 2 步的「本地仓库当远端」那段演练
+
 git push origin main
 git push origin vX.Y.Z+1
 ```
@@ -147,10 +165,11 @@ curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/in
 改安装器之后**至少**要重跑这几条：
 
 ```bash
+REH="$(mktemp -d /private/tmp/plaud-rehearse.XXXXXX)"; REH2="$(mktemp -d /private/tmp/plaud-rehearse.XXXXXX)"   # Linux/WSL 用 /tmp
 sh -n install.sh && bash -n install.sh && zsh -n install.sh
-HOME=/tmp/h1 ./install.sh --repo "$PWD" --ref v0.2.3 --create-missing all
-HOME=/tmp/h1 ./install.sh --repo "$PWD" --check
+HOME="$REH" ./install.sh --repo "$PWD" --ref v0.3.0 --create-missing all
+HOME="$REH" ./install.sh --repo "$PWD" --check
 # 注入失败，确认非零退出且不谎报成功
-mkdir -p /tmp/badbin && printf '#!/bin/sh\nexit 1\n' > /tmp/badbin/tar && chmod +x /tmp/badbin/tar
-HOME=/tmp/h2 PATH=/tmp/badbin:$PATH ./install.sh --repo "$PWD" --ref v0.2.3 --create-missing all; echo "rc=$?  # 必须非 0"
+mkdir -p "$REH2/badbin" && printf '#!/bin/sh\nexit 1\n' > "$REH2/badbin"/tar && chmod +x "$REH2/badbin"/tar
+HOME="$REH2" PATH="$REH2/badbin":$PATH ./install.sh --repo "$PWD" --ref v0.3.0 --create-missing all; echo "rc=$?  # 必须非 0"
 ```

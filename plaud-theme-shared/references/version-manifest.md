@@ -8,9 +8,9 @@
 
 | 项 | 值 |
 |---|---|
-| 矩阵包版本 | **v0.2.3** |
-| 包名 | `plaud-shopify-theme-matrix-v0.2.3` |
-| 契约版本（`ContractVersion`） | **v0.2.3** |
+| 矩阵包版本 | **v0.3.0**（已发布，git tag `v0.3.0`） |
+| 包名 | `plaud-theme-matrix`（git 仓库 <https://github.com/chovizzz/plaud-theme-matrix>；版本靠 tag 钉，不再有 `-vX.Y.Z` 目录与 zip） |
+| 契约版本（`ContractVersion`） | **v0.3.0** |
 | 对应 UX Spec 版本 | **v1.3 · 2026-08-11 设计 Token 基线**（源文档 `Plaud-UX-v1.3`「设计 Token 与组件规范文档」，8 页 PDF）。它取代了 v0.1.0 依据的 `PLAUD_UX_规范基准_v1.3.md`（含 2026-07 补充修订 4 条）——版本号同为 v1.3，但内容是重新整理过的一版，差异见 CHANGELOG |
 | 对应交付标准 | **《DTC 开发交付标准 v1.0》**（2026-08-06，运营与产研共同维护，双周会可审议修订） |
 | 前身 | v0.1.0（7 skill）；再前身是单 skill 包 `plaud-shopify-theme-skill` |
@@ -20,7 +20,7 @@
 
 ### 1.1 哪些改动**必须**伴随一次版本发布（v0.2.2 补）
 
-本包按**全量快照**分发，各端靠 `install-macos-linux.sh` 装成四份独立副本；**会议纪要、飞书文档、Linear issue 都不随包分发**，agent 运行时能读到的只有包内文本。因此下列改动**只改包外文档不算数**，必须切新版本快照并重装：
+本包按 **git tag** 分发，各端靠仓库根的 `install.sh` / `install.ps1` 按 tag 装成四份独立副本；**会议纪要、飞书文档、Linear issue 都不随包分发**，agent 运行时能读到的只有包内文本。因此下列改动**只改包外文档不算数**，必须切新版本快照并重装：
 
 | 改动 | 为什么必须发版 |
 |---|---|
@@ -70,6 +70,7 @@
 | `a11y.md` | 7 条 A11y 底线的**判定方法** | A11y 判定细则 |
 | **`repo-drift.md`** | 规范值 vs 目标仓库编译产物：为什么会滞后、开工前核对命令、7 类已知漂移案例 | build 产物滞后 |
 | `version-manifest.md` | 本文件 | 版本与职责 |
+| **`CONTRACT-FREEZE.md`** | v0.3.0 契约冻结件：最终字段清单与顺序、新增/废止枚举、六个函数的签名与环境要求、11 条阻断项裁决、每个下游 skill 的接线清单 | 第三波落地的唯一输入 |
 
 > v0.2.0 的 `handoff-schema.md` 新增：§0.1 四个非阶段 skill、§1.1 `ReadyForDelivery` 的边界、
 > §8.1 运营协作红线（DTC §三）、§8.2 公共文件改动注释、§9.1.2–§9.1.4 三类新工件、§9.2 对应枚举。
@@ -80,8 +81,17 @@
 > `typography.md` §4 整节重写（**撤回 H5 = 22px 与「复用 h5 全局规则」**，新增 §4.1 仓库 h5 现状 / §4.2 语义类 vs 数字遗留类）；`colors-and-schemes.md` §3 outline 边框改为**先判两条样式链是否统一再决定复用或新增变量**；`repo-drift.md` 新增 §3.6 / §3.7。
 
 > **v0.2.2 修订**（v0.2.1 的门禁收口，详见 CHANGELOG）：
-> `handoff-schema.md` §8.1 加 **`ApprovedException` 封闭适用清单**（发布当时的成员快照：只有 A11y 3.0–4.5 一项，§8.1 十一条无一在内 —— 🔴 **这是发布说明里的历史快照，不是运行时事实源**，判定一律现读 `handoff-schema.md` §8.1 那张表）；§4 加 `ApprovedExceptions`、§5 加 `ApprovedExceptionsChecked` / `ApprovedExceptionsEvidence`（§4=20 / §5=26 字段）；§2 与 §9.1.2 两段指纹命令**修掉两个静默失败点**（`{ … } | shasum` 的子 shell 吞错、未跟踪目录静默跳过）并**排除 `memory/`**；`package-checklist.md` §3 加 `PreviousAcceptedTestSetTrace` 与三级取数路径；`changeset-log.md` 加 `TestSetTrace` 列；§9.1.4 加 `TestSetTraceAfterArchive` 并移除跑不通的 `IntegrationQARef`。
+> 📎 `handoff-schema.md` §8.1 加 **`ApprovedException` 封闭适用清单**（发布当时的成员快照：只有 A11y 3.0–4.5 一项，§8.1 十一条无一在内 —— 🔴 **这是发布说明里的历史快照，不是运行时事实源**，判定一律现读 `handoff-schema.md` §8.1 那张表）；§4 加 `ApprovedExceptions`、§5 加 `ApprovedExceptionsChecked` / `ApprovedExceptionsEvidence`（§4=20 / §5=26 字段）；§2 与 §9.1.2 两段指纹命令**修掉两个静默失败点**（`{ … } | shasum` 的子 shell 吞错、未跟踪目录静默跳过）并**排除 `memory/`**；`package-checklist.md` §3 加 `PreviousAcceptedTestSetTrace` 与三级取数路径；`changeset-log.md` 加 `TestSetTrace` 列；§9.1.4 加 `TestSetTraceAfterArchive` 并移除跑不通的 `IntegrationQARef`。
 > **同时更正 v0.2.1 的一处措辞**：§4.1 原写「三套并行的 h5 实现」，实测 `--h0-size…--h6-size` 全仓无消费点，是死声明；现表述为「一套生效规则 + 一处死变量声明 + 一套与标签正交的语义体系」。
+
+> **v0.3.0 修订**（契约层破坏性变更，详见 CHANGELOG）：
+> 📎 `handoff-schema.md` §2 **整节重写**——ChangeSet 指纹从「工作树状态文本的 SHA-256」改绑**不可变 git tree 对象**。`ChangeSetFingerprint` **废止**，身份改为三元组 `ObjectFormat` + `ThemeTreeOid` + `ChangeSetScopeFingerprint`；`BaseHeadSha` 不再是失配判据但**仍必填且必须可解析**。
+> 📎 新增六个规范函数：`plaud_theme_tree` / `plaud_changeset_scope` / `plaud_declared_diff` / `plaud_base_theme_tree` / `plaud_stage_workspace` / `plaud_stage_verified`（取代 `plaud_fingerprint`）。
+> 工件字段数：**§4 = 22**（v0.2.3 为 20）、**§5 = 35**（26）、**§9.1 Coordination = 9**（8）、**§9.1.2 QAIntake = 26**（23）、**§9.1.4 ReleaseOps = 28**（16）。§3 与 §9.1.3 不变（15 / 7）。
+> 📎 §9.2 新增枚举 `QAScope` / `ReadyForIntegration` / `ObjectFormat` / `DeclaredDiffCheck` / `PushCommandCompliance` / `RemoteVerifyResult`，`PerSitePushResult[].Status` 新增取值 `Unverified`，`IncludedInThisPush` 的「至多一个」限制删除。
+> 📎 「不支持多 ChangeSet 同批发版」整节删除并改写为 §2.10–§2.15。`changeset-log.md` 的 `ChangeSetFingerprint` 列 → `ObjectFormat` + `ThemeTreeOid` + `ScopeFP` 三列（**旧行不回填**）。
+> **新增运行环境前提**：可写 `TMPDIR`、git ≥ 2.25、**取证只支持 macOS / Linux**（Windows 上两道字节保真门必然停机）。
+> 🔴 契约冻结件见 `plaud-theme-shared/references/CONTRACT-FREEZE.md` —— 那是第三波（其余九个 skill 落地）的**唯一输入**。
 
 > `repo-drift.md` 是**后加的第 9 个 reference**，已在 `plaud-theme-shared/SKILL.md` 的 Reference 索引表里（标为「要落地任何 spec 数值、或依赖某个 token / 工具类之前（必读）」）。
 > 加载规则：**任何要落地 spec 数值 / 依赖某个 token 或工具类的任务都应读**（build 产物滞后与仓库无关）；`typography.md` / `colors-and-schemes.md` / `responsive-and-spacing.md` 三处也在正文交叉指向它。

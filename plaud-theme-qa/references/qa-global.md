@@ -8,6 +8,17 @@
 
 每项输出 `Passed` / `Failed` / `Blocked` / `NotApplicable` + 证据。证据为空 → 降级 `Blocked`。
 
+🔴 **在哪里跑（v0.3.0 起，handoff-schema §2.6）**：
+
+| 命令类型 | 跑在哪 |
+|---|---|
+| 读文件 / grep / 跑工具（theme check、build、预览） | **`StageDirRef` 指向的 workspace 快照**（`plaud_stage_workspace` 的产物），**不在活工作树上跑**——重算相等之后、逐文件读取期间工作树还能再变（TOCTOU） |
+| 需要 git 历史的举证（`git show <BaseHeadSha>:<file>`、`git diff <BaseHeadSha> …`） | **原仓库**，一律带 `git -C <theme-root>` —— 快照里没有 `.git` |
+| Theme Check 的 baseline | 从 `BaseHeadSha` 另行物化，见 `theme-check-gate.md` §2 |
+
+`Evidence` / `ThemeCheckEvidence` 里必须写明每条命令实际跑在哪个目录（快照路径 / 仓库路径），否则无法复核。
+📎 **本文所有 `git diff` 的基准从 `HEAD` 改成了 `<BaseHeadSha>`**：v0.3.0 起实施期间 commit 是合法的（§2.8 不再拿 HEAD 做失配判据），继续用 `HEAD` 做基准会在改动已被提交时**扫出空 diff、系统性漏检**。`BaseHeadSha` 不可解析时这些举证一律 `Blocked`（§2.5 / handoff-schema §2.5 注释），不得降级放行。
+
 > 本文件的七项之外，SKILL.md 还规定了三条**附加触发式检查**（shared 红线 4 颜色 token / 红线 6 JS 生命周期 / 红线 7 build 产物勿手改），同样与路径无关，结果写进 `ProfileSpecificResults`。细则分别见 `qa-profile-a.md` A5 与 `qa-profile-c.md`——**Path B/C 也要跑 A5，Path A/B 也要跑 build 产物那条**，不要因为"不是我这条 profile 的"就跳过。
 
 ---
@@ -100,11 +111,11 @@ grep -rn "<asset-file>" <theme-root>/{layout,sections,snippets}/
 ```bash
 # 第 1 步：捞全所有尺寸属性声明（含逻辑属性、含 var()/calc()、含内联 style）
 #          -o 只输出命中的声明本身，避免一行里有合法+非法两条时被整行过滤掉
-git diff HEAD -U0 -- <ModifiedFiles> | grep -E '^\+' \
+git -C <theme-root> diff <BaseHeadSha> -U0 -- <ModifiedFiles> | grep -E '^\+' \
   | grep -oE '(^|[^-a-z])(min-|max-)?(width|height|inline-size|block-size)[[:space:]]*:[^;"}]*'
 
 # HTML 属性形式
-git diff HEAD -U0 -- <ModifiedFiles> | grep -nE '^\+.*(width|height)="[^"]*"'
+git -C <theme-root> diff <BaseHeadSha> -U0 -- <ModifiedFiles> | grep -nE '^\+.*(width|height)="[^"]*"'
 ```
 
 **第 2 步：对捞出的每一条声明逐条裁定**（不能靠模式一刀切）：
@@ -157,13 +168,13 @@ git diff HEAD -U0 -- <ModifiedFiles> | grep -nE '^\+.*(width|height)="[^"]*"'
 
 ```bash
 # (1) 图片请求本身变了
-git diff HEAD -U0 -- <ModifiedFiles> | grep -nE '^\+.*(image_url|srcset|sizes=)'
+git -C <theme-root> diff <BaseHeadSha> -U0 -- <ModifiedFiles> | grep -nE '^\+.*(image_url|srcset|sizes=)'
 
 # (2) 图片的显示容器变了
 #     两个要点：① 同时看 + 和 - 两侧（**删掉**一条声明同样会让容器变宽）
 #              ② 不只是 width/grid —— padding / gap / inline-size / 容器类替换
 #                 都会改变图片的实际显示宽度
-git diff HEAD -U0 -- <ModifiedFiles> \
+git -C <theme-root> diff <BaseHeadSha> -U0 -- <ModifiedFiles> \
   | grep -nE '^[+-][^+-].*((max-|min-)?(width|inline-size)|grid-template-columns|grid-cols|col-span|flex-basis|flex:|gap|padding|aspect-ratio|@media|container|class=)'
 ```
 
@@ -192,19 +203,19 @@ grep -rn 'image_url' <包含该容器的 section/snippet>
 
 ```bash
 # 兜底文案
-git diff HEAD -U0 -- <ModifiedFiles> | grep -nE "^\+.*[|][[:space:]]*default[[:space:]]*:[[:space:]]*['\"]"
+git -C <theme-root> diff <BaseHeadSha> -U0 -- <ModifiedFiles> | grep -nE "^\+.*[|][[:space:]]*default[[:space:]]*:[[:space:]]*['\"]"
 # 硬编码展示文案。三类都要抓：
 #   (a) 标签之间的文本节点（含中文、德语变音符等非 ASCII，所以用"非标签非 Liquid 字符"取反匹配）
 #   (b) JS 里直接写进 DOM 的字面量
 #   (c) Liquid assign / capture 出来的展示字符串
-git diff HEAD -U0 -- <ModifiedFiles> \
+git -C <theme-root> diff <BaseHeadSha> -U0 -- <ModifiedFiles> \
   | grep -nE "^\+.*>[^<>{}\"']*[^[:space:]<>{}\"'][^<>{}\"']*<"
-git diff HEAD -U0 -- <ModifiedFiles> \
+git -C <theme-root> diff <BaseHeadSha> -U0 -- <ModifiedFiles> \
   | grep -nE "^\+.*(textContent|innerHTML|innerText|placeholder|aria-label|title)[[:space:]]*=[[:space:]]*['\"]"
-git diff HEAD -U0 -- <ModifiedFiles> \
+git -C <theme-root> diff <BaseHeadSha> -U0 -- <ModifiedFiles> \
   | grep -nE "^\+.*\{%-?[[:space:]]*(assign|capture)[[:space:]].*['\"][^'\"]{3,}['\"]"
 # 空壳 DOM 风险：新增的展示标签是否有 != blank 守卫
-git diff HEAD -U0 -- <ModifiedFiles> | grep -nE '^\+.*<(h[1-6]|p|a|img)\b'
+git -C <theme-root> diff <BaseHeadSha> -U0 -- <ModifiedFiles> | grep -nE '^\+.*<(h[1-6]|p|a|img)\b'
 ```
 
 裁定：
@@ -219,7 +230,7 @@ git diff HEAD -U0 -- <ModifiedFiles> | grep -nE '^\+.*<(h[1-6]|p|a|img)\b'
 
 ### 7.1 判定范围：本次触及的行（v0.2.1 收窄）
 
-上面所有 `git diff HEAD -U0` 命令**只看本 ChangeSet 新增/修改的行**，这不是取巧，是本项的**判定范围定义**（`handoff-schema.md` §8.1 红线⑤按范围分级）：
+上面所有 `git -C <theme-root> diff <BaseHeadSha> -U0` 命令**只看本 ChangeSet 新增/修改的行**，这不是取巧，是本项的**判定范围定义**（`handoff-schema.md` §8.1 红线⑤按范围分级）：
 
 | 情形 | 判定 |
 |---|---|
@@ -242,8 +253,8 @@ git diff HEAD -U0 -- <ModifiedFiles> | grep -nE '^\+.*<(h[1-6]|p|a|img)\b'
 触发：diff 含 `.css` / `.scss` / Liquid 内联 `<style>` / inline `style=`。
 
 ```bash
-git diff HEAD -U0 -- <ModifiedFiles> | grep -nE '^\+.*#[0-9a-fA-F]{3,8}\b'
-git diff HEAD -U0 -- <ModifiedFiles> | grep -nE '^\+.*(rgba?|hsla?)\('
+git -C <theme-root> diff <BaseHeadSha> -U0 -- <ModifiedFiles> | grep -nE '^\+.*#[0-9a-fA-F]{3,8}\b'
+git -C <theme-root> diff <BaseHeadSha> -U0 -- <ModifiedFiles> | grep -nE '^\+.*(rgba?|hsla?)\('
 ```
 
 逐条裁定：走 `var(--token)` → 合规；写死 hex / rgb 且不属于 `colors-and-schemes.md` 已文档化的例外（设计系统固定渐变资产等）→ `Failed`。Path C 另有"新 hex 必须大写"的约定（见 `qa-profile-c.md` C4 §4.2），Path A/B 不适用该约定但仍受本项约束。
@@ -259,7 +270,7 @@ git diff HEAD -U0 -- <ModifiedFiles> | grep -nE '^\+.*(rgba?|hsla?)\('
 触发：diff 触及 build 输出目录（`shopify-common` 的 dist / 生成的 `design-system.liquid` 等）。**Path A 和 Path B 同样要跑**。
 
 ```bash
-git diff --name-only HEAD | grep -nE '(dist/|design-system\.liquid|\.min\.(js|css)$)'
+git -C <theme-root> diff --name-only <BaseHeadSha> | grep -nE '(dist/|design-system\.liquid|\.min\.(js|css)$)'
 ```
 
 - 命中且源文件未同步改 → `Failed`（手改产物，下次 build 即被覆盖）。

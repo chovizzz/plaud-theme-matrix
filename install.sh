@@ -1,7 +1,7 @@
 #!/bin/sh
 # PLAUD Shopify Theme Matrix — one-command installer (macOS / Linux / WSL / Git Bash)
 #
-#   curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh | sh -s -- --ref v0.2.3
+#   curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh | sh -s -- --ref v0.3.0
 #
 # Written in strict POSIX sh on purpose: `curl … | sh` IGNORES the shebang, so
 # this file is executed by dash on Linux and by bash-in-POSIX-mode on macOS.
@@ -39,7 +39,7 @@ plaud-theme-matrix installer
 
 Usage:
   curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh | sh
-  curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh | sh -s -- --ref v0.2.3
+  curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh | sh -s -- --ref v0.3.0
   ./install.sh --check
 
 Content comes from a git TAG, downloaded as a tarball (no git required).
@@ -91,6 +91,11 @@ EOF
 # --------------------------------------------------------------- plumbing
 
 say() { printf '%s\n' "$*"; }
+# Progress goes to stderr, never stdout: acquire_tree() and friends return
+# their result *on stdout*, so a say() inside one lands in the caller's
+# command substitution and poisons the value (this broke every remote
+# install: SRC_ROOT came back as "  fetching https://..." + the path).
+progress() { printf '%s\n' "$*" >&2; }
 warn() { printf '%s\n' "$*" >&2; }
 die() { printf 'Error: %s\n' "$*" >&2; exit 1; }
 
@@ -404,7 +409,7 @@ acquire_tree() {
   else
     _slug="$(repo_slug "$OPT_REPO")"
     _url="https://codeload.github.com/${_slug}/tar.gz/refs/tags/${_at_ref}"
-    say "  fetching $_url"
+    progress "  fetching $_url"
     fetch_tarball "$_url" "$_at_tar" || {
       warn "download failed for ref ${_at_ref}."
       warn "  Check the tag exists: https://github.com/${_slug}/tags"
@@ -809,6 +814,13 @@ check_client() {
       if [ -z "$_ck_marker_ref" ]; then
         say "   marker:        HAS NO ref: FIELD — unusable, provenance unproven"
         _ck_rc=1
+      elif [ "$_ck_marker_ref" = "local" ] && [ -n "$OPT_SOURCE" ]; then
+        # Local-source rehearsal (RELEASING.md step 2). `local` is a reserved word,
+        # not a ref: nothing is fetched for it and the marker never selects the
+        # baseline — the operator did, on this command line. A forged `ref: local`
+        # therefore buys nothing without --source, and any other non-tag ref still
+        # fails below, so ba0cc41's "marker cannot pick a branch" boundary holds.
+        :
       elif ! valid_ref "$_ck_marker_ref"; then
         # Without this, editing the marker to say `main` would make --check
         # fetch a branch and hold the client to it — exactly the "not a release"
@@ -827,8 +839,15 @@ check_client() {
   # client's own claim. A marker is a claim, never proof: the tree below is
   # re-verified byte for byte either way, so a hand-edited marker cannot make
   # a wrong tree pass.
-  _ck_ref="$OPT_REF"
-  if [ -z "$_ck_ref" ]; then
+  _ck_local_mode=0
+  if [ -n "$OPT_SOURCE" ]; then
+    _ck_local_mode=1
+    _ck_ref="local"
+    say "   LOCAL SOURCE CHECK — UNVERIFIED; compared against the CLI source"
+    say "                  $(cd "$OPT_SOURCE" && pwd -P), not a release."
+  fi
+  [ "$_ck_local_mode" = 1 ] || _ck_ref="$OPT_REF"
+  if [ "$_ck_local_mode" = 0 ] && [ -z "$_ck_ref" ]; then
     _ck_ref="$_ck_marker_ref"
     if [ -z "$_ck_ref" ]; then
       _ck_ref="$LATEST_TAG"
@@ -836,17 +855,31 @@ check_client() {
       say "   comparing against latest tag ${_ck_ref} (no marker to go by)"
     fi
   fi
-  if [ -n "$OPT_REF" ] && [ -n "$_ck_marker_ref" ] && [ "$OPT_REF" != "$_ck_marker_ref" ]; then
+  if [ "$_ck_local_mode" = 0 ] && [ -n "$OPT_REF" ] && [ -n "$_ck_marker_ref" ] && [ "$OPT_REF" != "$_ck_marker_ref" ]; then
     say "   REF MISMATCH: client claims ${_ck_marker_ref}, you asked about ${OPT_REF}"
     _ck_rc=1
   fi
-  if [ -z "$OPT_REF" ] && [ -n "$LATEST_TAG" ] && [ -n "$_ck_marker_ref" ] && [ "$_ck_marker_ref" != "$LATEST_TAG" ]; then
+  if [ "$_ck_local_mode" = 0 ] && [ -z "$OPT_REF" ] && [ -n "$LATEST_TAG" ] && [ -n "$_ck_marker_ref" ] && [ "$_ck_marker_ref" != "$LATEST_TAG" ]; then
     say "   BEHIND: ${_ck_marker_ref} installed, ${LATEST_TAG} is the newest tag"
   fi
 
   # The marker's commit is a claim too. Compare it with the commit the tag
   # actually points at: a moved tag, or a hand-edited marker, shows up here.
-  if [ -n "$_ck_marker_ref" ] && [ -n "${_ck_marker_commit-}" ]; then
+  if [ "$_ck_local_mode" = 1 ]; then
+    # The question local mode answers is "does this client equal the directory you
+    # just named?", not "has that directory never moved". Report the drift, do not
+    # overturn a byte-for-byte match with it.
+    _ck_src_head="$(git -C "$OPT_SOURCE" rev-parse HEAD 2>/dev/null || true)"
+    case "${_ck_marker_commit-}" in
+      ""|unknown*) : ;;
+      *)
+        if [ -n "$_ck_src_head" ] && [ "$_ck_src_head" != "$_ck_marker_commit" ]; then
+          say "   SOURCE REVISION CHANGED: marker says ${_ck_marker_commit}, source HEAD is ${_ck_src_head}"
+          say "                  (not a failure in local mode — the file comparison below is the verdict)"
+        fi
+        ;;
+    esac
+  elif [ -n "$_ck_marker_ref" ] && [ -n "${_ck_marker_commit-}" ]; then
     case "$_ck_marker_commit" in
       unknown*) : ;;
       *)
@@ -1059,7 +1092,7 @@ resolve_ref() {
     if [ -z "$REF" ]; then
       # Never silently install a branch: an unreviewed main is not a release.
       die "could not resolve the newest release tag (offline, rate-limited, or no tags).
-       Pass an explicit tag, e.g.:  --ref v0.2.3
+       Pass an explicit tag, e.g.:  --ref v0.3.0
        Tags: ${OPT_REPO}/tags"
     fi
     valid_ref "$REF" || die "resolved tag is not a release tag: $REF"

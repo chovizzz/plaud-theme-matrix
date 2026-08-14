@@ -1,7 +1,7 @@
 {
   "skill_name": "plaud-theme-feedback-triage",
   "matrix": "plaud-shopify-theme-matrix",
-  "version": "v0.2.3",
+  "version": "v0.3.0",
   "evals": [
     {
       "id": 1,
@@ -40,9 +40,9 @@
       "files": [],
       "assertions": [
         "输出拒绝复用旧 ChangeSetId。",
-        "输出引用 QA 通过后代码再变则原 QA 结论自动失效（handoff-schema §1.4）。",
+        "输出引用 QA 通过后代码再变则原 QA 结论自动失效（handoff-schema §2.8 失效语义）。",
         "输出说明必须新开工作项，NextRoute 为 NewWorkItem(Assess)。",
-        "输出指出'只改一行'不构成豁免，指纹一样会变。",
+        "输出指出'只改一行'不构成豁免：改在可发布面上 ThemeTreeOid 就会变，而且复用旧 ChangeSet 本身即违规，不以身份是否变化为条件。",
         "输出在 PM 确认后才走 NewWorkItem(Assess)，并填 NewWorkItemRef 与 OriginChangeSetId。"
       ]
     },

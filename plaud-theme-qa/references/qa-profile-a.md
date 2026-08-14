@@ -106,7 +106,7 @@ grep -rn "var(--<被删变量>)" <theme-root>/assets/
 grep -rn "settings.<被删字段>" <theme-root>/{sections,snippets}/
 grep -rn "dataset.<被删属性>\|data-<被删属性>" <theme-root>/{assets,sections,snippets}/
 # 杂散断点值（应统一，不应出现 1280 / 768 之类与主题基准不一致的值）
-git diff HEAD -U0 -- <ModifiedFiles> | grep -nE '^\+.*(min|max)-width:[[:space:]]*[0-9]'
+git -C <theme-root> diff <BaseHeadSha> -U0 -- <ModifiedFiles> | grep -nE '^\+.*(min|max)-width:[[:space:]]*[0-9]'
 ```
 
 判定：
@@ -121,7 +121,7 @@ git diff HEAD -U0 -- <ModifiedFiles> | grep -nE '^\+.*(min|max)-width:[[:space:]
 只在本次改动含 JS 时适用；否则 `NotApplicable` + 理由。
 
 ```bash
-git diff HEAD -U0 -- <改动的 js 文件> | grep -nE '^\+.*(addEventListener|setInterval|setTimeout|IntersectionObserver|MutationObserver|ResizeObserver|subscribe\()'
+git -C <theme-root> diff <BaseHeadSha> -U0 -- <改动的 js 文件> | grep -nE '^\+.*(addEventListener|setInterval|setTimeout|IntersectionObserver|MutationObserver|ResizeObserver|subscribe\()'
 grep -n "disconnectedCallback" <改动的 js 文件>
 ```
 
