@@ -1,6 +1,6 @@
 # PLAUD Shopify Theme Matrix — one-command installer (Windows PowerShell)
 #
-#   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.ps1))) -Ref v0.3.1
+#   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.ps1))) -Ref v0.3.2
 #
 # `irm ... | iex` CANNOT pass parameters. Use the scriptblock form above.
 #
@@ -41,6 +41,11 @@ $MarkerName       = '.plaud-installed-ref'
 $InProgressName   = '.plaud-install-inprogress'
 $SkillPrefix      = 'plaud-theme-'
 $LegacySkills     = @('plaud-shopify-theme')
+# Skills this package ships that do NOT carry the plaud-theme- prefix (bundled
+# tool skills, see MATRIX.md). Listed only so --check can still spot them as
+# STALE after a rollback to a tag that predates them: the prefix scan never
+# looks at them, and that same rollback rewrites the marker.
+$BundledSkills    = @('yidian-draft-pr')
 $ClientNames      = @('cursor', 'claude', 'codex', 'agents')
 
 # NOTE (v0.3.0): this port itself is UNVERIFIED on Windows (see README's known
@@ -54,7 +59,7 @@ function Show-Usage {
   @"
 $PackageName installer $InstallerVersion (Windows)
 
-  & ([scriptblock]::Create((irm https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.ps1))) -Ref v0.3.1
+  & ([scriptblock]::Create((irm https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.ps1))) -Ref v0.3.2
 
 NOTE: this port is UNVERIFIED on Windows — run -DryRun first, then -Check, before any
 real install. Separately: v0.3.0 ChangeSet identity forensics are NOT supported on
@@ -687,7 +692,7 @@ function Invoke-Check {
     $cand = @()
     if ($m) { $cand += $m.skills }
     foreach ($d in (Get-ChildItem -LiteralPath $dir -Directory -Force)) {
-      if ($d.Name.StartsWith($SkillPrefix) -or ($d.Name -in $LegacySkills)) { $cand += $d.Name; continue }
+      if ($d.Name.StartsWith($SkillPrefix) -or ($d.Name -in $LegacySkills) -or ($d.Name -in $BundledSkills)) { $cand += $d.Name; continue }
       # Third source: the directory NAME can be changed, the skill's declared
       # `name:` cannot without breaking the skill. Renaming a dropped skill out
       # of the plaud-theme-* prefix would otherwise slip past both the marker
@@ -695,7 +700,10 @@ function Invoke-Check {
       $sk = Join-Path $d.FullName 'SKILL.md'
       if (Test-Path -LiteralPath $sk -PathType Leaf) {
         $decl = (Select-String -LiteralPath $sk -Pattern '^name:\s*(.+)$' -List).Matches.Groups[1].Value
-        if ($decl -and $decl.Trim().Trim('"',"'").StartsWith($SkillPrefix)) { $cand += $d.Name }
+        if ($decl) {
+          $declName = $decl.Trim().Trim('"',"'")
+          if ($declName.StartsWith($SkillPrefix) -or ($declName -in $BundledSkills)) { $cand += $d.Name }
+        }
       }
     }
     $stale = @($cand | Sort-Object -Unique | Where-Object { $_ -and ($_ -notin $refSkills) -and (Test-Path -LiteralPath (Join-Path $dir $_)) })
@@ -755,7 +763,7 @@ try {
       Say "Resolving the newest release tag of $Repo ..."
       $Ref = Resolve-LatestTag -RepoUrl $Repo
       if (-not $Ref) {
-        Die "could not resolve the newest release tag (offline, rate-limited, or no tags).`n       Pass an explicit tag, e.g.:  -Ref v0.3.1`n       Tags: $Repo/tags"
+        Die "could not resolve the newest release tag (offline, rate-limited, or no tags).`n       Pass an explicit tag, e.g.:  -Ref v0.3.2`n       Tags: $Repo/tags"
       }
       Say "Newest release tag: $Ref"
     }

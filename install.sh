@@ -1,7 +1,7 @@
 #!/bin/sh
 # PLAUD Shopify Theme Matrix — one-command installer (macOS / Linux / WSL / Git Bash)
 #
-#   curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh | sh -s -- --ref v0.3.1
+#   curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh | sh -s -- --ref v0.3.2
 #
 # Written in strict POSIX sh on purpose: `curl … | sh` IGNORES the shebang, so
 # this file is executed by dash on Linux and by bash-in-POSIX-mode on macOS.
@@ -29,6 +29,13 @@ SKILL_PREFIX="plaud-theme-"
 # Superseded single skill. Installing the matrix beside it produces routing
 # competition: one task matches two different specs.
 LEGACY_SKILLS="plaud-shopify-theme"
+# Skills this package ships that do NOT carry the plaud-theme- prefix (bundled
+# tool skills, see MATRIX.md). They are installed like any other skill; this list
+# exists only so --check can still spot them as STALE after a rollback to a tag
+# that predates them -- the prefix scan alone would never look at them, and the
+# marker gets rewritten by that very rollback. Add a name here whenever a
+# non-prefixed skill is added to the package root.
+BUNDLED_SKILLS="yidian-draft-pr"
 CLIENT_NAMES="cursor claude codex agents"
 
 # --------------------------------------------------------------- usage
@@ -39,7 +46,7 @@ plaud-theme-matrix installer
 
 Usage:
   curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh | sh
-  curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh | sh -s -- --ref v0.3.1
+  curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh | sh -s -- --ref v0.3.2
   ./install.sh --check
 
 Content comes from a git TAG, downloaded as a tarball (no git required).
@@ -955,7 +962,7 @@ check_client() {
       ${SKILL_PREFIX}*) printf '%s\n' "$_ck_n" >>"${WORK}/stale.cand" ;;
       *)
         _ck_hit=0
-        for l in $LEGACY_SKILLS; do
+        for l in $LEGACY_SKILLS $BUNDLED_SKILLS; do
           [ "$_ck_n" = "$l" ] && { printf '%s\n' "$_ck_n" >>"${WORK}/stale.cand"; _ck_hit=1; }
         done
         # Third source: the directory NAME can be changed, the skill's declared
@@ -966,6 +973,9 @@ check_client() {
           _ck_decl="$(sed -n 's/^name:[[:space:]]*//p' "${_ck_d}/SKILL.md" 2>/dev/null | head -1 | tr -d '\r"'"'")"
           case "$_ck_decl" in
             ${SKILL_PREFIX}*) printf '%s\n' "$_ck_n" >>"${WORK}/stale.cand" ;;
+            *) for b in $BUNDLED_SKILLS; do
+                 [ "$_ck_decl" = "$b" ] && printf '%s\n' "$_ck_n" >>"${WORK}/stale.cand"
+               done ;;
           esac
         fi
         ;;
@@ -1092,7 +1102,7 @@ resolve_ref() {
     if [ -z "$REF" ]; then
       # Never silently install a branch: an unreviewed main is not a release.
       die "could not resolve the newest release tag (offline, rate-limited, or no tags).
-       Pass an explicit tag, e.g.:  --ref v0.3.1
+       Pass an explicit tag, e.g.:  --ref v0.3.2
        Tags: ${OPT_REPO}/tags"
     fi
     valid_ref "$REF" || die "resolved tag is not a release tag: $REF"

@@ -28,7 +28,7 @@
 任何 skill 引用本层后，在自己的正文里回报一次：
 
 ```yaml
-ContractVersion: v0.3.1
+ContractVersion: v0.3.2
 PathResolved:            # A | B | C | Cross(B+C) | Cross(A+C)
 StageResolved:           # Assess | Implement | Verify | N/A(NonStage)
                          #   ↑ 后者用于 §0.1 的四个非阶段 skill：orchestrator /
@@ -48,7 +48,7 @@ BlockingGaps:
 ```yaml
 ProducerSkill: plaud-theme-shared
 ConsumerSkill:           # 引用本层的 skill
-ContractVersion: v0.3.1
+ContractVersion: v0.3.2
 BlockingGaps:
 ReadyForNextSkill:       # Yes | No
 ```
@@ -153,7 +153,7 @@ spec 一升级，多副本必然漂移，随后两个 skill 会用两套值处�
 
 | 情形 | 动作 |
 |---|---|
-| 某 skill 输出的 `ContractVersion` ≠ `version-manifest.md` 的值 | 停机，要求重装整包（部分安装 = 两套 spec 处理同一 `memory/`） |
+| 某**矩阵 skill** 输出的 `ContractVersion` ≠ `version-manifest.md` 的值 | 停机，要求重装整包（部分安装 = 两套 spec 处理同一 `memory/`）。包内附带工具 skill（`version-manifest.md` §2.1）不输出该字段，缺失**不是**漂移 |
 | 本层 reference 更新了数值 | 消费者**不需要改自己的文件**——这正是"只引用不复制"的收益 |
 | 新增一个 reference | 同步更新 `SKILL.md` 的 Reference 索引表 + `version-manifest.md` §3 |
 | 红线增删 | **规范正文只改 `handoff-schema.md` §8**。`SKILL.md` 的「全路径红线」段是随包分发的索引式摘要（本版不可改），编号须与 §8 保持对齐；两者表述冲突以 `handoff-schema.md` 为准。本层 reference 只调细则，不复制正文 |

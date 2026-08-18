@@ -2,7 +2,7 @@
 
 All listed skills live directly under the repository root. The repository root itself
 is the package, **not** an installable skill — never copy the repo root into a skills
-directory. A version is a git tag; `v0.3.1` is the current release.
+directory. A version is a git tag; `v0.3.2` is the current release.
 
 ## Order
 
@@ -18,6 +18,21 @@ directory. A version is a git tag; `v0.3.1` is the current release.
 | 7 | `plaud-theme-qa` | Verify 阶段：Theme Check baseline 增量、5 断点回归、多语言、A11y、红线核查 —— **唯一交付权** | 用户 / `release-ops` |
 | 8 | `plaud-theme-feedback-triage` | 反馈归因：DTC §六 交付缺陷 vs 需求演进、依据、去向、Linear 状态建议 | 用户 / PM |
 | 9 | `plaud-theme-release-ops` | 发版与上线后：DTC §五 推站二次确认、PR、线上 bug 时效、回归用例入库 | 用户 |
+
+## Bundled Tool Skills (not on the matrix)
+
+Some root-level skills ship with this package but are **not part of the matrix**: they
+carry no `order`, never appear in the routing decision tree, have no `matrix-contract.md`,
+and neither produce nor consume `ChangeSetId` / `HandoffContract` fields. They are
+installed alongside the matrix purely so one install command covers the whole toolchain.
+
+| Skill | Purpose | Why it is off the matrix |
+|---|---|---|
+| `yidian-draft-pr` | Cherry-pick selected commits onto a fresh branch and open a **Draft** PR with the required yidian PR body (any base branch) | It operates on git/GitHub, not on theme code. It reads no matrix state and decides nothing the matrix decides |
+
+A bundled skill must never be treated as a stage, and the matrix must never route to it.
+`skill 数 = 10` in `version-manifest.md` counts matrix skills only; bundled skills are
+listed separately there.
 
 ## 入口暴露
 

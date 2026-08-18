@@ -1,0 +1,4 @@
+interface:
+  display_name: "Yidian Draft PR"
+  short_description: "Cherry-pick commits into a yidian draft PR (any base branch)"
+  default_prompt: "Use $yidian-draft-pr to cherry-pick selected commits into a draft PR against any base branch."

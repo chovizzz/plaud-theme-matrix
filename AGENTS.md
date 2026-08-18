@@ -8,7 +8,7 @@ and retire the superseded single skill it replaces.
 This package root is **not** a skill. Each root-level directory containing `SKILL.md`
 is one independent skill. Never copy the package root itself into a skills directory.
 
-Package version: `v0.3.1`.
+Package version: `v0.3.2`.
 
 ## Supported Targets
 
@@ -162,22 +162,29 @@ After installation, verify these directories exist under each target:
 - `plaud-theme-feedback-triage/SKILL.md`
 - `plaud-theme-release-ops/SKILL.md`
 
+Plus the bundled tool skill (not part of the matrix, see `MATRIX.md`):
+
+- `yidian-draft-pr/SKILL.md`
+
 The installer prints a declared-version table per client at the end. **A declared
 version is only a declaration.** The real proof the copy landed is a tree diff — run
 this from the package root:
 
 ```bash
 for c in cursor claude codex agents; do
-  d=0
-  for s in $(ls -d plaud-theme-*/ | xargs -n1 basename); do
+  d=0; n=0
+  for s in $(ls -d */ | xargs -n1 basename); do
+    [ -f "$s/SKILL.md" ] || continue
+    n=$((n+1))
     diff -rq "$s" "$HOME/.$c/skills/$s" >/dev/null 2>&1 || d=$((d+1))
   done
-  echo "$c : $d/10 mismatched"
+  echo "$c : $d/$n mismatched"
 done
 ```
 
-Every client must print `0/10`. A release that only lands on some clients leaves two
-specs running at once against one project.
+Every client must print `0/<n>`, where `<n>` is the number of skill directories in the
+package (10 matrix skills + the bundled tool skills). A release that only lands on some
+clients leaves two specs running at once against one project.
 
 ## Routing Cheat Sheet
 
@@ -192,6 +199,10 @@ Read `MATRIX.md` for the full state machine. For an agent deciding which skill t
 | 验收 / 回归 / theme check / 能不能发了 | `plaud-theme-qa` |
 | 必须拆成 ≥2 个可独立验收的 ChangeSet：迁移 wave / 多块排序与并行判定 / Cross(A+C) 裂块 | `plaud-theme-orchestrator` |
 | "矩阵怎么衔接" / "handoff 字段是什么" | `plaud-theme-shared` |
+
+The bundled `yidian-draft-pr` is deliberately **absent from this table**: it is not a
+matrix skill and nothing in the matrix routes to it. Load it only when the user asks
+for a PR.
 
 **Do not route a plain bugfix through the orchestrator.** A single block that walks
 Assess → Implement → Verify is the normal chain, not a "full flow"; the three
@@ -258,5 +269,5 @@ missed migrations.
   or `-CreateMissing all`.
 - The IDE still routes to the old `plaud-shopify-theme` → it was not retired; rerun
   with `--retire-legacy`, or check for a workspace-level copy shadowing the global one.
-- The IDE still uses an old matrix version → run the `0/10` tree diff above; a declared
+- The IDE still uses an old matrix version → run the `0/<n>` tree diff above; a declared
   version match is not proof.

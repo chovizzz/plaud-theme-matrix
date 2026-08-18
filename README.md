@@ -1,4 +1,4 @@
-# PLAUD Shopify Theme Matrix v0.3.1
+# PLAUD Shopify Theme Matrix v0.3.2
 
 Plaud 品牌 Shopify Online Store 主题开发的 **10 个 skill 矩阵**。它取代原来的单 skill
 `plaud-shopify-theme` —— 同一份规范被拆成契约层、编排层、Assess / Implement / Verify 三阶段，
@@ -33,6 +33,22 @@ Plaud 品牌 Shopify Online Store 主题开发的 **10 个 skill 矩阵**。它�
 那是每一块的正常链路。Cross(B+C)（按设计稿新建 section 且要符合 spec）是**一个** ChangeSet，
 直接走 `plaud-theme-section-build`，只是 QA 多带一个 QA-C profile。
 
+## 包内附带工具 skill（不占 order）
+
+除 10 个矩阵 skill 外，包里还随装一个**附带工具 skill**。它**不属于矩阵**：不占 order、
+不进路由判定树、没有 `matrix-contract.md`，也不产出/消费 `ChangeSetId`、`HandoffContract`
+这些契约字段。放进同一个包只是为了一条命令装完整套工具链。
+
+| Skill | 干什么 | 为什么不在矩阵里 |
+|---|---|---|
+| `yidian-draft-pr` | 把选定的 commit cherry-pick 到一条新分支，按 yidian 必填 PR body 开一个 **Draft PR**（base 分支不限） | 它操作的是 git / GitHub，不是主题代码；不读矩阵状态、不替矩阵做任何判定。用户要开 PR 时才加载，矩阵不会路由到它 |
+
+`version-manifest.md` 里的「skill 数 = 10」只数矩阵 skill；附带 skill 在那里单列。
+
+**它保留的护栏**：只建 Draft PR、只 cherry-pick 不 merge 整条分支、只推 PR 分支不直推 base 分支、
+PR body 五段必填（Summary / Test Plan / Risk-Rollback / Regression Matrix / Commits）。
+**它不再限制的**：base 分支白名单与「`main` 仅 `chovizzz` 可用」的判定，v0.3.2 起任意 base 都能开 PR。
+
 ## 安装
 
 **一条命令，装最新发布版**（四个客户端全装：`cursor` / `claude` / `codex` / `agents`）：
@@ -55,11 +71,11 @@ curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/in
 **钉一个版本**（复现某次交付时用这个，别用「最新」）：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh | sh -s -- --ref v0.3.1
+curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh | sh -s -- --ref v0.3.2
 ```
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.ps1))) -Ref v0.3.1
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.ps1))) -Ref v0.3.2
 ```
 
 **自检**（装了什么版本、树是否逐文件一致、有没有陈旧残留）：
@@ -89,7 +105,7 @@ sh 与 PowerShell 两边**同名同义**：
 
 | sh | PowerShell | 含义 |
 |---|---|---|
-| `--ref v0.3.1` | `-Ref v0.3.1` | 装哪个发布 tag。缺省 = 最新 tag；**解析不出来就报错，绝不静默装 `main`** |
+| `--ref v0.3.2` | `-Ref v0.3.2` | 装哪个发布 tag。缺省 = 最新 tag；**解析不出来就报错，绝不静默装 `main`** |
 | `--check` | `-Check` | 自检，不安装 |
 | `--dry-run` | `-DryRun` | 只报告要做什么，不碰任何安装目标 |
 | `--clients cursor,claude` | `-Clients cursor,claude` | 只装子集（**不推荐**，见下） |
@@ -152,7 +168,7 @@ marker 里的 `commit:` 也会跟该 tag **当前实际指向的 commit** 比对
 ```bash
 curl -fsSL -o /tmp/plaud-install.sh https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh
 less /tmp/plaud-install.sh          # 看一眼
-sh /tmp/plaud-install.sh --ref v0.3.1
+sh /tmp/plaud-install.sh --ref v0.3.2
 ```
 
 ### WSL / Git Bash 与 PowerShell 不要互相污染
@@ -178,7 +194,7 @@ sh /tmp/plaud-install.sh --ref v0.3.1
 - **客户端 skills 目录不存在时会被跳过**，除非 `--create-missing` 点名它（或 `all`）。安装器会在结尾
   明确列出被跳过的客户端 —— 这是「我以为装好了」的主要来源。
 - **`--ref` 缺省依赖 GitHub API**。离线、被限流、或仓库还没有 tag 时，安装器**报错退出**，
-  不会退回去装 `main`（未评审的 `main` 不是一个发布）。这时显式给 `--ref v0.3.1`。
+  不会退回去装 `main`（未评审的 `main` 不是一个发布）。这时显式给 `--ref v0.3.2`。
 
 ## 从单 skill `plaud-shopify-theme` 迁移
 
@@ -263,6 +279,21 @@ curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/in
 - `memory/changeset-log.md`
 
 缺失时 skill 会**停下问用户**，不会凭空重建一份。
+
+## v0.3.2 关键变化
+
+**包里多了一个 skill 目录，矩阵还是 10 个。** 新增包内附带工具 skill `yidian-draft-pr`
+（cherry-pick 选定 commit → 开 Draft PR），它不占 order、不进路由、不碰契约字段，
+定位见上面「包内附带工具 skill」一节。它的 **base 分支白名单与「`main` 仅 `chovizzz`」
+判定已去掉**，任意 base 都能开 PR；Draft-only、独立 PR 分支、PR body 五段必填这几条护栏
+保留；后两条脚本能兜底一部分（`--head` 必填且不得与 `--base` 同名、body 五段行首标题缺一即拒），
+但脚本不查 git，「head 是不是一条干净的新分支」仍靠 skill 工作流保证。
+
+安装器 `--check` 的 stale 扫描加了一个附带 skill 名单 —— 否则从 v0.3.2 回滚到旧 tag 时，
+这个不带 `plaud-theme-` 前缀的目录会留在盘上继续被路由而不被报告。
+
+`ContractVersion` 按约定同步递增到 v0.3.2（契约语义未改，只是版本戳）；顺带修掉 v0.3.1
+漏改的 `plaud-theme-shared/evals` 两处 `v0.3.0` 残留。
 
 ## v0.3.1 关键变化
 

@@ -5,6 +5,46 @@
 
 ---
 
+## v0.3.2 — 2026-08-18 · 新增包内附带工具 skill `yidian-draft-pr`（patch）
+
+**包里多了第 11 个 skill 目录，但矩阵仍是 10 个。** `yidian-draft-pr`（把选定 commit cherry-pick 到新分支、按 yidian 必填 PR body 开 Draft PR）此前只散落在个人 `~/.claude/skills` 下，各端各一份、改了没人同步。这版把它收进包里随 tag 分发，但**不接进矩阵契约**：不占 order、不进路由判定树、没有 `matrix-contract.md`，不产出也不消费 §4 / §5 任何字段。矩阵字段、枚举与路由口径一字未改。
+
+### 1. 新增 `yidian-draft-pr`（bundled，不占 order）
+
+它做的事发生在 `plaud-theme-qa` 给出 `ReadyForDelivery: Yes` **之后**的推送环节，操作对象是 git / GitHub 而不是主题代码，因此不该被当成一个阶段，矩阵也不得路由到它。定位见 `MATRIX.md`「Bundled Tool Skills」与 `version-manifest.md` §2.1。
+
+**去掉了 base 分支白名单。** 原版把 base 限死在 `develop` / `us/yidian-dev` / `global/yidian-dev` / `jp/yidian-main` / `us/yidian-main`，且 `main` 只有 `gh api user` 返回 `chovizzz` 时才放行 —— 这条 GitHub 账号判定既挡不住真正的误操作（本地 `gh` 登录谁都能换），又让这个 skill 没法用在别的仓库上。现在任意 base 都能开 PR。
+
+**保留并补强的护栏**（去限制不等于拆护栏）：
+
+| 护栏 | v0.3.2 的状态 |
+|---|---|
+| 只建 Draft PR | 脚本硬加 `--draft`，不可关 |
+| 只 cherry-pick，不 merge 整条源分支 | SKILL 工作流约束 |
+| commit 落在独立 PR 分支上 | SKILL 工作流约束。脚本只能做到**部分**兜底：`--head` 必填、且拒绝 `--head` 与 `--base` 同名 —— 它不查 git，`--base develop --head main` 这种「head 是另一条共享分支」它拦不住 |
+| PR body 五段必填 | **新增强制**：body 缺 `## Summary` / `## Test Plan / Verification Evidence` / `## Risk / Rollback` / `## Regression Matrix` / `## Commits` 任一个**行首 `##` 标题**即拒绝（按行锚定，注释掉的标题不算数） |
+| 不直推 base | 由具体分支名列举改成「不直推选定 base 或任何共享/受保护分支」——白名单没了，按名字列举也就失去意义 |
+
+脚本调用路径原先写死 `/Users/chovi/.codex/skills/...`，现改为先解析已安装的 skill 目录再调用，并给出 `gh pr create` 的兜底写法。
+
+### 2. 安装器：附带 skill 进 stale 扫描名单
+
+`--check` 的 stale 扫描此前只认三种候选：marker 里记的、`plaud-theme-*` 前缀的、legacy 名单里的。`yidian-draft-pr` 三样都不占。后果是**回滚场景漏报**：从 v0.3.2 装回 v0.3.1，安装器不会删除目标 tag 里没有的目录，却会把 marker 重写成 10 个 —— 于是这个 skill 留在盘上继续被路由，`--check` 还报 OK。
+
+两个安装器各加一个 `BUNDLED_SKILLS` / `$BundledSkills` 精确名单（**只用于 stale 候选扫描**，不进矩阵契约、不影响安装发现逻辑 —— 安装发现一直是「含 `SKILL.md` 的根目录」，本来就认得它）。今后往包根加任何**不带 `plaud-theme-` 前缀**的 skill，都要同步加进这两个名单。
+
+### 3. `ContractVersion` 一并递增到 v0.3.2
+
+契约字段一个没动，但 `version-manifest.md` 的约定是「`ContractVersion` 与包版本同步递增，不符即判版本漂移停机」。所以 `plaud-theme-shared` 的 SKILL 与 matrix-contract 里的样例值、各 skill `evals.json` 的版本字段一并升到 v0.3.2 —— 这也意味着**本版并非「共享契约 skill 未改」**，只是改的是版本戳而非语义。
+
+顺带修掉 v0.3.1 漏改的两处残留：`plaud-theme-shared/evals/evals.json` 的 `contract_version` 还停在 `v0.3.0`，其中一条 eval 的 `expected_output` 也仍期望 `ContractVersion v0.3.0`。它们本会把符合当前契约的正确输出判为错。
+
+### 4. 文档
+
+`MATRIX.md` 新增「Bundled Tool Skills」小节，`version-manifest.md` 新增 §2.1 并把 skill 数拆成「矩阵 10 / 附带 1 / 实际安装 11」，`README.md` 新增「包内附带工具 skill」小节，`AGENTS.md` 的验证清单补上 `yidian-draft-pr/SKILL.md`、手工 tree diff 从写死的 `0/10` 改成按包内实际 skill 目录数动态计数（写死 10 会让附带 skill 永远不被核对）。
+
+---
+
 ## v0.3.1 — 2026-08-14 · 路由口径修正（patch）
 
 **`plaud-theme-dev` 的直接下游写错了：契约早在 v0.2.0 就定为 `plaud-theme-qa-intake`（提测准入），但 dev 里有三处仍写着直接交 `plaud-theme-qa`。** 外部评审报了其中两处，第三处（frontmatter 的路由触发文本）与后续四处包级/编排层残留是顺着扫出来的。字段、枚举、指纹模型一字未改，纯接线修正。

@@ -8,15 +8,15 @@
 
 | 项 | 值 |
 |---|---|
-| 矩阵包版本 | **v0.3.1**（已发布，git tag `v0.3.1`） |
+| 矩阵包版本 | **v0.3.2**（已发布，git tag `v0.3.2`） |
 | 包名 | `plaud-theme-matrix`（git 仓库 <https://github.com/chovizzz/plaud-theme-matrix>；版本靠 tag 钉，不再有 `-vX.Y.Z` 目录与 zip） |
-| 契约版本（`ContractVersion`） | **v0.3.1**（与包版本同步递增；v0.3.1 是 v0.3.0 的路由口径修正，字段与枚举一字未改） |
+| 契约版本（`ContractVersion`） | **v0.3.2**（与包版本同步递增；v0.3.2 只新增包内附带工具 skill，矩阵字段、枚举与路由一字未改——但契约版本仍按约定同步递增，否则四端会判版本漂移） |
 | 对应 UX Spec 版本 | **v1.3 · 2026-08-11 设计 Token 基线**（源文档 `Plaud-UX-v1.3`「设计 Token 与组件规范文档」，8 页 PDF）。它取代了 v0.1.0 依据的 `PLAUD_UX_规范基准_v1.3.md`（含 2026-07 补充修订 4 条）——版本号同为 v1.3，但内容是重新整理过的一版，差异见 CHANGELOG |
 | 对应交付标准 | **《DTC 开发交付标准 v1.0》**（2026-08-06，运营与产研共同维护，双周会可审议修订） |
 | 前身 | v0.1.0（7 skill）；再前身是单 skill 包 `plaud-shopify-theme-skill` |
-| skill 数 | **10** |
+| skill 数 | 矩阵 skill **10**；包内附带工具 skill **1**（见 §2.1）；安装器实际安装目录 **11** |
 
-**`ContractVersion` 与包版本同步递增。** 任一 skill 输出的 `ContractVersion` 与本文件不符 → 视为版本漂移，停机并要求重装。
+**`ContractVersion` 与包版本同步递增。** 任一**矩阵 skill**（§2 那 10 个）输出的 `ContractVersion` 与本文件不符 → 视为版本漂移，停机并要求重装。§2.1 的包内附带工具 skill **不输出 `ContractVersion`，也不参与漂移判定**——它没有这个字段不是漂移。
 
 ### 1.1 哪些改动**必须**伴随一次版本发布（v0.2.2 补）
 
@@ -46,6 +46,17 @@
 | **7** | `plaud-theme-qa` | Verify 阶段唯一执行者，**唯一有权输出 `ReadyForDelivery: Yes`**；跑 QA-A/B/C + QA-Global | Verify / A·B·C |
 | **8** | `plaud-theme-feedback-triage` | **反馈归因入口**（不占阶段轴）：按 DTC §六 判交付缺陷 vs 需求演进，给依据与去向；判定人是 PM | 事件入口 |
 | **9** | `plaud-theme-release-ops` | **发版与上线后**（不占阶段轴，Verify 之后）：按 DTC §五 做推站二次确认、PR 汇总、线上 bug 时效与回归用例入库 | 发版 |
+
+### 2.1 包内附带工具 skill（不占 order，不进矩阵）
+
+上表的 **skill 数 = 10 只数矩阵 skill**。包里另随装下列**附带工具 skill**：它们不占 order、
+不进路由判定树、没有 `matrix-contract.md`，不产出也不消费 §4 / §5 的任何契约字段，
+`ContractVersion` 漂移判定也不适用于它们。安装后客户端目录里会比矩阵多出这些目录，
+**这不是版本漂移**。
+
+| skill | 一句话职责 | 与矩阵的关系 |
+|---|---|---|
+| `yidian-draft-pr` | 把选定 commit cherry-pick 到新分支，按 yidian 必填 PR body 开 Draft PR（base 分支不限） | 无。它不读矩阵状态、不输出契约字段；**矩阵不得路由到它**，它也不得被当作某个阶段或某个阶段的前后置条件 |
 
 入口暴露分层（不是十个平级入口）：
 
