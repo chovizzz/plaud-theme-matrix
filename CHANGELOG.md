@@ -5,6 +5,21 @@
 
 ---
 
+## v0.3.6 — 2026-08-19 · vendor-sync：目标仓忽略 `.github/` 时新增文件加不进去（patch）
+
+**第一次对真实公司仓跑 `--push` 就撞上了。** 主题仓的 `.gitignore` 里有 `/.github`，于是 `git add -- .github/codex/plaud-theme-matrix` 直接被忽略规则拒掉：
+
+```
+The following paths are ignored by one of your .gitignore files:
+.github
+```
+
+已跟踪的老文件不受影响（gitignore 管不到它们），所以这个 bug 只在**新增文件**上现形 —— 换句话说，同步一个只改了现有文件的版本会正常，同步一个新增了 reference 的版本会悄悄漏掉那些文件。改成 `git add -f -- <vendored path>`，作用域只有那一个路径，别的什么都强制不了。
+
+顺带记一笔真实运行的结果：v0.3.1 → v0.3.5 的同步是 14 个文件、`+54/-23`、**0 个越界文件**，分支正好挂在远端 `main` 上，用户的脏工作树与当前分支全程没被碰过。
+
+---
+
 ## v0.3.5 — 2026-08-19 · skill 调用也触发检查（四端覆盖，仍不中途换文件）
 
 **v0.3.4 的自动更新只有 Claude Code 的 SessionStart 一个触发点，覆盖不到 cursor / codex / agents。** 这版加上第二个触发点：**用到 skill 的时候**。参照 social-hub CLI 的自更新，但在一处刻意分道扬镳 —— 见下。

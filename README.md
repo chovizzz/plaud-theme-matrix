@@ -1,4 +1,4 @@
-# PLAUD Shopify Theme Matrix v0.3.5
+# PLAUD Shopify Theme Matrix v0.3.6
 
 Plaud 品牌 Shopify Online Store 主题开发的 **10 个 skill 矩阵**。它取代原来的单 skill
 `plaud-shopify-theme` —— 同一份规范被拆成契约层、编排层、Assess / Implement / Verify 三阶段，
@@ -72,11 +72,11 @@ curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/in
 **钉一个版本**（复现某次交付时用这个，别用「最新」）：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh | sh -s -- --ref v0.3.5
+curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh | sh -s -- --ref v0.3.6
 ```
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.ps1))) -Ref v0.3.5
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.ps1))) -Ref v0.3.6
 ```
 
 **自检**（装了什么版本、树是否逐文件一致、有没有陈旧残留）：
@@ -106,7 +106,7 @@ sh 与 PowerShell 两边**同名同义**：
 
 | sh | PowerShell | 含义 |
 |---|---|---|
-| `--ref v0.3.5` | `-Ref v0.3.5` | 装哪个发布 tag。缺省 = 最新 tag；**解析不出来就报错，绝不静默装 `main`** |
+| `--ref v0.3.6` | `-Ref v0.3.6` | 装哪个发布 tag。缺省 = 最新 tag；**解析不出来就报错，绝不静默装 `main`** |
 | `--check` | `-Check` | 自检，不安装 |
 | `--dry-run` | `-DryRun` | 只报告要做什么，不碰任何安装目标 |
 | `--clients cursor,claude` | `-Clients cursor,claude` | 只装子集（**不推荐**，见下） |
@@ -169,7 +169,7 @@ marker 里的 `commit:` 也会跟该 tag **当前实际指向的 commit** 比对
 ```bash
 curl -fsSL -o /tmp/plaud-install.sh https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh
 less /tmp/plaud-install.sh          # 看一眼
-sh /tmp/plaud-install.sh --ref v0.3.5
+sh /tmp/plaud-install.sh --ref v0.3.6
 ```
 
 ### WSL / Git Bash 与 PowerShell 不要互相污染
@@ -195,7 +195,7 @@ sh /tmp/plaud-install.sh --ref v0.3.5
 - **客户端 skills 目录不存在时会被跳过**，除非 `--create-missing` 点名它（或 `all`）。安装器会在结尾
   明确列出被跳过的客户端 —— 这是「我以为装好了」的主要来源。
 - **`--ref` 缺省依赖 GitHub API**。离线、被限流、或仓库还没有 tag 时，安装器**报错退出**，
-  不会退回去装 `main`（未评审的 `main` 不是一个发布）。这时显式给 `--ref v0.3.5`。
+  不会退回去装 `main`（未评审的 `main` 不是一个发布）。这时显式给 `--ref v0.3.6`。
 
 ## 从单 skill `plaud-shopify-theme` 迁移
 

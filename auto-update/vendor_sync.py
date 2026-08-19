@@ -257,7 +257,12 @@ def sync(repo_path: Path, repo: str, package_root: Path, tag: str,
             git(["worktree", "add", "--detach", str(wt), base_sha], cwd=repo_path)
             written = project(package_root, wt / VENDOR_PATH)
             refresh_vendored_md(wt / VENDOR_PATH, tag, len(written))
-            git(["add", "--", VENDOR_PATH], cwd=wt)
+            # -f because the target repo's .gitignore may exclude the whole
+            # `.github/` tree (this one does). The vendored copy is tracked
+            # anyway -- CI reads it -- so already-tracked files update fine and
+            # only NEW files would silently go missing without this. Scoped to
+            # the vendored path, so nothing else can be force-added.
+            git(["add", "-f", "--", VENDOR_PATH], cwd=wt)
             if not git(["status", "--porcelain", "--", VENDOR_PATH], cwd=wt).strip():
                 return f"vendored copy is already at {tag}; nothing to do."
             git(["checkout", "-b", branch], cwd=wt)

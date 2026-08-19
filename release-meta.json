@@ -1,11 +1,8 @@
 {
   "schema": 1,
-  "version": "v0.3.5",
-  "previous_version": "v0.3.4",
-  "compatibility": "breaking",
-  "breaking_reasons": [
-    "plaud-theme-shared/SKILL.md 新增一节（包更新提示），canonical 契约文件有改动",
-    "更新检查现在也由 skill 调用触发，四端都会跑到 —— 行为面变了，值得你看一眼再装"
-  ],
-  "headline": "skill 调用时也检查更新（四端覆盖）；仍然只在新会话安装"
+  "version": "v0.3.6",
+  "previous_version": "v0.3.5",
+  "compatibility": "compatible",
+  "breaking_reasons": [],
+  "headline": "vendor-sync 修复：目标仓 .gitignore 排除 .github/ 时新增文件加不进 commit"
 }
