@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "version": "v0.3.4",
+  "previous_version": "v0.3.3",
+  "compatibility": "compatible",
+  "breaking_reasons": [],
+  "headline": "auto-update: new releases install themselves on session start; breaking ones wait for you"
+}

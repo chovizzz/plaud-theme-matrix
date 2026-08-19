@@ -2,7 +2,7 @@
 
 All listed skills live directly under the repository root. The repository root itself
 is the package, **not** an installable skill — never copy the repo root into a skills
-directory. A version is a git tag; `v0.3.3` is the current release.
+directory. A version is a git tag; `v0.3.4` is the current release.
 
 ## Order
 
@@ -29,6 +29,11 @@ installed alongside the matrix purely so one install command covers the whole to
 | Skill | Purpose | Why it is off the matrix |
 |---|---|---|
 | `yidian-draft-pr` | Cherry-pick selected commits onto a fresh branch and open a **Draft** PR with the required yidian PR body (any base branch), keeping everything that is not Shopify theme code out of it | It operates on git/GitHub, not on theme code. It reads no matrix state and decides nothing the matrix decides |
+
+The package also ships `auto-update/` (an updater, not a skill — it installs to
+`~/.local/share/plaud-theme-matrix/runtime`, never to a skills directory) and
+`release-meta.json`, which tells that updater whether a release may install itself
+unattended. Neither is part of the matrix.
 
 A bundled skill must never be treated as a stage, and the matrix must never route to it.
 `skill 数 = 10` in `version-manifest.md` counts matrix skills only; bundled skills are

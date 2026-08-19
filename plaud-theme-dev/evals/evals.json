@@ -1,7 +1,7 @@
 {
   "skill_name": "plaud-theme-dev",
   "skill": "plaud-theme-dev",
-  "version": "v0.3.3",
+  "version": "v0.3.4",
   "path": "A",
   "stage": "Implement",
   "notes": "assertions 为对 agent 输出的 substring 检查。刻意只断言契约常量、skill 名、字段名与不可改写的术语，不断言易被同义改写的自然语句。",

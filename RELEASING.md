@@ -42,12 +42,33 @@
 - `CHANGELOG.md` 顶部新增一节
 - `MATRIX.md` / `AGENTS.md`（只有矩阵接线变了才需要）
 
+- **`release-meta.json`（v0.3.4 起必改）** —— 自动更新器读它来决定要不要自动装：
+
+  ```json
+  {"schema": 1, "version": "vX.Y.Z+1", "previous_version": "vX.Y.Z",
+   "compatibility": "compatible", "breaking_reasons": [], "headline": "一句话"}
+  ```
+
+  🔴 **`version` 必须与将要打的 tag 完全一致**，否则更新器判 `unknown`，所有人只会看到提示、装不上。
+  🔴 **`compatibility` 是人下的判断，不是算出来的**：契约字段/枚举/路由语义有增删或改义 → `breaking`，
+  并在 `breaking_reasons` 里逐条写清；只改文案、只改附带工具、只递增版本戳 → `compatible`。
+  拿不准就写 `breaking` —— 代价只是让人手动确认一次，反过来则是四端悄悄换了规则。
+  注意 **`ContractVersion` 每版都递增，它不能用来判破坏性**。
+
 改完先自查：
 
 ```bash
 # 还有没有漏掉的旧版本号
 grep -rn 'v0\.2\.3' --include='*.md' . | grep -v CHANGELOG.md
+
+# release-meta.json 的完整校验（schema + 与 tag 一致 + 契约门禁）
+python3 auto-update/check_release_meta.py --tag vX.Y.Z+1
 ```
+
+`check_release_meta.py` 会在你声明 `compatible` 时，比对 canonical 契约文件
+（`handoff-schema.md`、`shared/SKILL.md`、所有 `matrix-contract.md`）与上一版的差异——
+除版本戳与日期外只要有变化就**拒绝** `compatible`。它分不清「改措辞」和「改语义」，
+这正是它的用处：宁可多一次人工确认，也不要四端悄悄换了规则。
 
 ### 2. 发布前先在隔离环境实装一次
 
@@ -88,6 +109,9 @@ HOME="$REH2" ./install.sh --repo "$PWD" --check
 ### 3. 提交 + 打 tag + 推送
 
 **推送是最后一步**：先提交、再打 tag、再回到第 2 步做本地 archive 演练，通过了才 push。
+
+🔴 **`auto-update/` 与 `release-meta.json` 必须进 tag** —— 自动更新器是从 tag 的树里装出来的，
+漏掉它们等于这一版没有自动更新，而且下一版的更新器也装不上。
 
 ```bash
 git add -A                        # 不要只 add 新文件：版本之间是有文件删除的
@@ -160,7 +184,9 @@ curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/in
 | | 状态 |
 |---|---|
 | `install.sh` | **实跑验证过**（macOS）：装最新 tag / 钉 `--ref v0.2.2` / `--check` / `--dry-run`；造陈旧残留文件与陈旧 skill 目录并确认能报出、重装能清；注入恒失败的 `tar` / `git` / `curl` / `mktemp`；`chmod 500` 复现「删除失败却报成功」的历史事故；symlink 目标目录；`HOME` 未设；管道截断。`bash 3.2` / `dash` / `zsh` 三家一致。另外按外部评审（Codex）构造的攻击逐条实测：清空 marker、伪造 `commit:`、把 marker 的 `ref:` 改成分支名、把 in-progress 标记换成目录、把被删掉的 skill 改成不带 `plaud-theme-` 前缀的名字、残留 staging 目录、并发两个不同 ref、swap 中途 `kill -9` —— 全部报出问题并非零退出，没有一条能让 `--check` 说"一致" |
-| `install.ps1` | **从未在 Windows 上跑过，连语法解析都没跑过**（开发机没有 PowerShell）。是 `install.sh` 的静态移植。首次在 Windows 上用前先 `-DryRun`，再 `-Check`，别直接实装 |
+| `install.ps1` | **从未在 Windows 上跑过，连语法解析都没跑过**（开发机没有 PowerShell）。是 `install.sh` 的静态移植。首次在 Windows 上用前先 `-DryRun`，再 `-Check`，别直接实装。⚠️ **它不安装 auto-update runtime**（v0.3.4 起）：Windows 用户装到的是没有自动更新的包，仍按老办法手动重装。这是已知缺口，不是 bug |
+| `auto-update/update.py` | macOS 实测：兼容版本自动装 / breaking 只提示 / 元数据缺失或对不上不装 / 非 startup 不装 / skill 增删不装 / 树不干净不装 / 混合版本不装 / 网络失败静默且不吞掉已有提示 / 安装后校验失败不算成功 / 锁 / 频率阀 / 手工 apply 只放行 breaking 一档 / pinned commit 真的传给安装器。46 条回归见 `auto-update/tests/test_update.py` |
+| `auto-update/vendor_sync.py` | macOS 实测：脏工作树不受影响、只动 vendored 路径、`VENDORED.md` 保留且版本行刷新、lookalike host 与 push URL 不一致均拒绝、手改过的 vendored 副本拒绝同步、本地/远端同名分支停手、已同步则 no-op。20 条回归见 `auto-update/tests/test_vendor_sync.py`。**`--push` 路径（真开 PR）尚未对真实仓库跑过** |
 
 改安装器之后**至少**要重跑这几条：
 

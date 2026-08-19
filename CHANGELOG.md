@@ -5,6 +5,94 @@
 
 ---
 
+## v0.3.4 — 2026-08-19 · 自动更新（patch）
+
+**装了就不用再手动 `curl | sh`：新版本会在下一次新会话开始时自己装上；带破坏性变更的版本不会自动装，只提示。** 机制随包分发（`auto-update/`），默认**关闭**，一条命令开启。矩阵语义一字未改。
+
+### 1. 它做什么
+
+Claude Code 的 `SessionStart` hook 调 `auto-update/update.py`：查最新 release → 判定能不能自动装 → 装或不装 → 给会话留一行话。
+
+**只在 `matcher: startup` 装。** resume / clear / compact 的 hook 触发时，会话早已读过 skill；那时替换文件会让同一次会话前后按两套规则工作。这几种事件只检查、只报告，绝不安装。（同一台机器上另一个客户端的会话仍可能正在读被替换的目录 —— 这是自动更新固有的代价，锁与「只在新会话」把窗口压到最小，但消不掉。）
+
+### 2. 什么情况下**不**自动装
+
+一律只提示、写 pending、等人拍板：
+
+| 情况 | 为什么 |
+|---|---|
+| release 声明 `compatibility: breaking` | 用户要的就是这条：破坏性变更先告知 |
+| 没有 `release-meta.json`、版本对不上、取不到 | **拿不准 = 不装**。v0.3.3 及更早的 tag 都没有这个文件，所以从旧版本升上来必然走人工确认一次 |
+| skill 增删（上游新增或删掉某个 skill） | 安装器不会删旧 skill，自动跨过增删会留下一个仍被路由的陈旧 skill |
+| 本地已装的树与它自称的版本对不上 | 有人手改过、或上次装了一半。这种状态该给人看，不该被悄悄覆盖 |
+| 已有另一个会话正在更新（锁） | 两个安装器写同一批 skills 目录，比不更新糟得多 |
+
+**破坏性判定不看版本号，也不看 ContractVersion。** 本包每个 patch 都递增 `ContractVersion`（v0.3.1/v0.3.2/v0.3.3 都是），拿它当判据会把所有 patch 误判成破坏性。判据是发版时写进 `release-meta.json` 的 `compatibility` 字段 —— 声明，不是猜测。版本号只出现在提示文案里。
+
+取版本时先把 tag 解析成 **commit SHA 并钉住**，metadata 与树都从这个 SHA 取：tag 中途被移动也拼不出两个版本的混合体。
+
+### 3. 失败时它闭嘴
+
+没网、GitHub 挂了、被限流：会话照常开始，什么都不说，只写日志并退避（网络失败 30 分钟，安装失败 24 小时）。**这个东西永远不该成为「今天开不了工」的原因。** 检查频率 6 小时一次。
+
+远端来的文案（headline / breaking_reasons）会被去掉控制字符并截断 —— 它不该能往终端里画东西。
+
+### 4. runtime 装在哪
+
+`~/.local/share/plaud-theme-matrix/runtime/`，**不在任何 skills 目录里** —— skills 目录正是它要替换的东西。目录整体 rename 替换，所以正在运行的 updater 读的仍是旧 inode，不会被替换到一半。状态、pending、日志在 `~/.local/state/plaud-theme-matrix/`（`0700`，日志轮转）。
+
+（此前 `install.sh` 只安装含 `SKILL.md` 的目录，所以 updater 脚本本身根本装不到本机 —— 外部评审逮到的，否则整个机制在真实安装里是空的。）
+
+### 5. 开关
+
+```bash
+sh install.sh --enable-auto-update     # 加 SessionStart hook（合并写入，保留你已有的键，先备份）
+sh install.sh --disable-auto-update
+sh install.sh --auto-update-status     # 装了什么、有什么在等、上次什么时候看的
+plaud-matrix-update check | apply --yes | status
+```
+
+`~/.local/share/plaud-theme-matrix/bin/plaud-matrix-update` 是稳定入口。
+
+### 6. vendored 副本：独立开关
+
+主题仓的 `.github/codex/plaud-theme-matrix/`（CI 评审用）会随上游发版落后。注册之后，每次成功更新会在那个仓开一个 **Draft PR**：
+
+```bash
+plaud-matrix-update vendor add --path ~/workspace/shopify-plaud-yidian --repo Tinsley-Chen/shopify-plaud-yidian
+plaud-matrix-update vendor list | run --push
+```
+
+**与自动更新分开开启**：更新自己这台机器，和往共享仓库推分支，是两个层级的同意。
+
+护栏：目标必须是真 git worktree 且 remote 确实指向该仓；改动在**临时 detached worktree** 里做，用户的 checkout、分支、暂存区一律不碰（工作树脏也不影响）；base 分支从远端读（`ls-remote --symref`，不假设 `main`）并在 push 前复查；同名分支（本地或远端）或已存在同 tag 的 PR 就停手，绝不 force-push、不加随机后缀；只建 Draft，永不 merge。
+
+**投影是明确的**：只同步 `plaud-theme-*` 十个矩阵 skill，`VENDORED.md`（主题仓自己的元数据，上游没有）原样保留 —— 「整目录替换」会把它删掉。附带工具 skill 不进 CI 副本。
+
+### 7. 外部评审逮到的三个真问题
+
+这一版的自动更新经过三轮外部评审（Codex），其中三条是「不修就等于没做」：
+
+1. **`auto-update/` 会被当成一个新增的 skill** —— 我原本按「顶层目录」比对 skill 集合，而 v0.3.4 正好在包根加了 `auto-update/`。后果不是报错，是**每一个兼容版本都永远装不上**，且提示写着「skill set changed」。改成按「含 `SKILL.md` 的顶层目录」判定（与安装器同一条规则），并把回归用例的桩下沉到 HTTP 层——原来的桩正好绕过了这个函数，所以 29 条测试全绿也没抓到。
+2. **`apply --yes` 会绕过所有门禁** —— 原实现里手工确认能把「元数据对不上」「skill 增删」「本地树被手改」一起放行。现在分成两类：`breaking` 是判断题，人可以说了算；其余是**硬门禁**，`apply --yes` 一概不放行 —— 确认「装这个破坏性版本」不等于确认「用一个我认不出来的版本覆盖我手改过的树」。
+3. **钉住的 commit 没真的传给安装器** —— 判定用 pinned SHA，安装却仍按 tag 下载。tag 在两次请求之间被移动，就会拿 A 版本的元数据装 B 版本的文件。`install.sh` 新增 `--commit <sha>`（要求同时给 `--ref`），更新器安装时必传。
+
+另外修掉：安装后校验失败仍会清掉 pending 并记成功（半更新状态会伪装成成功再沉默六小时）；runtime 的 `cp` 没有 symlink 防护（runtime 是**直接执行的代码**，比 skill 内容更该防）；锁在被人工清理后可能被上一个进程误删；`should_check` 遇到 `NaN`/坏 state 会永久不检查；网络失败会盖掉已有的破坏性提示；确认了 A 版本却可能装上期间发布的 B 版本。
+
+### 8. 测试
+
+`auto-update/tests/test_update.py`：**46 条**，桩掉网络与安装器（但**不桩** skill 集合比对——那个桩正是漏掉上面第 1 条的原因）。覆盖：compatible 装 / breaking 不装 / metadata 缺失或对不上不装 / 非 startup 不装 / skill 增删不装 / **包根的非 skill 目录不算 skill 增删** / tree 列表被截断不装 / 树不干净不装 / 客户端版本不一致不装 / 已是最新则沉默 / 没装过包则不装 / 网络失败沉默且退避 / **网络失败不吞掉已有的破坏性提示** / 安装失败上报 / **安装后校验失败保留 pending 且不记成功** / 安装器超时不抛异常 / 频率阀 / 锁 / **`apply --yes` 只放行 breaking，不放行脏树·未知元数据·skill 增删** / **确认 A 版本时 B 版本已发布则拒装并重新确认** / **pinned commit 真的传给安装器** / 坏 state 与 NaN 不会永久停检 / 远端文案不能画终端。
+
+`auto-update/tests/test_vendor_sync.py`：**20 条**，在临时 bare 仓上跑真 git。覆盖：脏工作树不受影响、用户分支不变、只动 vendored 路径、`VENDORED.md` 保留**且版本行刷新**、只同步 `plaud-theme-*`（附带 skill 与 `auto-update/` 不进 CI 副本）、lookalike host 拒绝、fetch/push URL 不一致拒绝、**手改过的 vendored 副本拒绝同步并点名文件**、本地遗留同名分支停手、已同步则 no-op、非 git 目录拒绝。
+
+`auto-update/check_release_meta.py`：发版门禁，schema + 与 tag 一致 + 契约文件保守闸门，双向验证过（少 breaking_reasons 拒、version 与 tag 不符拒、正常放行）。
+
+### 9. `ContractVersion` 递增到 v0.3.4
+
+同前几版：语义未改，只是版本戳。
+
+---
+
 ## v0.3.3 — 2026-08-18 · `yidian-draft-pr` 只让主题代码进 PR（patch）
 
 **cherry-pick 很容易把不属于 Shopify 主题的文件顺手带进 PR。** 目标主题仓的 git 历史里 `.DS_Store` 与 `.backup/` 都真的被提交过，`.DS_Store` 至今还是 tracked 状态。这版给 `yidian-draft-pr` 加了一道改动文件门禁：**主题代码放行，垃圾文件直接剔除，其余非主题文件逐条问用户**。矩阵的字段、枚举与路由语义一字未改；矩阵 skill 里动的只有随包递增的版本戳。

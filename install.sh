@@ -1,7 +1,7 @@
 #!/bin/sh
 # PLAUD Shopify Theme Matrix — one-command installer (macOS / Linux / WSL / Git Bash)
 #
-#   curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh | sh -s -- --ref v0.3.3
+#   curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh | sh -s -- --ref v0.3.4
 #
 # Written in strict POSIX sh on purpose: `curl … | sh` IGNORES the shebang, so
 # this file is executed by dash on Linux and by bash-in-POSIX-mode on macOS.
@@ -37,6 +37,12 @@ LEGACY_SKILLS="plaud-shopify-theme"
 # non-prefixed skill is added to the package root.
 BUNDLED_SKILLS="yidian-draft-pr"
 CLIENT_NAMES="cursor claude codex agents"
+# Where the auto-updater lives once installed. NOT a skills dir: the skills dirs
+# are what it replaces, and a runtime that replaces itself in place would be
+# rewriting a script it is still reading.
+RUNTIME_HOME="${HOME}/.local/share/${PACKAGE_NAME}"
+RUNTIME_DIR="${RUNTIME_HOME}/runtime"
+RUNTIME_BIN="${RUNTIME_HOME}/bin"
 
 # --------------------------------------------------------------- usage
 
@@ -46,13 +52,17 @@ plaud-theme-matrix installer
 
 Usage:
   curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh | sh
-  curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh | sh -s -- --ref v0.3.3
+  curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh | sh -s -- --ref v0.3.4
   ./install.sh --check
 
 Content comes from a git TAG, downloaded as a tarball (no git required).
 With no --clients, all four are used: cursor, claude, codex, agents.
 
 Options:
+  --commit SHA         Install the tree at this exact commit (full 40-char sha)
+                       while still recording --ref as the version. Used by the
+                       auto-updater so the tree it installs is the one it
+                       checked. Requires --ref.
   --ref TAG            Release tag to install (vMAJOR.MINOR.PATCH).
                        Default: the newest release tag of the repo. If that
                        cannot be resolved, the run FAILS — it never silently
@@ -77,6 +87,13 @@ Options:
   --keep-legacy        Install alongside the legacy skill. Dual-spec, routing
                        ambiguous, UNSUPPORTED. Exits 3.
   --yes                Assume yes for prompts.
+  --enable-auto-update   Add a Claude Code SessionStart hook that checks for new
+                       releases on a NEW session, installs one only when the
+                       release declares itself compatible, and otherwise leaves a
+                       one-line notice. Never installs a breaking release on its
+                       own. Off unless you run this.
+  --disable-auto-update  Remove that hook.
+  --auto-update-status   What is installed, what is pending, when it last looked.
   -h, --help           This help.
 
 --check reports, per client:
@@ -415,7 +432,14 @@ acquire_tree() {
       || { warn "git archive failed for ref ${_at_ref} in $OPT_REPO"; return 1; }
   else
     _slug="$(repo_slug "$OPT_REPO")"
-    _url="https://codeload.github.com/${_slug}/tar.gz/refs/tags/${_at_ref}"
+    # --commit pins the exact tree: the auto-updater resolves the tag to a commit
+    # once and installs THAT, so a tag moved between two requests cannot splice
+    # one version's metadata onto another's files.
+    if [ -n "$OPT_COMMIT" ]; then
+      _url="https://codeload.github.com/${_slug}/tar.gz/${OPT_COMMIT}"
+    else
+      _url="https://codeload.github.com/${_slug}/tar.gz/refs/tags/${_at_ref}"
+    fi
     progress "  fetching $_url"
     fetch_tarball "$_url" "$_at_tar" || {
       warn "download failed for ref ${_at_ref}."
@@ -1030,6 +1054,8 @@ do_check() {
 
 # -------------------------------------------------------------------- main
 
+OPT_HOOK=""
+OPT_COMMIT=""
 OPT_REF=""
 OPT_REPO="$DEFAULT_REPO"
 OPT_TARBALL=""
@@ -1052,6 +1078,64 @@ TARGETS_FILE=""
 SKILLS_FILE=""
 CHECK_LIST=""
 
+install_runtime() {
+  # The updater needs a copy of itself and of this installer somewhere stable.
+  # Swap by rename, never in place: a running `sh install.sh` keeps reading the
+  # old inode, so replacing the directory under it is safe only this way.
+  _ir_src="$1"
+  [ -f "${_ir_src}/auto-update/update.py" ] || { warn "no auto-update/ in this ref — runtime not installed"; return 0; }
+  command -v python3 >/dev/null 2>&1 || { warn "python3 not found — auto-update runtime not installed"; return 0; }
+
+  # The runtime is executed code, so it gets the same treatment as skill trees:
+  # anything that is not a regular file is refused rather than copied. A tarball
+  # that made update.py a symlink would otherwise have `cp` follow it, and the
+  # result would be the next thing this machine runs.
+  for _ir_f in update.py vendor_sync.py; do
+    _ir_p="${_ir_src}/auto-update/${_ir_f}"
+    [ -L "$_ir_p" ] && { warn "auto-update/${_ir_f} is a symlink — runtime not installed"; return 1; }
+    [ -f "$_ir_p" ] || { warn "auto-update/${_ir_f} is missing or not a regular file"; return 1; }
+  done
+  [ -L "${_ir_src}/install.sh" ] && { warn "install.sh is a symlink — runtime not installed"; return 1; }
+
+  _ir_new="${RUNTIME_DIR}.new.$$"
+  rm -rf "$_ir_new" 2>/dev/null || true
+  mkdir -p "$_ir_new" "$RUNTIME_BIN" || { warn "cannot create ${RUNTIME_DIR}"; return 1; }
+  cp "${_ir_src}/auto-update/update.py" "${_ir_new}/update.py" || return 1
+  cp "${_ir_src}/auto-update/vendor_sync.py" "${_ir_new}/vendor_sync.py" || return 1
+  cp "${_ir_src}/install.sh" "${_ir_new}/install.sh" || return 1
+  printf '%s\n' "$REF" >"${_ir_new}/RUNTIME_REF" 2>/dev/null || true
+  chmod 0755 "${_ir_new}/update.py" "${_ir_new}/vendor_sync.py" "${_ir_new}/install.sh" 2>/dev/null || true
+
+  if [ -d "$RUNTIME_DIR" ]; then
+    rm -rf "${RUNTIME_DIR}.old" 2>/dev/null || true
+    mv "$RUNTIME_DIR" "${RUNTIME_DIR}.old" || { warn "cannot rotate ${RUNTIME_DIR}"; return 1; }
+  fi
+  if ! mv "$_ir_new" "$RUNTIME_DIR"; then
+    # Put the previous runtime back rather than leaving the machine with none.
+    [ -d "${RUNTIME_DIR}.old" ] && mv "${RUNTIME_DIR}.old" "$RUNTIME_DIR" 2>/dev/null
+    warn "cannot install runtime"; return 1
+  fi
+  rm -rf "${RUNTIME_DIR}.old" 2>/dev/null || true
+
+  cat >"${RUNTIME_BIN}/plaud-matrix-update" <<EOF
+#!/bin/sh
+# Stable entry point; the runtime it points at is replaced by the installer.
+exec python3 "${RUNTIME_DIR}/update.py" "\$@"
+EOF
+  chmod 0755 "${RUNTIME_BIN}/plaud-matrix-update" 2>/dev/null || true
+  return 0
+}
+
+runtime_cmd() {
+  # Run the installed updater. Used by --enable/--disable-auto-update, which are
+  # standalone actions and do not install anything.
+  if [ ! -f "${RUNTIME_DIR}/update.py" ]; then
+    die "auto-update runtime is not installed yet. Run the installer once first."
+  fi
+  need_tool python3
+  python3 "${RUNTIME_DIR}/update.py" "$@"
+}
+
 parse_args() {
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -1066,6 +1150,15 @@ parse_args() {
       --retire-legacy) OPT_RETIRE_LEGACY=1; shift ;;
       --keep-legacy) OPT_KEEP_LEGACY=1; shift ;;
       --yes|-y) OPT_YES=1; shift ;;
+      --commit) OPT_COMMIT="${2-}"; [ -n "$OPT_COMMIT" ] || die "--commit needs a value"
+                case "$OPT_COMMIT" in
+                  *[!0-9a-f]*|"") die "--commit must be a full lowercase hex sha" ;;
+                esac
+                [ "${#OPT_COMMIT}" = 40 ] || die "--commit must be a full 40-char sha"
+                shift 2 ;;
+      --enable-auto-update) OPT_HOOK=enable; shift ;;
+      --disable-auto-update) OPT_HOOK=disable; shift ;;
+      --auto-update-status) OPT_HOOK=status; shift ;;
       -h|--help) usage; exit 0 ;;
       *) warn "Unknown option: $1"; usage >&2; exit 1 ;;
     esac
@@ -1102,7 +1195,7 @@ resolve_ref() {
     if [ -z "$REF" ]; then
       # Never silently install a branch: an unreviewed main is not a release.
       die "could not resolve the newest release tag (offline, rate-limited, or no tags).
-       Pass an explicit tag, e.g.:  --ref v0.3.3
+       Pass an explicit tag, e.g.:  --ref v0.3.4
        Tags: ${OPT_REPO}/tags"
     fi
     valid_ref "$REF" || die "resolved tag is not a release tag: $REF"
@@ -1188,11 +1281,19 @@ main() {
   SKILLS_FILE="${WORK}/skills"
   CHECK_LIST="${WORK}/checklist"
 
+  case "$OPT_HOOK" in
+    enable)  runtime_cmd enable-hook;  exit $? ;;
+    disable) runtime_cmd disable-hook; exit $? ;;
+    status)  runtime_cmd status;       exit $? ;;
+  esac
+
   if [ "$OPT_CHECK" = 1 ]; then
     build_check_list
     do_check
     exit $?
   fi
+
+  [ -z "$OPT_COMMIT" ] || [ -n "$OPT_REF" ] || die "--commit requires --ref"
 
   say "${PACKAGE_NAME} installer ${INSTALLER_VERSION}"
   [ "$OPT_DRY_RUN" = 1 ] && say "*** DRY RUN — no install target is touched ***"
@@ -1257,8 +1358,17 @@ main() {
     exit 1
   fi
 
+  install_runtime "$SRC_ROOT" || warn "the skills installed, but the auto-update runtime did not"
+
   say "Done. ${PACKAGE_NAME} ${REF} installed to ${ok} client(s)."
   say "Verify any time with:  install.sh --check"
+  if [ -f "${RUNTIME_DIR}/update.py" ]; then
+    say ""
+    say "Auto-update is available but OFF. Turn it on with:"
+    say "  sh install.sh --enable-auto-update"
+    say "It adds a SessionStart hook that installs compatible releases and holds"
+    say "breaking ones for you to review."
+  fi
 
   if [ "$EXIT_UNSUPPORTED" = 1 ]; then
     say ""
