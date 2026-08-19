@@ -1,4 +1,4 @@
-# PLAUD Shopify Theme Matrix v0.3.4
+# PLAUD Shopify Theme Matrix v0.3.5
 
 Plaud 品牌 Shopify Online Store 主题开发的 **10 个 skill 矩阵**。它取代原来的单 skill
 `plaud-shopify-theme` —— 同一份规范被拆成契约层、编排层、Assess / Implement / Verify 三阶段，
@@ -72,11 +72,11 @@ curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/in
 **钉一个版本**（复现某次交付时用这个，别用「最新」）：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh | sh -s -- --ref v0.3.4
+curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh | sh -s -- --ref v0.3.5
 ```
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.ps1))) -Ref v0.3.4
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.ps1))) -Ref v0.3.5
 ```
 
 **自检**（装了什么版本、树是否逐文件一致、有没有陈旧残留）：
@@ -106,7 +106,7 @@ sh 与 PowerShell 两边**同名同义**：
 
 | sh | PowerShell | 含义 |
 |---|---|---|
-| `--ref v0.3.4` | `-Ref v0.3.4` | 装哪个发布 tag。缺省 = 最新 tag；**解析不出来就报错，绝不静默装 `main`** |
+| `--ref v0.3.5` | `-Ref v0.3.5` | 装哪个发布 tag。缺省 = 最新 tag；**解析不出来就报错，绝不静默装 `main`** |
 | `--check` | `-Check` | 自检，不安装 |
 | `--dry-run` | `-DryRun` | 只报告要做什么，不碰任何安装目标 |
 | `--clients cursor,claude` | `-Clients cursor,claude` | 只装子集（**不推荐**，见下） |
@@ -169,7 +169,7 @@ marker 里的 `commit:` 也会跟该 tag **当前实际指向的 commit** 比对
 ```bash
 curl -fsSL -o /tmp/plaud-install.sh https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh
 less /tmp/plaud-install.sh          # 看一眼
-sh /tmp/plaud-install.sh --ref v0.3.4
+sh /tmp/plaud-install.sh --ref v0.3.5
 ```
 
 ### WSL / Git Bash 与 PowerShell 不要互相污染
@@ -195,7 +195,7 @@ sh /tmp/plaud-install.sh --ref v0.3.4
 - **客户端 skills 目录不存在时会被跳过**，除非 `--create-missing` 点名它（或 `all`）。安装器会在结尾
   明确列出被跳过的客户端 —— 这是「我以为装好了」的主要来源。
 - **`--ref` 缺省依赖 GitHub API**。离线、被限流、或仓库还没有 tag 时，安装器**报错退出**，
-  不会退回去装 `main`（未评审的 `main` 不是一个发布）。这时显式给 `--ref v0.3.4`。
+  不会退回去装 `main`（未评审的 `main` 不是一个发布）。这时显式给 `--ref v0.3.5`。
 
 ## 从单 skill `plaud-shopify-theme` 迁移
 
@@ -280,6 +280,22 @@ curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/in
 - `memory/changeset-log.md`
 
 缺失时 skill 会**停下问用户**，不会凭空重建一份。
+
+## v0.3.5 关键变化
+
+**更新检查现在也由 skill 调用触发，四端都覆盖到**（v0.3.4 只有 Claude Code 的会话钩子）。
+矩阵的每个 skill 开工前会跑一行 `plaud-matrix-update guard`：不阻塞（后台联网，主进程
+0.1 秒内返回）、不写 stdout、同一版本只提醒一次、失败静默。
+
+**它不会在 skill 运行中替换文件。** social-hub CLI 敢边跑边升级是因为有进程边界
+（本次旧代码跑完、下次新进程生效）；skill 是文件，没有这个边界，中途替换会让 agent
+拿着旧 SKILL.md 去读新 reference。所以：**skill 调用只检查和提示，安装发生在下一次
+新会话或你显式 `plaud-matrix-update apply --yes`**。
+
+关掉：`PLAUD_NO_UPDATE_CHECK=1`（不检查）、`PLAUD_NO_AUTO_UPDATE=1`（只提示不装）、
+`CI=true`（自动跳过）。
+
+⚠️ 已知边界：cursor 的 workspace 级 skill 会遮蔽全局安装，guard 更新的是全局副本。
 
 ## v0.3.4 关键变化
 

@@ -8,7 +8,7 @@ and retire the superseded single skill it replaces.
 This package root is **not** a skill. Each root-level directory containing `SKILL.md`
 is one independent skill. Never copy the package root itself into a skills directory.
 
-Package version: `v0.3.4`.
+Package version: `v0.3.5`.
 
 ## Supported Targets
 

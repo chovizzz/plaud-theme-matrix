@@ -395,6 +395,47 @@ def main() -> int:
         check("installer is handed the resolved HOME",
               seen.get("env", {}).get("HOME"), str(w.home))
 
+        # --- guard: the skill-invocation entry point ---
+
+        # a skill invocation never installs, however compatible the release is
+        w = case("guard_no_install", tmp)
+        u = build(w)
+        msg = u.do_run(event="skill", force=True)
+        check("a skill invocation does not replace files in use", w.installs, [])
+        contains("…and says why", msg, "not replaced mid-task")
+
+        # …and its deadline is its own, not the session's
+        w = case("guard_deadline", tmp)
+        u = build(w)
+        now = time.time()
+        state = {"next_check_startup": now + 9999, "next_check_skill": 0}
+        check("a skill check is not blocked by the session deadline",
+              u.should_check(state, False, event="skill"), True)
+        check("…and vice versa",
+              u.should_check({"next_check_skill": 0, "next_check_startup": now + 9999},
+                             False, event="startup"), False)
+
+        # the notice is printed once per release, not at every skill call
+        w = case("guard_once", tmp)
+        u = build(w)
+        u.PENDING_FILE.parent.mkdir(parents=True, exist_ok=True)
+        u.PENDING_FILE.write_text(json.dumps(
+            {"tag": "v0.3.4", "compatibility": "breaking", "breaking_reasons": ["x"],
+             "blockers": ["release declares breaking changes"]}), encoding="utf-8")
+        first = u.guard_notice()
+        second = u.guard_notice()
+        contains("the first skill call announces the release", first, "v0.3.4")
+        check("…and the second stays quiet", second, "")
+
+        # env switches must read as booleans, not as "any value at all"
+        w = case("guard_env", tmp)
+        u = build(w)
+        for value, want in (("1", True), ("true", True), ("0", False),
+                            ("false", False), ("", False)):
+            os.environ["PLAUD_TEST_FLAG"] = value
+            check(f"env_true({value!r})", u.env_true("PLAUD_TEST_FLAG"), want)
+        os.environ.pop("PLAUD_TEST_FLAG", None)
+
         # installer timeout is a failure, not a crash
         w = case("timeout", tmp)
         u = build(w)

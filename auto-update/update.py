@@ -71,6 +71,24 @@ LOCK_DIR = STATE_DIR / "lock"
 VENDOR_FILE = STATE_DIR / "vendor-targets.json"
 
 CHECK_INTERVAL = 6 * 3600  # a release lands a few times a month at most
+GUARD_INTERVAL = 4 * 3600  # skill-invocation checks; matches the social-hub CLI
+
+# What each entry point is allowed to do. The distinction that matters is
+# `installs`: replacing skill files is only safe where nothing has read them yet.
+#
+#   startup  a new session, before the agent read anything -> may install
+#   manual   a person typed the command and is watching -> may install
+#   skill    a skill is being used RIGHT NOW -> check and report only
+#   other    resume / clear / compact -> check and report only
+#
+# `skill` is the one worth explaining. The social-hub CLI can install during a
+# run because the running process keeps the old code and the next invocation is
+# a new process. Skills are files with no such boundary: replace them mid-task
+# and the agent holds an old SKILL.md while reading new references -- a mix of
+# two rulebooks that nothing can audit afterwards. So a skill invocation checks,
+# reports, and leaves the next new session (or an explicit apply) to install.
+EVENT_MAY_INSTALL = {"startup", "manual"}
+STATE_DEADLINE = {"skill": "next_check_skill", "startup": "next_check_startup"}
 BACKOFF_NETWORK = 30 * 60
 BACKOFF_FAILURE = 24 * 3600
 LOCK_STALE_AFTER = 30 * 60
@@ -361,10 +379,16 @@ def skill_sets_match(sha: str) -> tuple[bool, str]:
 # ------------------------------------------------------------------ the run
 
 
-def should_check(state: dict, force: bool) -> bool:
+def should_check(state: dict, force: bool, event: str = "") -> bool:
+    """Each entry point has its own deadline.
+
+    One shared deadline meant whichever ran first silenced the other: a session
+    check at 6h would suppress skill checks for 6h, and vice versa.
+    """
     if force:
         return True
-    raw = state.get("next_check_after", 0)
+    key = STATE_DEADLINE.get(event, "next_check_after")
+    raw = state.get(key, state.get("next_check_after", 0))
     try:
         nxt = float(raw or 0)
     except (TypeError, ValueError):
@@ -378,21 +402,23 @@ def should_check(state: dict, force: bool) -> bool:
 
 
 def do_run(event: str, force: bool, apply_breaking: bool = False,
-           expect_tag: str | None = None) -> str:
+           expect_tag: str | None = None, no_install: bool = False,
+           force_install: bool = False) -> str:
     """Returns the one-line message for the session (empty = say nothing)."""
     state = read_json(STATE_FILE)
-    if not should_check(state, force):
+    if not should_check(state, force, event=event):
         pending = read_json(PENDING_FILE)
         return pending_message(pending) if pending else ""
 
     with Lock() as lock:
         if not lock.held:
             return ""  # another session is doing this right now
-        return _run_locked(state, event, apply_breaking, expect_tag)
+        return _run_locked(state, event, apply_breaking, expect_tag, no_install, force_install)
 
 
 def _run_locked(state: dict, event: str, apply_breaking: bool,
-                expect_tag: str | None = None) -> str:
+                expect_tag: str | None = None, no_install: bool = False,
+                force_install: bool = False) -> str:
     now = time.time()
     state["last_attempt"] = now
     installed = installed_clients()
@@ -408,6 +434,8 @@ def _run_locked(state: dict, event: str, apply_breaking: bool,
         log(f"check failed: {exc}")
         state["last_failure"] = {"at": now, "kind": "network", "detail": str(exc)[:200]}
         state["next_check_after"] = now + BACKOFF_NETWORK
+        state["next_check_skill"] = now + BACKOFF_NETWORK
+        state["next_check_startup"] = now + BACKOFF_NETWORK
         write_json(STATE_FILE, state)
         # Keep showing an existing notice: not reaching GitHub is no reason to
         # stop telling someone a breaking release is waiting.
@@ -431,6 +459,8 @@ def _run_locked(state: dict, event: str, apply_breaking: bool,
     state["last_seen_tag"] = tag
     current = sorted({v for v in installed.values() if v})
     state["next_check_after"] = now + CHECK_INTERVAL
+    state["next_check_skill"] = now + GUARD_INTERVAL
+    state["next_check_startup"] = now + CHECK_INTERVAL
 
     if all(v == tag for v in installed.values()):
         state["last_success"] = {"at": now, "tag": tag, "action": "already-current"}
@@ -459,8 +489,11 @@ def _run_locked(state: dict, event: str, apply_breaking: bool,
         waivable.append("release declares breaking changes")
     elif compat == "unknown":
         hard.append(meta.get("why") or "compatibility could not be established")
-    if event not in ("startup", "manual"):
-        hard.append("session already running")
+    if event not in EVENT_MAY_INSTALL and not force_install:
+        hard.append("in-use skills are not replaced mid-task"
+                    if event == "skill" else "session already running")
+    if no_install:
+        hard.append("auto-install is off (PLAUD_NO_AUTO_UPDATE)")
 
     if not hard:
         ok, why = skill_sets_match(sha)
@@ -541,6 +574,12 @@ def _run_locked(state: dict, event: str, apply_breaking: bool,
     head = sanitize(meta.get("headline") or "")
     tail = f" — {head}" if head else ""
     msg = f"plaud-theme-matrix: updated {current[0] if current else '?'} → {tag} ({done}/{total} clients){tail}"
+    if event == "manual":
+        # An explicit apply can land while an agent is mid-task. Whatever is in
+        # context is now the previous version, and only this line says so.
+        msg += ("\nAgent: the matrix files just changed on disk. Re-read the "
+                "plaud-theme-* SKILL.md and reference files you are using before "
+                "continuing; what is in your context is the previous version.")
     for line in run_vendor_sync(tag):
         msg += f"\n  vendored: {line}"
     return msg
@@ -609,6 +648,80 @@ def pending_message(rec: dict) -> str:
             f"Apply with: plaud-matrix-update apply --yes")
 
 
+# ---------------------------------------------------------------------- guard
+
+
+def env_true(name: str) -> bool:
+    """`FOO=0` and `CI=false` mean off, not on."""
+    return os.environ.get(name, "").strip().lower() not in ("", "0", "false", "no", "off")
+
+
+def guard_notice() -> str:
+    """The one line a skill invocation may print, or empty for silence.
+
+    Only a release the user has not already been told about is worth a line.
+    Repeating it at every skill call would train everyone to ignore it.
+    """
+    rec = read_json(PENDING_FILE)
+    if not rec:
+        return ""
+    tag = sanitize(rec.get("tag", "?"), 20)
+    if rec.get("announced_to_skill") == tag:
+        return ""
+    rec["announced_to_skill"] = tag
+    write_json(PENDING_FILE, rec)
+
+    if rec.get("compatibility") == "breaking":
+        why = "; ".join(sanitize(r, 100) for r in (rec.get("breaking_reasons") or [])) \
+            or sanitize(rec.get("headline") or "")
+        return (f"{tag} is available and declares BREAKING changes. Tell the user, then: "
+                f"plaud-matrix-update apply --yes" + (f" — {why}" if why else ""))
+    return (f"{tag} is available. It installs on your next new session, or now with: "
+            f"plaud-matrix-update apply --yes")
+
+
+def run_guard() -> int:
+    """Entry point for the top of a skill. Never blocks, never fails, never stdout.
+
+    Two jobs, in this order:
+      1. print at most ONE line about a release already discovered (instant --
+       it only reads a local file);
+      2. if the check is due, do it in a DETACHED background process, so a skill
+       never waits on the network, on an install, or on GitHub being up.
+
+    It does not install: see EVENT_MAY_INSTALL for why a skill invocation is the
+    wrong moment to replace the files being used.
+    """
+    if env_true("PLAUD_NO_UPDATE_CHECK") or env_true("CI"):
+        return 0
+    try:
+        notice = guard_notice()
+        if notice:
+            print(f"[plaud-matrix] {notice}", file=sys.stderr)
+
+        if should_check(read_json(STATE_FILE), force=False, event="skill"):
+            # Detached: the parent returns now, the child talks to the network.
+            subprocess.Popen(
+                [sys.executable, str(Path(__file__).resolve()), "background-check"],
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL, start_new_session=True,
+            )
+    except Exception as exc:  # noqa: BLE001 - a guard must never break the workflow
+        log(f"guard: {exc!r}")
+    return 0
+
+
+def run_background_check() -> int:
+    """The network half of `guard`, run detached. Output goes to the log only."""
+    try:
+        msg = do_run(event="skill", force=False)
+        if msg:
+            log(f"background-check: {msg}")
+    except Exception as exc:  # noqa: BLE001
+        log(f"background-check: {exc!r}")
+    return 0
+
+
 # ----------------------------------------------------------------- hook wiring
 
 
@@ -664,6 +777,14 @@ def main() -> int:
     p = sub.add_parser("session-start", help="hook entry point: check, maybe install, print JSON")
     p.add_argument("--event", default="startup")
 
+    sub.add_parser(
+        "guard",
+        help="skill entry point: prints at most one line on stderr about a known "
+             "release and kicks off a background check. Never installs, never "
+             "blocks, never writes stdout, always exits 0.",
+    )
+    sub.add_parser("background-check", help="internal: the detached half of `guard`")
+
     sub.add_parser("check", help="check now and report, never install")
     ap_apply = sub.add_parser("apply", help="install the pending release now")
     ap_apply.add_argument("--yes", action="store_true", help="required, and means it")
@@ -683,6 +804,12 @@ def main() -> int:
     vrun.add_argument("--tag", help="tag to vendor; default: what is installed")
     vrun.add_argument("--push", action="store_true", help="push and open the Draft PR")
     args = ap.parse_args()
+
+    if args.cmd == "guard":
+        return run_guard()
+
+    if args.cmd == "background-check":
+        return run_background_check()
 
     if args.cmd == "session-start":
         # Never let this be the reason a session fails to start.

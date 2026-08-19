@@ -11,6 +11,17 @@ Create yidian PRs by cherry-picking selected commits onto a fresh PR branch. Nev
 > 它不占 order、不进路由判定树、不产出也不消费 `ChangeSetId` / `HandoffContract` 等矩阵契约字段。
 > 主题改动本身的评估、实现与验收仍走 `plaud-theme-*` 矩阵；本 skill 只管把已有 commit 变成一个合规的 Draft PR。
 
+## 包更新提示（不属于本 skill 的流程）
+
+开工前跑一次，它不改变本 skill 的任何步骤或判定：
+
+```sh
+sh ~/.local/share/plaud-theme-matrix/bin/plaud-matrix-update guard || true
+```
+
+命令不存在或网络不通都会静默成功，照常继续。**不要重定向它的 stderr** —— 它只在发现新版本时
+在那里打一行，打印了就转告用户。它不会替换正在用的文件。关掉：`PLAUD_NO_UPDATE_CHECK=1`。
+
 ## Hard Rules
 
 - Any base branch is allowed. Take the base from the user; when it is not stated, ask instead of guessing.

@@ -1,7 +1,7 @@
 {
   "skill_name": "plaud-theme-impact",
   "skill": "plaud-theme-impact",
-  "version": "v0.3.4",
+  "version": "v0.3.5",
   "description": "plaud-theme-impact（Assess 阶段）的行为 eval：ReconMode 判定、理论 vs 实际影响分离、disabled 实例单列、依赖树覆盖、共享传播链、RiskTier/QA profile、入口候选、停机点、职责边界。\n\n断言体系（harness 需支持三者；只实现 assertions 时后两者按未验证处理，不得记为通过）：\n- assertions：必须出现的字符串（string-contains）\n- forbidden：必须不出现的字符串（反向鉴别力，防止反向答案蒙混过关）\n- validator：结构化校验（目前仅 impact-14 使用 yaml-block-exact-keys）\n\n两类 eval：\n- rule 类（无需仓库）：只考模式判定、边界、职责归属、字段契约，不要求真实数字；\n- fixture 类（需挂载 Plaud theme 仓库）：要求实际跑 grep/node 并给出实例清单。无 fixture 时正确行为是 BlockingGaps 非空 + ReadyForImplement: No，不得编造数字。\n- forbidden 项以换行开头（如 \"\\nRootCause:\"）时，含义是**不得作为 yaml key 出现在行首**；正文里提到该字段名（说明它为什么不该出现）不算违规。这是为了避免禁裸字段名误杀合法解释。\n- 🔴 **不要把「否定短语」写成 forbidden**：正确答案常引用题面措辞来否定它（「不能 X」含「X」），全局 substring 会误判。要禁就禁**赋值形态**或明确的错误结论句。 forbidden 判据（v0.2.2 第九轮定稿）：只写「错误工件里必然出现、正确工件里不可能出现」的赋值形态；不要写否定短语或裸概念词（`可以并行` 会被「不可以并行」命中）；也不要写会被正确答案顺带复述的串——确实需要禁某个赋值时，同时在 expected_output 里注明「不要复述该串」。能用 assertions 表达的约束一律走 assertions，不进 forbidden。",
   "evals": [
     {

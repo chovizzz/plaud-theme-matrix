@@ -14,6 +14,26 @@ description: >
 
 矩阵的单一事实源。产出的不是主题代码，而是**规则**：谁在什么阶段、凭什么证据、可以说什么话。
 
+## 包更新提示（不属于矩阵，也不影响任何判定）
+
+开工前跑一次这条命令。它**不是矩阵的步骤**：不属于 Assess / Implement / Verify，
+不产出证据、不进 handoff、不进 `BlockingGaps`，失败与否都不改变任何判定。
+
+```sh
+sh ~/.local/share/plaud-theme-matrix/bin/plaud-matrix-update guard || true
+```
+
+- 没装更新器、命令不存在、网络不通 —— 这条都会静默成功，**照常继续本来的任务**。
+- **不要重定向它的 stderr**：它唯一会说的话就写在那里。
+- 通常它什么都不打印。只有当发现一个你还没被告知过的新版本时，才在 stderr 打一行。
+- 打印了就**转告用户**；带 `BREAKING` 字样时更要转告，别自己决定装不装。
+- 它**不会替换正在用的 skill 文件** —— 那会让同一次任务前半段按旧规则、后半段按新规则走。
+  安装发生在下一次新会话，或用户显式跑 `plaud-matrix-update apply --yes`。
+- 关掉：`PLAUD_NO_UPDATE_CHECK=1`；CI 环境自动跳过。
+
+> 若你**确实**在本次会话中途装了新版本（比如用户让你跑 `apply`），那么此前读进上下文的
+> 矩阵文档已经过期：**重读**当前 skill 的 `SKILL.md` 与你正在用的 reference 再继续。
+
 ## 本 skill 做什么
 
 - 定义两轴状态机（阶段 × 路径）与阶段推进条件，以及阶段轴之外的四个非阶段 skill（§0.1）
@@ -232,7 +252,7 @@ Path A 改一个 JS timer 时**不需要**加载完整字体字阶表。按当�
 被其它 skill 引用时，输出：
 
 ```yaml
-ContractVersion: v0.3.4
+ContractVersion: v0.3.5
 PathResolved:            # A | B | C | Cross(B+C) | Cross(A+C)
 StageResolved:           # Assess | Implement | Verify | N/A(NonStage)（后者用于 §0.1 的四个非阶段 skill；v0.2.2 第九轮与 matrix-contract 对齐）
 RequiredSkill:           # 当前阶段应由哪个 skill 执行
@@ -248,7 +268,7 @@ BlockingGaps:
 ```yaml
 ProducerSkill: plaud-theme-shared
 ConsumerSkill:           # 引用本层的 skill
-ContractVersion: v0.3.4
+ContractVersion: v0.3.5
 BlockingGaps:
 ReadyForNextSkill:       # Yes | No
 ```

@@ -2,7 +2,7 @@
 
 All listed skills live directly under the repository root. The repository root itself
 is the package, **not** an installable skill — never copy the repo root into a skills
-directory. A version is a git tag; `v0.3.4` is the current release.
+directory. A version is a git tag; `v0.3.5` is the current release.
 
 ## Order
 

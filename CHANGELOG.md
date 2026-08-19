@@ -5,6 +5,56 @@
 
 ---
 
+## v0.3.5 — 2026-08-19 · skill 调用也触发检查（四端覆盖，仍不中途换文件）
+
+**v0.3.4 的自动更新只有 Claude Code 的 SessionStart 一个触发点，覆盖不到 cursor / codex / agents。** 这版加上第二个触发点：**用到 skill 的时候**。参照 social-hub CLI 的自更新，但在一处刻意分道扬镳 —— 见下。
+
+### 1. 触发点：skill 里的一行
+
+矩阵本来就规定「任何 skill 开工前先读 `plaud-theme-shared`」，所以只需要在那里加一节（附带的 `yidian-draft-pr` 不读 shared，自己加）：
+
+```sh
+sh ~/.local/share/plaud-theme-matrix/bin/plaud-matrix-update guard || true
+```
+
+与客户端无关 —— 四端读的是同一份 SKILL.md。它**明确不属于矩阵**：不占阶段、不产出证据、不进 handoff、不进 `BlockingGaps`，失败不改变任何判定。命令不存在、没装更新器、网络不通，都静默成功、照常干活。
+
+### 2. 它**不**在 skill 运行中替换文件 —— 与 social-hub 的关键差别
+
+social-hub CLI 敢在运行时自升级，是因为它有进程边界：**本次调用用旧代码跑完，下次调用是新进程**。skill 是文件，没有这个边界。中途替换会让 agent 手里拿着旧的 `SKILL.md`、却读到新的 reference —— 一份事后无法审计的混合规则。矩阵的 reference 之间有交叉引用和闭合字段契约，比 social-hub 的情况更敏感。
+
+所以分工是：
+
+| 入口 | 能做什么 |
+|---|---|
+| **skill 调用**（`guard`） | 检查、提示。**从不安装** |
+| **新会话**（SessionStart hook） | 安装（agent 还没读任何东西，这里最干净） |
+| **`apply --yes`**（人显式跑） | 安装，并附一句「重读你正在用的文件」 |
+
+对没有会话钩子的 cursor / codex / agents，诚实的答案是：guard 告诉你有新版本，装它发生在下一次新会话或你显式 `apply` —— 而不是伪造一个不存在的「下次 skill 调用」边界。
+
+### 3. `guard` 的三条硬约束
+
+- **不阻塞**：先读一个本地文件决定要不要说话，要检查就 fork 一个**脱离会话的后台进程**去联网，主进程立刻返回。实测 0.06–0.38 秒。绝不会让一次 skill 调用等在网络、安装或 GitHub 上。
+- **不写 stdout**：agent 在读 stdout。所有输出走 stderr，前缀 `[plaud-matrix]`。
+- **不啰嗦**：同一个版本只说一次（pending 里记 `announced_to_skill`）。没更新、没到检查时间、任何异常 —— 零输出、exit 0。
+
+节流 4 小时（与 social-hub 同节奏），且**与会话检查的 6 小时各记各的** —— v0.3.4 里两者共用一个 deadline，谁先跑谁把对方压住。
+
+### 4. 关掉
+
+`PLAUD_NO_UPDATE_CHECK=1` 跳过检查；`PLAUD_NO_AUTO_UPDATE=1` 只提示不装；`CI=true` 自动跳过。三者都按真值解析 —— `=0` / `=false` 是「关」的意思，不再是「设了就算开」。
+
+### 5. 为什么这版标 `breaking`
+
+`compatible` 的门禁会比对 canonical 契约文件，而这版动了 `plaud-theme-shared/SKILL.md`。门禁分不清「加了一节非契约说明」和「改了契约」—— 那正是它的用处，所以按规则标 `breaking`：装它需要你确认一次。这也符合实情：更新检查的触发面变了，值得看一眼再装。
+
+### 6. 外部评审
+
+Codex 反对原方案里「skill 运行中直接安装」，其中一条直接指出草案自相矛盾：示例写了 `2>/dev/null`，而 re-read 提示**只**走 stderr —— 那行一旦被吞，更新后 agent 根本不知道要重读。另外指出 guard 同步阻塞最长可达 600 秒 + 每个 vendor 仓 300 秒，不能当作每个 skill 的 Step 0（改成后台）；4 小时节流其实没实装（参数传了没用）；以及 cursor 的 workspace skill 会遮蔽全局副本，guard 更新全局、实际在用的仍是旧的 —— 这条无解，已写进文档当已知边界。
+
+---
+
 ## v0.3.4 — 2026-08-19 · 自动更新（patch）
 
 **装了就不用再手动 `curl | sh`：新版本会在下一次新会话开始时自己装上；带破坏性变更的版本不会自动装，只提示。** 机制随包分发（`auto-update/`），默认**关闭**，一条命令开启。矩阵语义一字未改。
