@@ -1,6 +1,6 @@
 {
   "skill_name": "plaud-theme-shared",
-  "contract_version": "v0.3.2",
+  "contract_version": "v0.3.3",
   "evals": [
     {
       "id": "v13-overrides-vendor-container-padding",
@@ -447,13 +447,13 @@
     {
       "id": "shared-contract-check-output",
       "prompt": "引用 plaud-theme-shared 之后要回报什么？",
-      "expected_output": "输出 SharedContractCheck：ContractVersion v0.3.2、PathResolved、StageResolved、RequiredSkill、ReferencesLoaded、RedlinesApplicable、BlockingGaps。",
+      "expected_output": "输出 SharedContractCheck：ContractVersion v0.3.3、PathResolved、StageResolved、RequiredSkill、ReferencesLoaded、RedlinesApplicable、BlockingGaps。",
       "assertions": [
         "包含 SharedContractCheck",
         "包含 ContractVersion",
         "包含 ReferencesLoaded",
         "包含 RedlinesApplicable",
-        "包含 v0.3.2"
+        "包含 v0.3.3"
       ]
     },
     {

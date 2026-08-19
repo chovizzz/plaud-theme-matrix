@@ -1,4 +1,4 @@
-# PLAUD Shopify Theme Matrix v0.3.2
+# PLAUD Shopify Theme Matrix v0.3.3
 
 Plaud 品牌 Shopify Online Store 主题开发的 **10 个 skill 矩阵**。它取代原来的单 skill
 `plaud-shopify-theme` —— 同一份规范被拆成契约层、编排层、Assess / Implement / Verify 三阶段，
@@ -46,7 +46,8 @@ Plaud 品牌 Shopify Online Store 主题开发的 **10 个 skill 矩阵**。它�
 `version-manifest.md` 里的「skill 数 = 10」只数矩阵 skill；附带 skill 在那里单列。
 
 **它保留的护栏**：只建 Draft PR、只 cherry-pick 不 merge 整条分支、只推 PR 分支不直推 base 分支、
-PR body 五段必填（Summary / Test Plan / Risk-Rollback / Regression Matrix / Commits）。
+PR body 五段必填（Summary / Test Plan / Risk-Rollback / Regression Matrix / Commits）、
+**只让 Shopify 主题代码进 PR**（v0.3.3 起：垃圾文件直接剔除，其余非主题文件逐条问用户）。
 **它不再限制的**：base 分支白名单与「`main` 仅 `chovizzz` 可用」的判定，v0.3.2 起任意 base 都能开 PR。
 
 ## 安装
@@ -71,11 +72,11 @@ curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/in
 **钉一个版本**（复现某次交付时用这个，别用「最新」）：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh | sh -s -- --ref v0.3.2
+curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh | sh -s -- --ref v0.3.3
 ```
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.ps1))) -Ref v0.3.2
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.ps1))) -Ref v0.3.3
 ```
 
 **自检**（装了什么版本、树是否逐文件一致、有没有陈旧残留）：
@@ -105,7 +106,7 @@ sh 与 PowerShell 两边**同名同义**：
 
 | sh | PowerShell | 含义 |
 |---|---|---|
-| `--ref v0.3.2` | `-Ref v0.3.2` | 装哪个发布 tag。缺省 = 最新 tag；**解析不出来就报错，绝不静默装 `main`** |
+| `--ref v0.3.3` | `-Ref v0.3.3` | 装哪个发布 tag。缺省 = 最新 tag；**解析不出来就报错，绝不静默装 `main`** |
 | `--check` | `-Check` | 自检，不安装 |
 | `--dry-run` | `-DryRun` | 只报告要做什么，不碰任何安装目标 |
 | `--clients cursor,claude` | `-Clients cursor,claude` | 只装子集（**不推荐**，见下） |
@@ -168,7 +169,7 @@ marker 里的 `commit:` 也会跟该 tag **当前实际指向的 commit** 比对
 ```bash
 curl -fsSL -o /tmp/plaud-install.sh https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh
 less /tmp/plaud-install.sh          # 看一眼
-sh /tmp/plaud-install.sh --ref v0.3.2
+sh /tmp/plaud-install.sh --ref v0.3.3
 ```
 
 ### WSL / Git Bash 与 PowerShell 不要互相污染
@@ -194,7 +195,7 @@ sh /tmp/plaud-install.sh --ref v0.3.2
 - **客户端 skills 目录不存在时会被跳过**，除非 `--create-missing` 点名它（或 `all`）。安装器会在结尾
   明确列出被跳过的客户端 —— 这是「我以为装好了」的主要来源。
 - **`--ref` 缺省依赖 GitHub API**。离线、被限流、或仓库还没有 tag 时，安装器**报错退出**，
-  不会退回去装 `main`（未评审的 `main` 不是一个发布）。这时显式给 `--ref v0.3.2`。
+  不会退回去装 `main`（未评审的 `main` 不是一个发布）。这时显式给 `--ref v0.3.3`。
 
 ## 从单 skill `plaud-shopify-theme` 迁移
 
@@ -279,6 +280,19 @@ curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/in
 - `memory/changeset-log.md`
 
 缺失时 skill 会**停下问用户**，不会凭空重建一份。
+
+## v0.3.3 关键变化
+
+`yidian-draft-pr` 新增**改动文件门禁**：只有 Shopify 主题代码能进 PR。
+`.DS_Store` / `.claude/` / 缓存 / 备份这类垃圾文件直接剔除不问；`.github/`、`scripts/`、
+`docs/`、锁文件、顶层 md 这类**逐条问用户**，确认一条放行一条；`config/settings_data.json`
+虽是主题文件但属环境状态，同样要确认。**删 junk 不阻断**（专门删 `.DS_Store` 的 PR 该放行），但删一个非主题路径仍要确认。
+
+门禁在 push 前（`check_theme_files.py`）和建 PR 前（`create_draft_pr.py`，`--dry-run` 也跑）
+各跑一次，共用同一份分类实现，**没有跳过开关**；**看不见 diff 时一律拒绝而不是放行**（不在 git
+仓库、ref 解析失败、`--repo` 指向的不是本地 remote、空 diff）。建 PR 前还要求 head 分支已推送
+且远端与本地同一个 commit，否则 PR 会带上门禁没看过的代码。裸 `gh pr create` 兜底路径已删除
+—— 它会绕过全部检查。测试见 `yidian-draft-pr/tests/test_theme_files.py`。
 
 ## v0.3.2 关键变化
 

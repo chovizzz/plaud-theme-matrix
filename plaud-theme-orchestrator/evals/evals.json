@@ -1,7 +1,7 @@
 {
   "skill_name": "plaud-theme-orchestrator",
   "skill": "plaud-theme-orchestrator",
-  "version": "v0.3.2",
+  "version": "v0.3.3",
   "description": "plaud-theme-orchestrator（编排层，order 1）的行为 eval。本 skill 最大的风险是**过度触发**——它的入口门槛只有一条「这项工作必须拆成 ≥2 个可独立验收的 ChangeSet」，任何把普通 bugfix、多文件单 ChangeSet、Cross(B+C) 吸进编排的行为都是不合格。因此负向用例（应输出 Mode: SingleSkill 并停手）占比过半。\n\n断言体系（与 plaud-theme-impact 一致；harness 需支持三者，只实现 assertions 时后两者按未验证处理，不得记为通过）：\n- assertions：必须出现的字符串（string-contains）\n- forbidden：必须不出现的字符串（反向鉴别力，防止反向答案蒙混过关）\n- validator：结构化校验（orch-14 使用 yaml-block-exact-keys，锁 handoff-schema §9.1 的字段集）\n\n全部为 rule 类，不需要挂载真实 Plaud theme 仓库：考的是路由门槛、串并行判定、阶段门、交付权归属与 §9.2 封闭枚举，不考真实文件数字。\n- forbidden 项以换行开头（如 \"\\nRootCause:\"）时，含义是**不得作为 yaml key 出现在行首**；正文里提到该字段名（说明它为什么不该出现）不算违规。这是为了避免禁裸字段名误杀合法解释。\n🔴 **v0.3.0 并行语义已反转**（同树可并行 Implement / QA 有条件并行 / 集成 QA 是消不掉的串行屏障 / 块 QA 只产 ReadyForIntegration）。因此 `可以并行` `必须串行` `串行` `并行` `集成 QA` 这类裸概念词一律**不得**进 forbidden——它们会被正确答案顺带命中。\\n- 🔴 **不要把「否定短语」写成 forbidden**（如 `拆成两个 ChangeSet`、`省时间`、`标成 Done`）：正确答案常会引用题面措辞来否定它（「不能标成 Done」），全局 substring 会把正确答案判错。要禁就禁**赋值形态**（`ChangeSetStatus: Done`）或明确的错误结论句。 forbidden 判据（v0.2.2 第九轮定稿）：只写「错误工件里必然出现、正确工件里不可能出现」的赋值形态；不要写否定短语或裸概念词（`可以并行` 会被「不可以并行」命中）；也不要写会被正确答案顺带复述的串——确实需要禁某个赋值时，同时在 expected_output 里注明「不要复述该串」。能用 assertions 表达的约束一律走 assertions，不进 forbidden。",
   "evals": [
     {

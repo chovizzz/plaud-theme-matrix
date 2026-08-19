@@ -5,6 +5,65 @@
 
 ---
 
+## v0.3.3 — 2026-08-18 · `yidian-draft-pr` 只让主题代码进 PR（patch）
+
+**cherry-pick 很容易把不属于 Shopify 主题的文件顺手带进 PR。** 目标主题仓的 git 历史里 `.DS_Store` 与 `.backup/` 都真的被提交过，`.DS_Store` 至今还是 tracked 状态。这版给 `yidian-draft-pr` 加了一道改动文件门禁：**主题代码放行，垃圾文件直接剔除，其余非主题文件逐条问用户**。矩阵的字段、枚举与路由语义一字未改；矩阵 skill 里动的只有随包递增的版本戳。
+
+### 1. 三档分类（`scripts/theme_files.py`，两个门禁共用一份实现）
+
+| 档 | 内容 | 处理 |
+|---|---|---|
+| **theme** | `assets/ blocks/ config/ layout/ locales/ sections/ snippets/ templates/`、`.theme-check.yml`、`.shopifyignore`、`shopify.theme.toml` | 放行 |
+| **junk** | `.DS_Store`、`.backup/`、`.claude/`、`.codex/`、`.cursor/`、`.agents/`、`.shopify/`、各类缓存、`node_modules/`、`*.log`、`*.bak`、`*.orig` —— **任意路径深度**都算（`sections/.DS_Store` 一样拦） | 直接剔除，不问；`--allow` 对它无效 |
+| **ask** | 其余一切：`.github/`、`scripts/`、`docs/`、`package.json`、锁文件、`CLAUDE.md`、顶层 md | **逐条问用户**，确认一条 `--allow` 一条 |
+
+档位刻意划窄：**拿不准的一律进 ask 让人看见**，而不是进 junk 直接拒。CI 改动在这个仓里很常见，但常见不等于「属于主题代码」——它该被问，不该被默认放行。
+
+三条额外规则：
+
+- `config/settings_data.json` 是主题文件，但它是**按店铺/环境**的状态，cherry-pick 经常把别的站点的设置带过来。归 theme，但同样要显式确认。
+- **删 junk 不阻断**（专门删 `.DS_Store` 的 PR 正是我们想要的），但**删 ask 路径仍要确认** —— 删掉一个 workflow 同样是主题之外的改动。
+- 路径分类看的不只是名字：`assets/` 下的**符号链接或 submodule 指针**不是主题代码，归 ask；顶层一个名叫 `assets` 的普通文件也不算主题目录。junk 匹配大小写不敏感（`.DS_store`、`Thumbs.DB` 一样拦）。
+
+### 2. 两处门禁，一份实现
+
+- `scripts/check_theme_files.py` —— push 前跑（SKILL 工作流第 7 步）。exit 0 干净 / 1 有问题 / **2 没能评估**。
+- `create_draft_pr.py` —— 建 PR 前**再跑一次同一套**，`--dry-run` 也跑。所以「跳过第 7 步直接建 PR」并不能绕过。
+
+**没有跳过门禁的开关。** 一个 `--skip-file-check` 之类的逃生阀在 CLI 上无法验证「用户确实同意」，等于给门禁开后门，所以不提供。
+
+**看不见就拒，不放行。** 不在 git 仓库、ref 解析不出来、没有 merge base、空 diff（head 相对 base 无改动）——一律拒。两道门对空 diff 的判定一致。
+
+**门禁看的必须就是 PR 会带走的东西**，为此还查三件事：
+
+- `--repo OWNER/REPO` 只有在本地某个 remote 确实指向它时才受支持，且**用那个 remote** 做比较（匹配到多个 remote 也拒，因为说不清是哪个）。带 host 的写法（`ghe.example/owner/repo`）会**连 host 一起比**，不会绑到同名的 github.com remote 上。跨 fork PR 明确不支持。
+- `--base` 是 GitHub 的 base 分支名 —— 此前它同时被当作本地 git ref 用，而 `origin/develop` 能做 git ref 却不是合法的 gh base，裸 `develop` 能给 gh 却可能是落后的本地分支。
+- 两个 ref 都用 **`git ls-remote` 从远端现取**，不看本地 tracking ref：tracking ref 是缓存，两个方向都会过期。别人往同一条 PR 分支推了一笔时，本地缓存仍与 local HEAD 相等、门禁照过，但 GitHub 上的 PR 已经多了代码 —— 这条有回归用例。head 分支必须已推送且远端与本地同一个 commit，base 则按远端此刻的位置比。
+
+`--allow-nontheme` 只接受本次 diff 里确实需要确认的路径：用在 junk 上、或写了个本次 diff 用不到的路径，都**直接拒**而不是静默忽略 —— 一个飘到错路径上的确认比没有确认更危险。
+
+技术细节：用 `git diff --raw -z --no-renames <base>...<head>`（三点，只看 head 相对 merge base 的改动）。`--raw` 而不是 `--name-status`，是因为它带 **dst mode** —— 只看路径的话，`assets/` 下的一个符号链接或 submodule 指针会被当成主题代码放行。`-z` 是因为路径可能含换行（已有回归用例）；`--name-only` 更不行，它连删除都区分不了。
+
+### 3. SKILL 工作流
+
+第 5 步改成**逐个 commit** cherry-pick：pick → 查 → 清理 → amend → 再 pick 下一个。原先是先 pick 完再清理，但 `git commit --amend` 只够得着最后一个 commit，更早那个 commit 带进来的东西根本清不掉。
+
+新增第 7 步（排在 push **之前**）做**累计** diff 复查 —— 后一个 commit 可能把前面剔掉的路径又加回来；而路径一旦推上远端，再清理就得改写已推分支。
+
+新增「Theme-only file gate」一节，写清三档处理与剔除命令：`git restore --source=HEAD~1` / `git rm -f` + `git commit --amend`（`HEAD~1` 而不是原始 base——逐个清理之后，每个 commit 的父提交是上一个**已清理**的 commit），并补上清理后 commit 变空、后续 pick 因依赖被删路径而冲突这两种情况的处理。动手前要求 `git status --porcelain` 为空并向用户展示待删路径 —— 这些命令会覆盖工作树内容，而这个仓的 `.DS_Store` 恰好长期是 tracked+modified。
+
+### 4. 可复跑的测试
+
+新增 `yidian-draft-pr/tests/test_theme_files.py`（只依赖 git 与 python3，无测试框架，建临时仓跑）：覆盖分类表、`normalize_repo` 的各种 URL 形态、junk 不可 allow、失效 allow 阻断、空 diff、删 junk vs 删 ask、settings_data、`assets/` 下的符号链接、含换行的路径、未知 ref 必须抛错；以及 `create_draft_pr.py` 的端到端门禁（head 未推送 / 本地领先远端 / **别人推了同一条分支** / 带 junk / `--repo` 指向别处 / 带 host 的 `--repo` 不匹配）。
+
+**删掉了裸 `gh pr create` 兜底路径。** 它绕过全部检查，等于给门禁开了一扇后门；脚本缺失时改为停机让用户重装包。
+
+### 5. `ContractVersion` 递增到 v0.3.3
+
+同 v0.3.2：矩阵语义未动，但包内约定要求同步递增，否则四端判版本漂移。
+
+---
+
 ## v0.3.2 — 2026-08-18 · 新增包内附带工具 skill `yidian-draft-pr`（patch）
 
 **包里多了第 11 个 skill 目录，但矩阵仍是 10 个。** `yidian-draft-pr`（把选定 commit cherry-pick 到新分支、按 yidian 必填 PR body 开 Draft PR）此前只散落在个人 `~/.claude/skills` 下，各端各一份、改了没人同步。这版把它收进包里随 tag 分发，但**不接进矩阵契约**：不占 order、不进路由判定树、没有 `matrix-contract.md`，不产出也不消费 §4 / §5 任何字段。矩阵字段、枚举与路由口径一字未改。

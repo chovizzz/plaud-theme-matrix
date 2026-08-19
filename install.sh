@@ -1,7 +1,7 @@
 #!/bin/sh
 # PLAUD Shopify Theme Matrix — one-command installer (macOS / Linux / WSL / Git Bash)
 #
-#   curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh | sh -s -- --ref v0.3.2
+#   curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh | sh -s -- --ref v0.3.3
 #
 # Written in strict POSIX sh on purpose: `curl … | sh` IGNORES the shebang, so
 # this file is executed by dash on Linux and by bash-in-POSIX-mode on macOS.
@@ -46,7 +46,7 @@ plaud-theme-matrix installer
 
 Usage:
   curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh | sh
-  curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh | sh -s -- --ref v0.3.2
+  curl -fsSL https://raw.githubusercontent.com/chovizzz/plaud-theme-matrix/main/install.sh | sh -s -- --ref v0.3.3
   ./install.sh --check
 
 Content comes from a git TAG, downloaded as a tarball (no git required).
@@ -1102,7 +1102,7 @@ resolve_ref() {
     if [ -z "$REF" ]; then
       # Never silently install a branch: an unreviewed main is not a release.
       die "could not resolve the newest release tag (offline, rate-limited, or no tags).
-       Pass an explicit tag, e.g.:  --ref v0.3.2
+       Pass an explicit tag, e.g.:  --ref v0.3.3
        Tags: ${OPT_REPO}/tags"
     fi
     valid_ref "$REF" || die "resolved tag is not a release tag: $REF"
